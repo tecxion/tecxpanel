@@ -39,8 +39,9 @@ CUR_MSG=""
 # Dibuja la barra en una sola línea: spinner [████░░░░] 42% (5/13) mensaje
 draw() {
     local step=$1 msg=$2 spin=$3
+    local width=30 i bar=""
     local pct=$(( step * 100 / TOTAL_STEPS )); (( pct > 100 )) && pct=100
-    local width=30 filled=$(( pct * width / 100 )) i bar=""
+    local filled=$(( pct * width / 100 ))
     for ((i = 0; i < filled; i++)); do bar+="█"; done
     for ((i = filled; i < width; i++)); do bar+="░"; done
     # \033[K borra hasta el final de línea → sin restos de mensajes anteriores
