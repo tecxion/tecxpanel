@@ -120,7 +120,8 @@ phase_pty() { cd "$TXPL_DIR/backend" && npm install node-pty --no-audit --no-fun
 
 phase_pm2_start() {
     cd "$TXPL_DIR"
-    pm2 start ecosystem.config.js --env production || pm2 restart txpl-panel
+    pm2 delete txpl-panel 2>/dev/null || true   # idempotente: limpia instancia previa
+    pm2 start ecosystem.config.js --env production
     pm2 save
     pm2 startup systemd -u root --hp /root || true
 }
@@ -134,18 +135,24 @@ echo -e "${BOLD}   TecXPaneL — Instalador${RESET}"
 sep
 echo ""
 
-INSTALL_MYSQL="${INSTALL_MYSQL:-}"
-if [[ -z "$INSTALL_MYSQL" ]] && [[ -t 0 ]]; then
-    read -rp "  ¿Instalar MariaDB (MySQL)? (S/n): " ans
-    [[ "$ans" =~ ^[Nn]$ ]] && INSTALL_MYSQL=0 || INSTALL_MYSQL=1
+# Los motores de BD son para las apps/webs que alojes, NO para el panel
+# (el panel usa SQLite). Por eso pueden coexistir o no instalarse ninguno.
+# Se puede preconfigurar exportando INSTALL_MYSQL / INSTALL_PG antes de ejecutar.
+if [[ -z "${INSTALL_MYSQL:-}" && -z "${INSTALL_PG:-}" && -t 0 ]]; then
+    echo -e "  ${BOLD}Motores de base de datos${RESET} ${CYAN}(para tus apps/webs; el panel usa SQLite)${RESET}"
+    echo "    1) Ninguno                  — solo HTML/estático"
+    echo "    2) MariaDB (MySQL)          — WordPress, PHP, la mayoría de CMS"
+    echo "    3) PostgreSQL               — Django, apps modernas"
+    echo "    4) Ambos                    — si alojas apps de los dos tipos"
+    read -rp "  Elige [1-4] (2): " dbopt
+    case "${dbopt:-2}" in
+        1) INSTALL_MYSQL=0; INSTALL_PG=0 ;;
+        3) INSTALL_MYSQL=0; INSTALL_PG=1 ;;
+        4) INSTALL_MYSQL=1; INSTALL_PG=1 ;;
+        *) INSTALL_MYSQL=1; INSTALL_PG=0 ;;
+    esac
 fi
 INSTALL_MYSQL="${INSTALL_MYSQL:-0}"
-
-INSTALL_PG="${INSTALL_PG:-}"
-if [[ -z "$INSTALL_PG" ]] && [[ -t 0 ]]; then
-    read -rp "  ¿Instalar PostgreSQL? (s/N): " ans
-    [[ "$ans" =~ ^[Ss]$ ]] && INSTALL_PG=1 || INSTALL_PG=0
-fi
 INSTALL_PG="${INSTALL_PG:-0}"
 
 echo ""
@@ -268,6 +275,13 @@ if [[ "$GENERATED_CREDS" == "1" ]]; then
     echo -e "    Contraseña:  ${BOLD}$ADMIN_PASS${RESET}"
     [[ -n "$MYSQL_ROOT_PASSWORD" ]] && echo -e "    MySQL root:  ${BOLD}$MYSQL_ROOT_PASSWORD${RESET}"
     echo -e "  ${CYAN}(También están en $ENV_FILE)${RESET}"
+else
+    # .env ya existía: muestra el usuario y dónde está la contraseña.
+    EXIST_USER=$(grep -E '^ADMIN_USER=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    echo ""
+    echo -e "  ${YELLOW}Credenciales (del $ENV_FILE existente):${RESET}"
+    echo -e "    Usuario:     ${BOLD}${EXIST_USER:-admin}${RESET}"
+    echo -e "    Contraseña:  consúltala con  ${BOLD}sudo grep ADMIN_PASS $ENV_FILE${RESET}"
 fi
 echo ""
 echo -e "  ${CYAN}Siguiente paso recomendado — HTTPS:${RESET}"

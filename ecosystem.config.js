@@ -4,7 +4,9 @@
 //  Uso: pm2 start ecosystem.config.js
 // ============================================================
 
-require('dotenv').config({ path: '/opt/txpl/.env' });
+// NOTA: NO usamos require('dotenv') aquí. PM2 evalúa este fichero desde
+// /opt/txpl y no resolvería el módulo (vive en backend/node_modules).
+// server.js carga /opt/txpl/.env por su cuenta; aquí solo fijamos NODE_ENV.
 
 module.exports = {
   apps: [
@@ -20,14 +22,6 @@ module.exports = {
 
       env: {
         NODE_ENV: 'production',
-        TXPL_PORT: process.env.TXPL_PORT || 8585,
-        TXPL_DIR: '/opt/txpl',
-        JWT_SECRET: process.env.JWT_SECRET,
-        ADMIN_USER: process.env.ADMIN_USER || 'admin',
-        ADMIN_PASS: process.env.ADMIN_PASS,
-        MYSQL_ROOT_PASSWORD: process.env.MYSQL_ROOT_PASSWORD,
-        PG_PASSWORD: process.env.PG_PASSWORD,
-        SITES_DIR: process.env.SITES_DIR || '/var/www',
       },
 
       // Logs
