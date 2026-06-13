@@ -713,25 +713,13 @@ FLUSH PRIVILEGES;`;
 }));
 
 // ════════════════════════════════════════════════════════════
-//  GESTOR DE ARCHIVOS — con jaula de rutas (path jail)
+//  GESTOR DE ARCHIVOS
 // ════════════════════════════════════════════════════════════
-// Resuelve una ruta y garantiza que queda DENTRO de SITES_DIR.
-// Bloquea path traversal (../) y rutas absolutas fuera del jail.
+// Permite acceso completo al sistema de archivos del VPS.
 function safePath(input) {
   if (typeof input !== 'string') return null;
-  if (!input || input === '/' || input === SITES_DIR) return SITES_DIR;
-
-  // Si es una ruta absoluta que está dentro de SITES_DIR, usarla directamente
-  const normalized = path.normalize(input);
-  if (path.isAbsolute(normalized)) {
-    if (normalized === SITES_DIR || normalized.startsWith(SITES_DIR + path.sep)) return normalized;
-    return null; // ruta absoluta fuera de SITES_DIR
-  }
-
-  // Si es relativa, resolverla relativo a SITES_DIR
-  const resolved = path.resolve(SITES_DIR, normalized);
-  if (resolved !== SITES_DIR && !resolved.startsWith(SITES_DIR + path.sep)) return null;
-  return resolved;
+  // Resuelve la ruta como absoluta (partiendo desde la raíz '/')
+  return path.resolve('/', input);
 }
 
 app.get('/api/files', auth, wrap(async (req, res) => {
@@ -769,8 +757,8 @@ app.post('/api/files/write', auth, wrap(async (req, res) => {
 
 app.delete('/api/files', auth, wrap(async (req, res) => {
   const target = safePath(req.body?.path || '');
-  if (!target) return fail(res, 403, 'Ruta fuera del área permitida');
-  if (target === SITES_DIR) return fail(res, 403, 'No se puede eliminar el directorio raíz');
+  if (!target) return fail(res, 403, 'Ruta inválida');
+  if (target === '/' || target === SITES_DIR) return fail(res, 403, 'No se puede eliminar este directorio');
   if (!fs.existsSync(target)) return fail(res, 404, 'No encontrado');
   fs.rmSync(target, { recursive: true, force: true });
   audit(req.user.username, clientIp(req), 'file.delete', target);

@@ -1442,7 +1442,7 @@ async function createDatabase() {
 }
 
 // ── Files ─────────────────────────────────────────────────────
-let currentFilePath = '/var/www';
+let currentFilePath = '/';
 
 async function loadFiles() {
   const path = currentFilePath;
@@ -1458,7 +1458,7 @@ async function loadFiles() {
     return;
   }
 
-  tb.innerHTML = items.map(f => {
+  let itemsHtml = items.map(f => {
     const icon = f.type === 'directory' ? 'ti-folder' : getFileIcon(f.name);
     const onClick = f.type === 'directory' ? `onclick="browseDir('${esc(f.path)}')"` : '';
     const style = f.type === 'directory' ? 'cursor:pointer;color:var(--accent)' : '';
@@ -1478,25 +1478,33 @@ async function loadFiles() {
     `;
   }).join('');
 
+  if (path !== '/') {
+    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+    itemsHtml = `
+      <tr>
+        <td style="width:40px"><i class="ti ti-arrow-up" style="font-size:16px;opacity:0.7"></i></td>
+        <td colspan="4"><span onclick="browseDir('${esc(parentPath)}')" style="cursor:pointer;color:var(--accent);text-decoration:underline">.. (Volver arriba)</span></td>
+      </tr>
+    ` + itemsHtml;
+  }
+
+  tb.innerHTML = itemsHtml;
+
   setupDragDrop();
 }
 
 function updateBreadcrumb(path) {
-  const SITES_DIR = '/var/www';
-  let relativePath = path === SITES_DIR ? '' : path.substring(SITES_DIR.length);
-  relativePath = relativePath.replace(/^\/+/, '');
-
-  if (!relativePath) {
-    document.getElementById('file-breadcrumb').innerHTML = '<span style="color:var(--text-muted)">/ var / www</span>';
+  if (path === '/') {
+    document.getElementById('file-breadcrumb').innerHTML = '<span style="color:var(--text-muted)">/</span>';
     return;
   }
 
-  const parts = relativePath.split('/').filter(p => p);
+  const parts = path.split('/').filter(p => p);
   const crumbs = parts.map((part, i) => {
-    const subPath = SITES_DIR + '/' + parts.slice(0, i + 1).join('/');
+    const subPath = '/' + parts.slice(0, i + 1).join('/');
     return `<a href="#" onclick="event.preventDefault();browseDir('${subPath}')" style="color:var(--accent);text-decoration:none;cursor:pointer">${esc(part)}</a>`;
   }).join(' <span style="color:var(--text-muted)">/</span> ');
-  document.getElementById('file-breadcrumb').innerHTML = `<span style="color:var(--text-muted)">/ var / www /</span> ${crumbs}`;
+  document.getElementById('file-breadcrumb').innerHTML = `<a href="#" onclick="event.preventDefault();browseDir('/')" style="color:var(--text-muted);text-decoration:none;cursor:pointer">/</a> <span style="color:var(--text-muted)">/</span> ${crumbs}`;
 }
 
 function getFileIcon(filename) {
