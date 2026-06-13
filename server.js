@@ -638,7 +638,10 @@ app.get('/api/logs/:type', wrap(async (req, res) => {
 // ════════════════════════════════════════════════════════════
 //  FRONTEND ESTÁTICO
 // ════════════════════════════════════════════════════════════
-app.use(express.static(FRONTEND_DIR, { maxAge: '30d', index: 'index.html' }));
+// Sin cache larga: el frontend es un único index.html y debe reflejar
+// las actualizaciones al instante. ETag/Last-Modified evitan transferencias
+// innecesarias (respuestas 304) sin servir una versión obsoleta.
+app.use(express.static(FRONTEND_DIR, { maxAge: 0, index: 'index.html', etag: true }));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return fail(res, 404, 'No encontrado');
   res.sendFile(path.join(FRONTEND_DIR, 'index.html'));

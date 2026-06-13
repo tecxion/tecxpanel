@@ -36,6 +36,7 @@ help() {
     echo "  txpl restart         — Reiniciar el panel"
     echo "  txpl logs            — Ver logs en tiempo real"
     echo "  txpl update          — Actualizar el panel"
+    echo "  txpl panel:ssl <dom> — Instalar HTTPS en el panel (dominio propio)"
     echo ""
     echo -e "${C}Sitios web:${X}"
     echo "  txpl sites           — Listar sitios web"
@@ -212,6 +213,31 @@ site:ssl)
     RESULT=$(api POST /websites/$SITE_ID/ssl)
     echo "$RESULT" | grep -q "success" && \
         echo -e "${G}✅ SSL instalado${X}" || echo -e "${R}Error: $RESULT${X}"
+    ;;
+
+panel:ssl)
+    # SSL para el PROPIO panel. Fija server_name (que certbot necesita) y
+    # ejecuta certbot, evitando el "Could not find a matching server block".
+    DOMAIN="$2"
+    [[ -z "$DOMAIN" ]] && echo "Uso: txpl panel:ssl <dominio>   (ej: txpl panel:ssl panel.midominio.com)" && exit 1
+    NGINX_CONF="/etc/nginx/sites-available/txpl-panel"
+    [[ ! -f "$NGINX_CONF" ]] && echo -e "${R}No encuentro $NGINX_CONF${X}" && exit 1
+
+    echo -e "${C}Configurando SSL del panel para ${B}$DOMAIN${X}..."
+    # Reemplaza la línea server_name activa (no las comentadas, que empiezan por #).
+    sed -i -E "s/^([[:space:]]*)server_name[[:space:]]+[^;]*;/\1server_name $DOMAIN;/" "$NGINX_CONF"
+    if ! nginx -t 2>/dev/null; then
+        echo -e "${R}Config nginx inválida tras el cambio. Revisa: nginx -t${X}"; exit 1
+    fi
+    systemctl reload nginx
+    echo -e "${G}✔ server_name fijado a $DOMAIN${X}"
+
+    if [[ -n "${SSL_EMAIL:-}" ]]; then
+        certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect -m "$SSL_EMAIL"
+    else
+        certbot --nginx -d "$DOMAIN" --redirect
+    fi
+    echo -e "${G}✅ Listo. Entra en https://$DOMAIN/${X}"
     ;;
 
 # ── Apps ─────────────────────────────────────────────────────

@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TecXPaneL — Panel de Control VPS</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.2.0/tabler-icons.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -248,10 +251,10 @@ tr:last-child td{border-bottom:none}
 }
 .term-dot{width:12px;height:12px;border-radius:50%}
 .term-dot.r{background:#ef4444}.term-dot.y{background:#f59e0b}.term-dot.g{background:#22c55e}
-#terminal-output{
-  font-family:var(--mono);font-size:13px;padding:12px;height:calc(400px - 37px);
-  overflow-y:auto;color:#e0e0e0;line-height:1.6;
+#xterm-mount{
+  height:calc(400px - 37px);padding:6px 8px;background:#0a0a0a;
 }
+#xterm-mount .xterm{height:100%}
 
 /* ── Real-time chart ── */
 .chart-wrap{height:60px;position:relative}
@@ -493,11 +496,7 @@ canvas.sparkline{width:100%;height:60px}
               <div class="term-dot g"></div>
               <span style="font-size:11px;color:var(--text-muted);margin-left:8px">bash — TecXPaneL Terminal</span>
             </div>
-            <div id="terminal-output">
-              <span style="color:#7c6dfa">┌──</span>(<span style="color:#22c55e">txpl</span>@<span style="color:#06b6d4">server</span>)<span style="color:#7c6dfa">─[</span><span style="color:#e8e8f5">~</span><span style="color:#7c6dfa">]</span><br>
-              <span style="color:#7c6dfa">└─$</span> <span id="term-cursor" style="background:var(--text-primary);color:var(--bg-app)">&nbsp;</span>
-              <div style="margin-top:1rem;color:var(--text-muted);font-size:12px">Pulsa "Conectar" para iniciar la terminal interactiva.</div>
-            </div>
+            <div id="xterm-mount"></div>
           </div>
         </div>
       </div>
@@ -1378,30 +1377,41 @@ async function loadLog(type, el) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ── Terminal ──────────────────────────────────────────────────
-let termWS = null;
-let termKeyHandler = null;
+// ── Terminal (xterm.js — emulador real con soporte ANSI) ──────
+let term = null, fitAddon = null, termWS = null;
 
-// Añade texto a la terminal de forma segura (sin innerHTML → sin XSS).
-function termWrite(text, color) {
-  const out = document.getElementById('terminal-output');
-  const span = document.createElement('span');
-  if (color) span.style.color = color;
-  span.textContent = text;
-  out.appendChild(span);
-  out.scrollTop = out.scrollHeight;
+function sendResize() {
+  if (term && termWS && termWS.readyState === 1) {
+    termWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+  }
 }
-
+function termResizeHandler() {
+  if (!fitAddon) return;
+  try { fitAddon.fit(); sendResize(); } catch (_) {}
+}
 function termCleanup() {
-  if (termKeyHandler) { document.removeEventListener('keydown', termKeyHandler); termKeyHandler = null; }
+  window.removeEventListener('resize', termResizeHandler);
   if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
+  if (term) { try { term.dispose(); } catch (_) {} term = null; fitAddon = null; }
 }
 
 function initTerminal() {
-  termCleanup(); // cierra cualquier conexión/handler previo: evita duplicados
-  const out = document.getElementById('terminal-output');
-  out.textContent = '';
-  termWrite('Conectando a terminal...\n', 'var(--yellow)');
+  termCleanup(); // cierra cualquier sesión previa: evita duplicados
+  if (!window.Terminal || !window.FitAddon) { toast('No se pudo cargar xterm.js (¿sin conexión al CDN?)', 'error'); return; }
+
+  const mount = document.getElementById('xterm-mount');
+  mount.innerHTML = '';
+  term = new Terminal({
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 13,
+    cursorBlink: true,
+    theme: { background: '#0a0a0a', foreground: '#e0e0e0', cursor: '#e0e0e0' },
+  });
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(mount);
+  fitAddon.fit();
+  term.write('\x1b[33mConectando a terminal...\x1b[0m\r\n');
 
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   termWS = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}`);
@@ -1410,25 +1420,19 @@ function initTerminal() {
   ws.onmessage = (e) => {
     try {
       const d = JSON.parse(e.data);
-      if (d.type === 'output') termWrite(d.data);
+      if (d.type === 'output') term.write(d.data); // xterm interpreta los códigos ANSI
     } catch (_) { /* ignora mensajes mal formados */ }
   };
 
   ws.onopen = () => {
-    termWrite('Terminal conectada ✓\n\n', 'var(--green)');
-    termKeyHandler = (e) => {
-      if (currentPage !== 'terminal' || ws.readyState !== 1) return;
-      const data = e.key === 'Enter' ? '\r'
-                 : e.key === 'Backspace' ? '\x7f'
-                 : e.key === 'Tab' ? '\t'
-                 : e.key.length === 1 ? e.key : '';
-      if (data) { e.preventDefault(); ws.send(JSON.stringify({ type: 'input', data })); }
-    };
-    document.addEventListener('keydown', termKeyHandler);
+    sendResize();                              // informa al PTY del tamaño real
+    term.onData(data => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data })); });
+    window.addEventListener('resize', termResizeHandler);
+    term.focus();
   };
 
-  ws.onclose = () => termWrite('\nConexión cerrada.\n', 'var(--text-muted)');
-  ws.onerror = () => termWrite('Error de conexión. Verifica que node-pty está instalado en el servidor.\n', 'var(--red)');
+  ws.onclose = () => { if (term) term.write('\r\n\x1b[90mConexión cerrada.\x1b[0m\r\n'); };
+  ws.onerror = () => { if (term) term.write('\r\n\x1b[31mError de conexión. Verifica node-pty en el servidor.\x1b[0m\r\n'); };
 }
 
 // ── Utils ─────────────────────────────────────────────────────
