@@ -249,17 +249,22 @@ tr:last-child td{border-bottom:none}
 #terminal-container{
   background:#0a0a0a;border-radius:var(--radius);padding:0;
   height:400px;overflow:hidden;border:1px solid var(--border);
+  display:flex;flex-direction:column;
 }
 .terminal-toolbar{
   background:var(--bg-card2);padding:8px 12px;display:flex;align-items:center;gap:8px;
-  border-bottom:1px solid var(--border);
+  border-bottom:1px solid var(--border);flex-shrink:0;
 }
 .term-dot{width:12px;height:12px;border-radius:50%}
 .term-dot.r{background:#ef4444}.term-dot.y{background:#f59e0b}.term-dot.g{background:#22c55e}
 #xterm-mount{
-  height:calc(400px - 37px);padding:6px 8px;background:#0a0a0a;
+  flex:1;padding:6px 8px;background:#0a0a0a;overflow:hidden;
 }
 #xterm-mount .xterm{height:100%}
+.terminal-footer{
+  background:var(--bg-card2);padding:6px 12px;display:flex;align-items:center;gap:8px;
+  border-top:1px solid var(--border);flex-shrink:0;
+}
 
 /* ── Real-time chart ── */
 .chart-wrap{height:60px;position:relative}
@@ -504,7 +509,6 @@ canvas.sparkline{width:100%;height:60px}
         <div class="card">
           <div class="card-header">
             <div class="card-title"><i class="ti ti-terminal-2"></i> Terminal SSH</div>
-            <button class="btn btn-sm btn-primary" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
           </div>
           <div id="terminal-container">
             <div class="terminal-toolbar">
@@ -514,6 +518,9 @@ canvas.sparkline{width:100%;height:60px}
               <span style="font-size:11px;color:var(--text-muted);margin-left:8px">bash — TecXPaneL Terminal</span>
             </div>
             <div id="xterm-mount"></div>
+            <div class="terminal-footer">
+              <button class="btn btn-sm btn-primary" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -589,18 +596,26 @@ canvas.sparkline{width:100%;height:60px}
 
       <!-- ── FILES ── -->
       <div class="page" id="page-files">
+        <div style="margin-bottom:1rem;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="openModal('modal-new-folder')"><i class="ti ti-folder-plus"></i> Nueva carpeta</button>
+          <button class="btn btn-primary" onclick="openModal('modal-new-file')"><i class="ti ti-file-plus"></i> Nuevo archivo</button>
+          <button class="btn btn-sm" onclick="loadFiles()"><i class="ti ti-refresh"></i></button>
+        </div>
+        <div id="file-breadcrumb" style="margin-bottom:1rem;font-size:13px;color:var(--text-secondary)"></div>
         <div class="card">
           <div class="card-header">
-            <div class="card-title"><i class="ti ti-folders"></i> Gestor de archivos</div>
+            <div class="card-title"><i class="ti ti-folders"></i> Archivos y carpetas</div>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:1rem">
-            <input type="text" id="file-path" value="/var/www" style="flex:1;background:var(--bg-app);border:1px solid var(--border2);color:var(--text-primary);padding:8px 12px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:13px;outline:none">
-            <button class="btn" onclick="loadFiles()"><i class="ti ti-arrow-right"></i></button>
+          <div id="drop-zone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:2rem;text-align:center;color:var(--text-muted);background:var(--bg-card2);cursor:pointer;margin-bottom:1rem;transition:all 0.15s">
+            <p><i class="ti ti-cloud-upload" style="font-size:24px;display:block;margin-bottom:0.5rem"></i></p>
+            <p style="margin:0"><strong>Arrastra archivos aquí</strong></p>
+            <p style="margin:0;font-size:12px">o haz clic para seleccionar</p>
+            <input type="file" id="file-upload" style="display:none" multiple onchange="handleFileUpload(event)">
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Nombre</th><th>Tipo</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
-              <tbody id="files-table"><tr><td colspan="5" class="empty-state">Navega a un directorio</td></tr></tbody>
+              <thead><tr><th style="width:40px"></th><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
+              <tbody id="files-table"><tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted)"><i class="ti ti-inbox"></i> Cargando...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -925,6 +940,40 @@ canvas.sparkline{width:100%;height:60px}
   </div>
 </div>
 
+<!-- New Folder -->
+<div class="modal-overlay" id="modal-new-folder">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-folder-plus" style="color:var(--accent)"></i> Nueva carpeta</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-folder')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre de la carpeta</label><input type="text" id="folder-name" placeholder="mi_carpeta"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-folder')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createFolder()"><i class="ti ti-folder-plus"></i> Crear carpeta</button>
+    </div>
+  </div>
+</div>
+
+<!-- New File -->
+<div class="modal-overlay" id="modal-new-file">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-plus" style="color:var(--accent)"></i> Nuevo archivo</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-file')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre del archivo</label><input type="text" id="file-name" placeholder="index.html"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-file')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createFile()"><i class="ti ti-file-plus"></i> Crear archivo</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -976,8 +1025,17 @@ function esc(s) {
   ));
 }
 
-function openModal(id) { document.getElementById(id).classList.add('open') }
-function closeModal(id) { document.getElementById(id).classList.remove('open') }
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('open');
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.classList.remove('open');
+    if (el.dataset.dynamic) setTimeout(() => el.remove(), 150);
+  }
+}
 
 // Click outside modal to close
 document.querySelectorAll('.modal-overlay').forEach(o => {
@@ -1384,83 +1442,163 @@ async function createDatabase() {
 }
 
 // ── Files ─────────────────────────────────────────────────────
+let currentFilePath = '/var/www';
+
 async function loadFiles() {
-  const path = document.getElementById('file-path').value;
+  const path = currentFilePath;
   const data = await req('GET', `/files?path=${encodeURIComponent(path)}`);
-  if (!data) return;
+  if (!data) { toast('Error cargando directorio', 'error'); return; }
+
+  updateBreadcrumb(path);
   const tb = document.getElementById('files-table');
   const items = data.items || [];
-  if (!items.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-state">Directorio vacío</td></tr>'; return; }
 
-  tb.innerHTML = `
-    <tr>
-      <td colspan="5">
-        <button class="btn btn-sm" data-act="up"><i class="ti ti-arrow-up"></i> Subir un nivel</button>
-      </td>
-    </tr>
-    ${items.map(f => `
+  if (!items.length) {
+    tb.innerHTML = '<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted)"><i class="ti ti-inbox"></i> Directorio vacío</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = items.map(f => {
+    const icon = f.type === 'directory' ? 'ti-folder' : getFileIcon(f.name);
+    const onClick = f.type === 'directory' ? `onclick="browseDir('${esc(f.path)}')"` : '';
+    const style = f.type === 'directory' ? 'cursor:pointer;color:var(--accent)' : '';
+    return `
       <tr>
-        <td>
-          <span style="cursor:${f.type==='directory'?'pointer':'default'};color:${f.type==='directory'?'var(--accent)':'var(--text-primary)'};display:flex;align-items:center;gap:8px"
-            ${f.type==='directory' ? `data-act="open" data-path="${esc(f.path)}"` : ''}>
-            <i class="ti ${f.type==='directory'?'ti-folder':'ti-file'}" style="font-size:16px"></i>
-            ${esc(f.name)}
-          </span>
-        </td>
-        <td>${esc(f.type)}</td>
-        <td>${f.type==='file' ? fmtBytes(f.size) : '—'}</td>
+        <td style="width:40px"><i class="ti ${icon}" style="font-size:16px;opacity:0.7"></i></td>
+        <td><span ${onClick} style="${style};display:inline-block;${f.type === 'directory' ? 'text-decoration:underline' : ''}">${esc(f.name)}</span></td>
+        <td>${f.type === 'file' ? fmtBytes(f.size) : '—'}</td>
         <td style="color:var(--text-muted)">${fmtDate(f.modified)}</td>
         <td>
-          <div style="display:flex;gap:5px">
-            ${f.type==='file' ? `<button class="btn btn-sm" data-act="edit" data-path="${esc(f.path)}"><i class="ti ti-edit"></i></button>` : ''}
-            <button class="btn btn-sm btn-danger" data-act="del" data-path="${esc(f.path)}"><i class="ti ti-trash"></i></button>
+          <div style="display:flex;gap:5px;justify-content:flex-end">
+            ${f.type === 'file' ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')"><i class="ti ti-edit"></i></button>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.path)}')"><i class="ti ti-trash"></i></button>
           </div>
         </td>
       </tr>
-    `).join('')}
-  `;
+    `;
+  }).join('');
+
+  setupDragDrop();
 }
 
-// Delegación de eventos: los nombres/rutas viven en data-* (escapados),
-// nunca en strings de onclick → sin riesgo de inyección.
-document.getElementById('files-table').addEventListener('click', e => {
-  const el = e.target.closest('[data-act]');
-  if (!el) return;
-  const p = el.dataset.path;
-  switch (el.dataset.act) {
-    case 'up':   goUp(document.getElementById('file-path').value); break;
-    case 'open': browseDir(p); break;
-    case 'edit': editFile(p); break;
-    case 'del':  deleteFile(p); break;
-  }
-});
+function updateBreadcrumb(path) {
+  const parts = path.split('/').filter(p => p);
+  const crumbs = parts.map((part, i) => {
+    const fullPath = '/' + parts.slice(0, i + 1).join('/');
+    return `<a href="#" onclick="event.preventDefault();browseDir('${fullPath}')" style="color:var(--accent);text-decoration:none;cursor:pointer">${esc(part)}</a>`;
+  }).join(' <span style="color:var(--text-muted)">/</span> ');
+  document.getElementById('file-breadcrumb').innerHTML = crumbs ? `<span style="color:var(--text-muted)">/</span> ${crumbs}` : '';
+}
 
-function browseDir(path) {
-  document.getElementById('file-path').value = path;
+function getFileIcon(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const iconMap = {
+    'html': 'ti-file-type-html', 'css': 'ti-file-type-css', 'js': 'ti-file-type-js',
+    'json': 'ti-file-type-json', 'php': 'ti-file-type-php', 'py': 'ti-file-type-python',
+    'txt': 'ti-file-type-txt', 'pdf': 'ti-file-type-pdf', 'zip': 'ti-file-type-zip',
+    'jpg': 'ti-file-type-jpg', 'png': 'ti-file-type-png', 'gif': 'ti-file-type-gif'
+  };
+  return iconMap[ext] || 'ti-file';
+}
+
+function setupDragDrop() {
+  const zone = document.getElementById('drop-zone');
+  if (!zone) return;
+
+  zone.ondragover = (e) => { e.preventDefault(); zone.style.background = 'var(--accent-glow)'; };
+  zone.ondragleave = () => { zone.style.background = 'var(--bg-card2)'; };
+  zone.ondrop = (e) => { e.preventDefault(); zone.style.background = 'var(--bg-card2)'; handleDrop(e); };
+  zone.onclick = () => document.getElementById('file-upload').click();
+}
+
+function handleDrop(e) {
+  const files = e.dataTransfer.files;
+  if (files.length === 0) return;
+  uploadFiles(files);
+}
+
+function handleFileUpload(e) {
+  uploadFiles(e.target.files);
+}
+
+async function uploadFiles(files) {
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const path = currentFilePath + '/' + file.name;
+      const r = await req('POST', '/files/write', { path, content: ev.target.result });
+      if (r?.success) toast(`${file.name} subido`, 'success');
+      else toast(r?.error || 'Error al subir', 'error');
+    };
+    reader.readAsText(file);
+  }
   loadFiles();
 }
 
-function goUp(path) {
-  const parts = path.split('/');
-  parts.pop();
-  browseDir(parts.join('/') || '/');
+async function createFolder() {
+  const name = document.getElementById('folder-name').value.trim();
+  if (!name) { toast('Nombre requerido', 'error'); return; }
+  const path = currentFilePath + '/' + name;
+  const r = await req('POST', '/files/write', { path: path + '/.gitkeep', content: '' });
+  if (r?.success) { toast('Carpeta creada', 'success'); closeModal('modal-new-folder'); loadFiles(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function createFile() {
+  const name = document.getElementById('file-name').value.trim();
+  if (!name) { toast('Nombre requerido', 'error'); return; }
+  const path = currentFilePath + '/' + name;
+  const r = await req('POST', '/files/write', { path, content: '' });
+  if (r?.success) { toast('Archivo creado', 'success'); closeModal('modal-new-file'); loadFiles(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+function browseDir(path) {
+  currentFilePath = path;
+  loadFiles();
 }
 
 async function deleteFile(path) {
-  if (!confirm(`¿Eliminar ${path}?`)) return;
+  const name = path.split('/').pop();
+  if (!confirm(`¿Eliminar "${name}"?`)) return;
   const r = await req('DELETE', '/files', { path });
   if (r?.success) { toast('Eliminado', 'success'); loadFiles(); }
   else toast(r?.error || 'Error', 'error');
 }
 
 async function editFile(path) {
+  const name = path.split('/').pop();
   const r = await req('GET', `/files/read?path=${encodeURIComponent(path)}`);
-  const content = prompt(`Editando: ${path}\n\n(Esto es un editor simple — próximamente editor completo)`, r?.content || '');
-  if (content !== null) {
-    const wr = await req('POST', '/files/write', { path, content });
-    if (wr?.success) toast('Guardado', 'success');
-    else toast(wr?.error || 'Error', 'error');
-  }
+  if (!r?.content) { toast('No se pudo leer el archivo', 'error'); return; }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'modal-edit-file';
+  modal.dataset.dynamic = 'true';
+  modal.innerHTML = `
+    <div class="modal" style="width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+      <div class="modal-header">
+        <div class="modal-title"><i class="ti ti-edit" style="color:var(--accent)"></i> Editar: ${esc(name)}</div>
+        <button class="btn btn-sm" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="flex:1;overflow:hidden;padding:1rem;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+        <textarea id="file-editor" style="width:100%;height:100%;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none">${esc(r.content)}</textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-edit-file')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveFile('${esc(path)}')"><i class="ti ti-check"></i> Guardar</button>
+      </div>
+    </div>
+  `;
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal('modal-edit-file'); });
+  document.body.appendChild(modal);
+}
+
+async function saveFile(path) {
+  const content = document.getElementById('file-editor').value;
+  const r = await req('POST', '/files/write', { path, content });
+  if (r?.success) { toast('Guardado', 'success'); closeModal('modal-edit-file'); loadFiles(); }
+  else toast(r?.error || 'Error', 'error');
 }
 
 // ── Firewall ──────────────────────────────────────────────────

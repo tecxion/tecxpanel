@@ -396,7 +396,7 @@ app.get('/api/system/services', wrap(async (req, res) => {
   ok(res, result);
 }));
 
-app.post('/api/system/service/:name/:action', wrap(async (req, res) => {
+app.post('/api/system/service/:name/:action', auth, wrap(async (req, res) => {
   const { name, action } = req.params;
   if (!ALLOWED_SERVICES.includes(name)) return fail(res, 400, 'Servicio no permitido');
   if (!ALLOWED_SVC_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
@@ -465,7 +465,7 @@ ${type === 'php' ? `    location ~ \\.php$ {
 `;
 }
 
-app.get('/api/websites', (req, res) => {
+app.get('/api/websites', auth, (req, res) => {
   const rows = queries.listWebsites.all().map((w) => ({
     ...w, ssl: !!w.ssl, php: !!w.php,
     listen_port: w.listen_port || null,
@@ -474,7 +474,7 @@ app.get('/api/websites', (req, res) => {
   ok(res, rows);
 });
 
-app.post('/api/websites', wrap(async (req, res) => {
+app.post('/api/websites', auth, wrap(async (req, res) => {
   const { domain, type = 'html', php = false, ssl = false, usePort = false, phpVersion } = req.body || {};
   if (!ALLOWED_SITE_TYPES.includes(type)) return fail(res, 400, 'Tipo de sitio inválido');
 
@@ -527,7 +527,7 @@ app.post('/api/websites', wrap(async (req, res) => {
   ok(res, { success: true, id: info.lastInsertRowid, port: listenPort });
 }));
 
-app.delete('/api/websites/:id', wrap(async (req, res) => {
+app.delete('/api/websites/:id', auth, wrap(async (req, res) => {
   const site = queries.getWebsite.get(+req.params.id);
   if (!site) return fail(res, 404, 'Sitio no encontrado');
   fs.rmSync(path.join(NGINX_ENABLED, site.domain), { force: true });
@@ -546,7 +546,7 @@ async function installSsl(domain) {
   if (!r.ok) throw new Error(r.stderr.split('\n').slice(-3).join(' ') || 'certbot falló');
 }
 
-app.post('/api/websites/:id/ssl', wrap(async (req, res) => {
+app.post('/api/websites/:id/ssl', auth, wrap(async (req, res) => {
   const site = queries.getWebsite.get(+req.params.id);
   if (!site) return fail(res, 404, 'Sitio no encontrado');
   await installSsl(site.domain);
@@ -568,7 +568,7 @@ async function pm2Status(pm2Name) {
   } catch (_) { return 'unknown'; }
 }
 
-app.get('/api/apps', wrap(async (req, res) => {
+app.get('/api/apps', auth, wrap(async (req, res) => {
   const apps = queries.listApps.all();
   const enriched = await Promise.all(apps.map(async (a) => ({
     id: a.id, name: a.name, type: a.type, port: a.port, domain: a.domain,
@@ -577,7 +577,7 @@ app.get('/api/apps', wrap(async (req, res) => {
   ok(res, enriched);
 }));
 
-app.post('/api/apps', wrap(async (req, res) => {
+app.post('/api/apps', auth, wrap(async (req, res) => {
   const { name, type = 'nodejs', path: appPath, startCmd, port, domain } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre de app inválido (solo letras, números, - y _)');
   if (!ALLOWED_APP_TYPES.includes(type)) return fail(res, 400, 'Tipo de app inválido');
@@ -630,7 +630,7 @@ app.post('/api/apps', wrap(async (req, res) => {
   ok(res, { success: true, id: info.lastInsertRowid });
 }));
 
-app.post('/api/apps/:id/:action', wrap(async (req, res) => {
+app.post('/api/apps/:id/:action', auth, wrap(async (req, res) => {
   const { action } = req.params;
   if (!ALLOWED_APP_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
   const appRow = queries.getApp.get(+req.params.id);
@@ -649,7 +649,7 @@ app.post('/api/apps/:id/:action', wrap(async (req, res) => {
   ok(res);
 }));
 
-app.get('/api/apps/:id/logs', wrap(async (req, res) => {
+app.get('/api/apps/:id/logs', auth, wrap(async (req, res) => {
   const appRow = queries.getApp.get(+req.params.id);
   if (!appRow) return fail(res, 404, 'App no encontrada');
   const r = await runSafe('pm2', ['logs', appRow.pm2_name, '--lines', '200', '--nostream', '--raw']);
@@ -663,13 +663,13 @@ function genPassword(len = 20) {
   return crypto.randomBytes(len).toString('base64').replace(/[+/=]/g, '').slice(0, len);
 }
 
-app.get('/api/databases', (req, res) => {
+app.get('/api/databases', auth, (req, res) => {
   // Las contraseñas se guardan cifradas (AES-256-GCM); se descifran al mostrarlas.
   const rows = queries.listDatabases.all().map(d => ({ ...d, db_password: decryptSecret(d.db_password) }));
   ok(res, rows);
 });
 
-app.post('/api/databases', wrap(async (req, res) => {
+app.post('/api/databases', auth, wrap(async (req, res) => {
   const { type = 'mysql', name, user, password } = req.body || {};
   if (!ALLOWED_DB_TYPES.includes(type)) return fail(res, 400, 'Motor inválido');
   if (!RE_DB_NAME.test(name || '')) return fail(res, 400, 'Nombre de BD inválido (solo letras, números y _)');
@@ -723,7 +723,7 @@ function safePath(input) {
   return resolved;
 }
 
-app.get('/api/files', wrap(async (req, res) => {
+app.get('/api/files', auth, wrap(async (req, res) => {
   const dir = safePath(req.query.path || '');
   if (!dir) return fail(res, 403, 'Ruta fuera del área permitida');
   if (!fs.existsSync(dir)) return fail(res, 404, 'Directorio no encontrado');
@@ -739,7 +739,7 @@ app.get('/api/files', wrap(async (req, res) => {
   ok(res, { path: dir, items });
 }));
 
-app.get('/api/files/read', wrap(async (req, res) => {
+app.get('/api/files/read', auth, wrap(async (req, res) => {
   const file = safePath(req.query.path || '');
   if (!file) return fail(res, 403, 'Ruta fuera del área permitida');
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return fail(res, 404, 'Archivo no encontrado');
@@ -747,7 +747,7 @@ app.get('/api/files/read', wrap(async (req, res) => {
   ok(res, { content: fs.readFileSync(file, 'utf8') });
 }));
 
-app.post('/api/files/write', wrap(async (req, res) => {
+app.post('/api/files/write', auth, wrap(async (req, res) => {
   const file = safePath(req.body?.path || '');
   if (!file) return fail(res, 403, 'Ruta fuera del área permitida');
   if (typeof req.body.content !== 'string') return fail(res, 400, 'Contenido inválido');
@@ -756,7 +756,7 @@ app.post('/api/files/write', wrap(async (req, res) => {
   ok(res);
 }));
 
-app.delete('/api/files', wrap(async (req, res) => {
+app.delete('/api/files', auth, wrap(async (req, res) => {
   const target = safePath(req.body?.path || '');
   if (!target) return fail(res, 403, 'Ruta fuera del área permitida');
   if (target === SITES_DIR) return fail(res, 403, 'No se puede eliminar el directorio raíz');
@@ -769,7 +769,7 @@ app.delete('/api/files', wrap(async (req, res) => {
 // ════════════════════════════════════════════════════════════
 //  FIREWALL (UFW)
 // ════════════════════════════════════════════════════════════
-app.get('/api/firewall', wrap(async (req, res) => {
+app.get('/api/firewall', auth, wrap(async (req, res) => {
   const r = await runSafe('ufw', ['status', 'numbered']);
   const enabled = /Status:\s*active/i.test(r.stdout);
   const rules = [];
@@ -780,7 +780,7 @@ app.get('/api/firewall', wrap(async (req, res) => {
   ok(res, { enabled, rules });
 }));
 
-app.post('/api/firewall/rule', wrap(async (req, res) => {
+app.post('/api/firewall/rule', auth, wrap(async (req, res) => {
   const { action = 'allow', port, protocol = 'tcp', from } = req.body || {};
   if (!['allow', 'deny'].includes(action)) return fail(res, 400, 'Acción inválida');
   const portNum = parseInt(port, 10);
@@ -800,7 +800,7 @@ app.post('/api/firewall/rule', wrap(async (req, res) => {
   ok(res);
 }));
 
-app.delete('/api/firewall/rule/:num', wrap(async (req, res) => {
+app.delete('/api/firewall/rule/:num', auth, wrap(async (req, res) => {
   const num = parseInt(req.params.num, 10);
   if (!Number.isInteger(num) || num < 1) return fail(res, 400, 'Número de regla inválido');
   // `ufw --force delete N` no pide confirmación interactiva.
@@ -813,7 +813,7 @@ app.delete('/api/firewall/rule/:num', wrap(async (req, res) => {
 // ════════════════════════════════════════════════════════════
 //  LOGS
 // ════════════════════════════════════════════════════════════
-app.get('/api/logs/:type', wrap(async (req, res) => {
+app.get('/api/logs/:type', auth, wrap(async (req, res) => {
   const file = LOG_FILES[req.params.type];
   if (!file) return fail(res, 400, 'Tipo de log no permitido');
   const r = await runSafe('tail', ['-n', '300', file]);
@@ -931,7 +931,7 @@ app.get('/api/plugins', wrap(async (req, res) => {
   ok(res, result);
 }));
 
-app.post('/api/plugins/:id/install', wrap(async (req, res) => {
+app.post('/api/plugins/:id/install', auth, wrap(async (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin no encontrado');
   if (await p.check()) return fail(res, 409, `${p.name} ya está instalado`);
@@ -944,7 +944,7 @@ app.post('/api/plugins/:id/install', wrap(async (req, res) => {
   }
 }));
 
-app.post('/api/plugins/:id/uninstall', wrap(async (req, res) => {
+app.post('/api/plugins/:id/uninstall', auth, wrap(async (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin no encontrado');
   if (!(await p.check())) return fail(res, 409, `${p.name} no está instalado`);
