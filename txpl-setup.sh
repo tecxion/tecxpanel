@@ -262,31 +262,56 @@ step_done
 #  Resumen
 # ════════════════════════════════════════════════════════════
 sleep 1
-IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+# Detecta la IPv4 pública (la que la gente usará para entrar). Evita IPv6,
+# que confunde a quien empieza y no sirve para escribir la URL a mano.
+IPV4=$(curl -4 -s --max-time 4 https://api.ipify.org 2>/dev/null)
+[[ -z "$IPV4" ]] && IPV4=$(curl -4 -s --max-time 4 https://ifconfig.me 2>/dev/null)
+[[ -z "$IPV4" ]] && IPV4=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print $2}')
+[[ -z "$IPV4" ]] && IPV4=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+[[ -z "$IPV4" ]] && IPV4="LA-IP-DE-TU-VPS"
+ACCESS="${PANEL_DOMAIN:-$IPV4}"
+
 echo ""
 sep
 echo -e "${BOLD}${GREEN}  ✅ TecXPaneL instalado correctamente${RESET}"
 sep
-echo -e "  Panel:    http://${PANEL_DOMAIN:-$IP}/"
-echo -e "  Estado:   $(pm2 describe txpl-panel 2>/dev/null | grep -m1 status | awk '{print $4}' || echo '?')"
+echo ""
+echo -e "  ${BOLD}1) CÓMO ENTRAR AL PANEL${RESET}"
+echo -e "  ${CYAN}─────────────────────────${RESET}"
+echo -e "     Abre en tu navegador:   ${BOLD}${GREEN}http://${ACCESS}/${RESET}"
+echo -e "     ${YELLOW}Usa http:// (NO https) y SIN número de puerto, hasta tener SSL.${RESET}"
+echo ""
 if [[ "$GENERATED_CREDS" == "1" ]]; then
-    echo ""
-    echo -e "  ${YELLOW}Credenciales generadas (guárdalas):${RESET}"
-    echo -e "    Usuario:     ${BOLD}$ADMIN_USER${RESET}"
-    echo -e "    Contraseña:  ${BOLD}$ADMIN_PASS${RESET}"
-    [[ -n "$MYSQL_ROOT_PASSWORD" ]] && echo -e "    MySQL root:  ${BOLD}$MYSQL_ROOT_PASSWORD${RESET}"
-    echo -e "  ${CYAN}(También están en $ENV_FILE)${RESET}"
+    echo -e "     Usuario:     ${BOLD}$ADMIN_USER${RESET}"
+    echo -e "     Contraseña:  ${BOLD}$ADMIN_PASS${RESET}"
+    [[ -n "$MYSQL_ROOT_PASSWORD" ]] && echo -e "     MySQL root:  ${BOLD}$MYSQL_ROOT_PASSWORD${RESET}"
+    echo -e "     ${CYAN}(guárdalas; también están en $ENV_FILE)${RESET}"
 else
-    # .env ya existía: muestra el usuario y dónde está la contraseña.
     EXIST_USER=$(grep -E '^ADMIN_USER=' "$ENV_FILE" | head -1 | cut -d= -f2-)
-    echo ""
-    echo -e "  ${YELLOW}Credenciales (del $ENV_FILE existente):${RESET}"
-    echo -e "    Usuario:     ${BOLD}${EXIST_USER:-admin}${RESET}"
-    echo -e "    Contraseña:  consúltala con  ${BOLD}sudo grep ADMIN_PASS $ENV_FILE${RESET}"
+    echo -e "     Usuario:     ${BOLD}${EXIST_USER:-admin}${RESET}"
+    echo -e "     Contraseña:  ${BOLD}sudo grep ADMIN_PASS $ENV_FILE${RESET}"
 fi
 echo ""
-echo -e "  ${CYAN}Siguiente paso recomendado — HTTPS:${RESET}"
-echo -e "    Apunta tu dominio a $IP y luego:  certbot --nginx -d tudominio.com"
+echo -e "  ${BOLD}2) ¿NO CARGA LA PÁGINA?${RESET}  Repasa esto:"
+echo -e "  ${CYAN}─────────────────────────${RESET}"
+echo -e "     · Escribe ${BOLD}http://${RESET} (no https) y ${BOLD}sin :puerto${RESET}"
+echo -e "     · Abre el ${BOLD}puerto 80${RESET} en el firewall de tu proveedor (panel del VPS)"
+echo -e "     · En el servidor:  ${BOLD}txpl status${RESET}   y   ${BOLD}txpl logs${RESET}"
 echo ""
-echo -e "  Comandos:  txpl status | txpl logs | txpl restart"
+echo -e "  ${BOLD}3) DOMINIO + HTTPS (candado, recomendado)${RESET}"
+echo -e "  ${CYAN}─────────────────────────${RESET}"
+echo -e "     a. En tu proveedor de dominio crea un registro ${BOLD}A${RESET}:"
+echo -e "          tudominio.com  →  ${BOLD}${IPV4}${RESET}"
+echo -e "     b. Espera a que propague (pruébalo:  ping tudominio.com)"
+echo -e "     c. En el servidor:  ${BOLD}certbot --nginx -d tudominio.com${RESET}"
+echo -e "        → quedará en https://tudominio.com con renovación automática"
+echo ""
+echo -e "  ${BOLD}4) COMANDOS ÚTILES${RESET}"
+echo -e "  ${CYAN}─────────────────────────${RESET}"
+echo -e "     txpl status    estado del panel y servicios"
+echo -e "     txpl logs      registros en vivo (Ctrl+C para salir)"
+echo -e "     txpl restart   reiniciar el panel"
+echo -e "     txpl backup    copia de seguridad ahora"
+echo ""
+echo -e "  ${CYAN}Detalle de la instalación:  $LOGFILE${RESET}"
 sep

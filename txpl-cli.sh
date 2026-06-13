@@ -117,8 +117,26 @@ case "$1" in
 status)
     echo -e "${B}Estado del panel TecXPaneL${X}"
     echo ""
-    pm2 describe txpl-panel 2>/dev/null | grep -E "status|cpu|memory|uptime|restarts" | \
-        awk '{printf "  %-15s %s\n", $2, $4}' || echo "  Panel no iniciado"
+    pm2 jlist 2>/dev/null | python3 -c "
+import sys, json, time
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = []
+p = next((x for x in data if x.get('name') == 'txpl-panel'), None)
+if not p:
+    print('  Panel no iniciado  (usa: txpl start)')
+else:
+    env = p.get('pm2_env', {}); mon = p.get('monit', {})
+    up = env.get('pm_uptime')
+    secs = int((time.time()*1000 - up)/1000) if up else 0
+    h, m = secs // 3600, (secs % 3600) // 60
+    print(f\"  Estado:     {env.get('status','?')}\")
+    print(f\"  Uptime:     {h}h {m}m\")
+    print(f\"  CPU:        {mon.get('cpu',0)}%\")
+    print(f\"  Memoria:    {round(mon.get('memory',0)/1048576)} MB\")
+    print(f\"  Reinicios:  {env.get('restart_time',0)}\")
+" 2>/dev/null || echo "  Panel no iniciado"
     echo ""
     echo -e "${C}Servicios del sistema:${X}"
     for svc in nginx mysql postgresql redis ssh; do
