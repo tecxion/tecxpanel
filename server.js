@@ -595,21 +595,22 @@ app.post('/api/apps', auth, wrap(async (req, res) => {
 
   const pm2Name = `txpl-app-${name}`;
   const cmd = (startCmd || '').trim();
-  let pm2Args;
+  let pm2Args, script;
 
   if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
     // npm start, npm run dev, yarn start, pnpm start → pm2 start npm -- start
     const parts = cmd.split(/\s+/);
+    script = cmd;
     pm2Args = ['start', parts[0], '--name', pm2Name, '--cwd', cwd, '--', ...parts.slice(1)];
   } else if (/^(python3?|node)\s/.test(cmd)) {
     // node server.js → pm2 start server.js; python3 app.py → pm2 start app.py --interpreter python3
     const parts = cmd.split(/\s+/);
     const interp = parts[0];
-    const script = parts.slice(1).join(' ') || (interp.startsWith('python') ? 'app.py' : 'index.js');
+    script = parts.slice(1).join(' ') || (interp.startsWith('python') ? 'app.py' : 'index.js');
     pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
     if (interp.startsWith('python')) pm2Args.push('--interpreter', interp);
   } else {
-    const script = cmd || (type === 'python' ? 'app.py' : 'index.js');
+    script = cmd || (type === 'python' ? 'app.py' : 'index.js');
     const fullPath = path.join(cwd, script);
     if (!fs.existsSync(fullPath)) {
       return fail(res, 400, `No se encontró "${script}" en ${cwd}. Escribe el archivo a ejecutar (ej: server.js) o un comando npm (ej: npm start).`);
@@ -717,7 +718,8 @@ FLUSH PRIVILEGES;`;
 // Resuelve una ruta y garantiza que queda DENTRO de SITES_DIR.
 // Bloquea path traversal (../) y rutas absolutas fuera del jail.
 function safePath(input) {
-  if (typeof input !== 'string' || !input) return null;
+  if (typeof input !== 'string') return null;
+  if (!input || input === '/' || input === SITES_DIR) return SITES_DIR;
   const resolved = path.resolve(SITES_DIR, input.replace(/^\/+/, ''));
   if (resolved !== SITES_DIR && !resolved.startsWith(SITES_DIR + path.sep)) return null;
   return resolved;
