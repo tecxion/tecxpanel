@@ -1,0 +1,25 @@
+# Secretos — NUNCA subir
+.env
+*.env
+!.env.example
+
+# Dependencias
+node_modules/
+
+# Datos y estado en runtime
+data/
+*.db
+*.db-wal
+*.db-shm
+backups/
+
+# Logs
+logs/
+*.log
+
+# Tokens locales de la CLI
+.txpl_token
+
+# Sistema
+.DS_Store
+Thumbs.db

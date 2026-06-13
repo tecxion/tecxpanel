@@ -381,7 +381,7 @@ canvas.sparkline{width:100%;height:60px}
     </div>
 
     <div class="sidebar-bottom">
-      <div class="user-chip" onclick="navigate(document.querySelector('[data-page=settings]'))">
+      <div class="user-chip" onclick="navigate('settings')">
         <div class="user-avatar" id="user-avatar">A</div>
         <div>
           <div class="user-name" id="user-name">Admin</div>
@@ -640,6 +640,36 @@ canvas.sparkline{width:100%;height:60px}
         </div>
       </div>
 
+      <!-- ── SETTINGS ── -->
+      <div class="page" id="page-settings">
+        <div class="overview-grid">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-user"></i> Cuenta</div>
+            </div>
+            <div id="settings-account" style="display:flex;flex-direction:column;gap:0.75rem"></div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-lock"></i> Cambiar contraseña</div>
+            </div>
+            <div class="form-group"><label>Contraseña actual</label><input type="password" id="set-pass-old"></div>
+            <div class="form-group"><label>Nueva contraseña</label><input type="password" id="set-pass-new"></div>
+            <div class="form-group"><label>Repite la nueva contraseña</label><input type="password" id="set-pass-new2"></div>
+            <button class="btn btn-primary" onclick="changePassword()"><i class="ti ti-device-floppy"></i> Guardar contraseña</button>
+          </div>
+        </div>
+        <div class="card mt-2">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-info-circle"></i> Acerca de TecXPaneL</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+            Panel de control para VPS. Backend en <span class="domain-pill">127.0.0.1:8585</span> tras Nginx.
+            <br>Cierra sesión desde el botón <strong>Salir</strong> de la barra superior.
+          </div>
+        </div>
+      </div>
+
     </div><!-- /content -->
   </main>
 </div><!-- /app -->
@@ -809,6 +839,13 @@ function fmtDate(d) {
   return d ? new Date(d).toLocaleDateString('es-ES', {day:'2-digit',month:'short',year:'numeric'}) : '—';
 }
 
+// Escapa texto para insertarlo de forma segura con innerHTML (anti-XSS).
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
 function openModal(id) { document.getElementById(id).classList.add('open') }
 function closeModal(id) { document.getElementById(id).classList.remove('open') }
 
@@ -848,6 +885,7 @@ function doLogout() {
   TOKEN = '';
   localStorage.removeItem('txpl_token');
   if (statsWS) statsWS.close();
+  termCleanup();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -868,18 +906,24 @@ async function checkAuth() {
 
 // ── Navigation ────────────────────────────────────────────────
 function navigate(el) {
-  const page = el.dataset.page;
+  // `el` puede ser un nombre de página (string) o un nodo del sidebar.
+  const page = typeof el === 'string' ? el : el?.dataset?.page;
+  const target = page && document.getElementById('page-' + page);
+  if (!target) return; // página inexistente: no rompas la app
+
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  el.classList.add('active');
+  if (el && el.classList) el.classList.add('active');
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
+  target.classList.add('active');
 
   const titles = {
     dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
     websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
-    files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL'
+    files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
+    settings: 'Ajustes'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
+  if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
   currentPage = page;
 
   if (page === 'websites') loadWebsites();
@@ -888,6 +932,7 @@ function navigate(el) {
   if (page === 'firewall') loadFirewall();
   if (page === 'files') loadFiles();
   if (page === 'ssl') loadSSL();
+  if (page === 'settings') loadSettings();
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -971,7 +1016,7 @@ async function loadServices() {
     <div class="service-row">
       <div class="service-name">
         <i class="ti ${icons[s.name] || 'ti-server'}" style="color:var(--accent);font-size:16px"></i>
-        ${s.name.charAt(0).toUpperCase() + s.name.slice(1)}
+        ${esc(s.name.charAt(0).toUpperCase() + s.name.slice(1))}
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="badge ${s.status === 'running' ? 'badge-green' : 'badge-red'}">${s.status === 'running' ? 'Activo' : 'Parado'}</span>
@@ -1001,7 +1046,7 @@ async function loadProcesses() {
   tb.innerHTML = data.slice(0,10).map(p => `
     <tr>
       <td style="color:var(--text-muted);font-family:var(--mono)">${p.pid}</td>
-      <td style="font-weight:500">${p.name}</td>
+      <td style="font-weight:500">${esc(p.name)}</td>
       <td><span style="color:${p.cpu > 50 ? 'var(--red)' : p.cpu > 20 ? 'var(--yellow)' : 'var(--green)'}">${p.cpu.toFixed(1)}%</span></td>
       <td>${p.mem.toFixed(1)}%</td>
     </tr>
@@ -1016,14 +1061,14 @@ async function loadWebsites() {
   if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-world-off"></i><br>Sin sitios web aún</td></tr>'; return; }
   tb.innerHTML = data.map(s => `
     <tr>
-      <td><span class="domain-pill">${s.domain}</span></td>
-      <td><span class="badge badge-purple">${s.type}</span></td>
+      <td><span class="domain-pill">${esc(s.domain)}</span></td>
+      <td><span class="badge badge-purple">${esc(s.type)}</span></td>
       <td>${s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
-      <td><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${s.status}</span></td>
+      <td><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${esc(s.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(s.created_at)}</td>
       <td>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="window.open('http://${s.domain}','_blank')"><i class="ti ti-external-link"></i></button>
+          <button class="btn btn-sm" onclick="window.open('http://' + encodeURIComponent(${JSON.stringify(s.domain)}),'_blank')"><i class="ti ti-external-link"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})"><i class="ti ti-trash"></i></button>
         </div>
       </td>
@@ -1033,7 +1078,7 @@ async function loadWebsites() {
   // Llenar tabla SSL
   document.getElementById('ssl-table').innerHTML = data.map(s => `
     <tr>
-      <td><span class="domain-pill">${s.domain}</span></td>
+      <td><span class="domain-pill">${esc(s.domain)}</span></td>
       <td>${s.ssl ? '<span class="badge badge-green">🔒 Activo</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
       <td>
         ${!s.ssl ? `<button class="btn btn-sm btn-primary" onclick="installSSL(${s.id})"><i class="ti ti-certificate"></i> Instalar SSL</button>` : '<span style="color:var(--text-muted);font-size:12px">Renovación automática</span>'}
@@ -1079,11 +1124,11 @@ async function loadApps() {
   const typeColors = { nodejs:'badge-green', typescript:'badge-blue', react:'badge-blue', python:'badge-yellow' };
   tb.innerHTML = data.map(a => `
     <tr>
-      <td style="font-weight:600">${a.name}</td>
-      <td><span class="badge ${typeColors[a.type]||'badge-purple'}">${a.type}</span></td>
-      <td style="font-family:var(--mono);color:var(--cyan)">${a.port || '—'}</td>
-      <td><span class="badge ${a.status==='running'?'badge-green':'badge-red'}">${a.status}</span></td>
-      <td>${a.domain ? `<span class="domain-pill">${a.domain}</span>` : '—'}</td>
+      <td style="font-weight:600">${esc(a.name)}</td>
+      <td><span class="badge ${typeColors[a.type]||'badge-purple'}">${esc(a.type)}</span></td>
+      <td style="font-family:var(--mono);color:var(--cyan)">${esc(a.port || '—')}</td>
+      <td><span class="badge ${a.status==='running'?'badge-green':'badge-red'}">${esc(a.status)}</span></td>
+      <td>${a.domain ? `<span class="domain-pill">${esc(a.domain)}</span>` : '—'}</td>
       <td>
         <div style="display:flex;gap:5px">
           ${a.status==='running'
@@ -1126,23 +1171,34 @@ async function viewAppLogs(id, name) {
 }
 
 // ── Databases ─────────────────────────────────────────────────
+let dbPassCache = {}; // id -> password, solo en memoria; nunca se inyecta en el HTML
+
 async function loadDatabases() {
   const data = await req('GET', '/databases');
   if (!data) return;
+  dbPassCache = {};
   const tb = document.getElementById('databases-table');
   if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
-  tb.innerHTML = data.map(d => `
+  tb.innerHTML = data.map(d => {
+    dbPassCache[d.id] = d.db_password;
+    return `
     <tr>
-      <td style="font-weight:600;font-family:var(--mono)">${d.name}</td>
-      <td><span class="badge ${d.type==='mysql'?'badge-blue':'badge-purple'}">${d.type}</span></td>
-      <td style="font-family:var(--mono);font-size:12px">${d.db_user}</td>
-      <td><span class="badge badge-green">${d.status}</span></td>
+      <td style="font-weight:600;font-family:var(--mono)">${esc(d.name)}</td>
+      <td><span class="badge ${d.type==='mysql'?'badge-blue':'badge-purple'}">${esc(d.type)}</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${esc(d.db_user)}</td>
+      <td><span class="badge badge-green">${esc(d.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(d.created_at)}</td>
       <td>
-        <button class="btn btn-sm" onclick="copyText('${d.db_password}')" title="Copiar contraseña"><i class="ti ti-copy"></i></button>
+        <button class="btn btn-sm" onclick="copyDbPass(${d.id})" title="Copiar contraseña"><i class="ti ti-copy"></i></button>
       </td>
     </tr>
-  `).join('');
+  `;}).join('');
+}
+
+function copyDbPass(id) {
+  const pass = dbPassCache[id];
+  if (pass) copyText(pass);
+  else toast('Contraseña no disponible', 'error');
 }
 
 async function createDatabase() {
@@ -1172,31 +1228,45 @@ async function loadFiles() {
   tb.innerHTML = `
     <tr>
       <td colspan="5">
-        <button class="btn btn-sm" onclick="goUp('${path}')"><i class="ti ti-arrow-up"></i> Subir un nivel</button>
+        <button class="btn btn-sm" data-act="up"><i class="ti ti-arrow-up"></i> Subir un nivel</button>
       </td>
     </tr>
     ${items.map(f => `
       <tr>
         <td>
-          <span style="cursor:pointer;color:${f.type==='directory'?'var(--accent)':'var(--text-primary)'};display:flex;align-items:center;gap:8px"
-            onclick="${f.type==='directory' ? `browseDir('${f.path}')` : ''}">
+          <span style="cursor:${f.type==='directory'?'pointer':'default'};color:${f.type==='directory'?'var(--accent)':'var(--text-primary)'};display:flex;align-items:center;gap:8px"
+            ${f.type==='directory' ? `data-act="open" data-path="${esc(f.path)}"` : ''}>
             <i class="ti ${f.type==='directory'?'ti-folder':'ti-file'}" style="font-size:16px"></i>
-            ${f.name}
+            ${esc(f.name)}
           </span>
         </td>
-        <td>${f.type}</td>
+        <td>${esc(f.type)}</td>
         <td>${f.type==='file' ? fmtBytes(f.size) : '—'}</td>
         <td style="color:var(--text-muted)">${fmtDate(f.modified)}</td>
         <td>
           <div style="display:flex;gap:5px">
-            ${f.type==='file' ? `<button class="btn btn-sm" onclick="editFile('${f.path}')"><i class="ti ti-edit"></i></button>` : ''}
-            <button class="btn btn-sm btn-danger" onclick="deleteFile('${f.path}')"><i class="ti ti-trash"></i></button>
+            ${f.type==='file' ? `<button class="btn btn-sm" data-act="edit" data-path="${esc(f.path)}"><i class="ti ti-edit"></i></button>` : ''}
+            <button class="btn btn-sm btn-danger" data-act="del" data-path="${esc(f.path)}"><i class="ti ti-trash"></i></button>
           </div>
         </td>
       </tr>
     `).join('')}
   `;
 }
+
+// Delegación de eventos: los nombres/rutas viven en data-* (escapados),
+// nunca en strings de onclick → sin riesgo de inyección.
+document.getElementById('files-table').addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const p = el.dataset.path;
+  switch (el.dataset.act) {
+    case 'up':   goUp(document.getElementById('file-path').value); break;
+    case 'open': browseDir(p); break;
+    case 'edit': editFile(p); break;
+    case 'del':  deleteFile(p); break;
+  }
+});
 
 function browseDir(path) {
   document.getElementById('file-path').value = path;
@@ -1239,9 +1309,9 @@ async function loadFirewall() {
   tb.innerHTML = rules.map(r => `
     <tr>
       <td style="color:var(--text-muted);font-family:var(--mono)">${r.num}</td>
-      <td style="font-weight:500">${r.to}</td>
-      <td><span class="badge ${r.action==='ALLOW'?'badge-green':'badge-red'}">${r.action}</span></td>
-      <td style="color:var(--text-muted)">${r.from || 'Anywhere'}</td>
+      <td style="font-weight:500">${esc(r.to)}</td>
+      <td><span class="badge ${r.action==='ALLOW'?'badge-green':'badge-red'}">${esc(r.action)}</span></td>
+      <td style="color:var(--text-muted)">${esc(r.from || 'Anywhere')}</td>
       <td><button class="btn btn-sm btn-danger" onclick="deleteRule(${r.num})"><i class="ti ti-trash"></i></button></td>
     </tr>
   `).join('');
@@ -1270,6 +1340,34 @@ async function loadSSL() {
   await loadWebsites();
 }
 
+// ── Settings ──────────────────────────────────────────────────
+async function loadSettings() {
+  const me = await req('GET', '/auth/me');
+  if (!me) return;
+  const rows = [
+    { label: 'Usuario', value: me.username },
+    { label: 'Rol', value: me.role || 'admin' },
+  ];
+  document.getElementById('settings-account').innerHTML = rows.map(r => `
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text-muted)">${esc(r.label)}</span>
+      <span style="font-weight:600">${esc(r.value)}</span>
+    </div>`).join('');
+}
+
+async function changePassword() {
+  const oldPass = document.getElementById('set-pass-old').value;
+  const newPass = document.getElementById('set-pass-new').value;
+  const newPass2 = document.getElementById('set-pass-new2').value;
+  if (!newPass || newPass.length < 8) { toast('La nueva contraseña debe tener al menos 8 caracteres', 'error'); return; }
+  if (newPass !== newPass2) { toast('Las contraseñas no coinciden', 'error'); return; }
+  const r = await req('POST', '/auth/password', { oldPassword: oldPass, newPassword: newPass });
+  if (r?.success) {
+    toast('Contraseña actualizada', 'success');
+    ['set-pass-old','set-pass-new','set-pass-new2'].forEach(id => document.getElementById(id).value = '');
+  } else toast(r?.error || 'Error al cambiar la contraseña', 'error');
+}
+
 // ── Logs ──────────────────────────────────────────────────────
 async function loadLog(type, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1281,33 +1379,56 @@ async function loadLog(type, el) {
 }
 
 // ── Terminal ──────────────────────────────────────────────────
-function initTerminal() {
+let termWS = null;
+let termKeyHandler = null;
+
+// Añade texto a la terminal de forma segura (sin innerHTML → sin XSS).
+function termWrite(text, color) {
   const out = document.getElementById('terminal-output');
-  out.innerHTML = '<span style="color:var(--yellow)">Conectando a terminal...</span>\n';
+  const span = document.createElement('span');
+  if (color) span.style.color = color;
+  span.textContent = text;
+  out.appendChild(span);
+  out.scrollTop = out.scrollHeight;
+}
+
+function termCleanup() {
+  if (termKeyHandler) { document.removeEventListener('keydown', termKeyHandler); termKeyHandler = null; }
+  if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
+}
+
+function initTerminal() {
+  termCleanup(); // cierra cualquier conexión/handler previo: evita duplicados
+  const out = document.getElementById('terminal-output');
+  out.textContent = '';
+  termWrite('Conectando a terminal...\n', 'var(--yellow)');
 
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${TOKEN}`);
+  termWS = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}`);
+  const ws = termWS;
 
   ws.onmessage = (e) => {
-    const d = JSON.parse(e.data);
-    if (d.type === 'output') {
-      out.innerHTML += d.data.replace(/\n/g, '<br>');
-      out.scrollTop = out.scrollHeight;
-    }
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'output') termWrite(d.data);
+    } catch (_) { /* ignora mensajes mal formados */ }
   };
 
   ws.onopen = () => {
-    out.innerHTML += '<span style="color:var(--green)">Terminal conectada ✓</span>\n\n';
-
-    // Input handler
-    document.addEventListener('keydown', function termKeyHandler(e) {
-      if (currentPage !== 'terminal') return;
-      if (ws.readyState !== 1) { document.removeEventListener('keydown', termKeyHandler); return; }
-      ws.send(JSON.stringify({ type: 'input', data: e.key === 'Enter' ? '\r' : e.key === 'Backspace' ? '\x7f' : e.key.length === 1 ? e.key : '' }));
-    });
+    termWrite('Terminal conectada ✓\n\n', 'var(--green)');
+    termKeyHandler = (e) => {
+      if (currentPage !== 'terminal' || ws.readyState !== 1) return;
+      const data = e.key === 'Enter' ? '\r'
+                 : e.key === 'Backspace' ? '\x7f'
+                 : e.key === 'Tab' ? '\t'
+                 : e.key.length === 1 ? e.key : '';
+      if (data) { e.preventDefault(); ws.send(JSON.stringify({ type: 'input', data })); }
+    };
+    document.addEventListener('keydown', termKeyHandler);
   };
 
-  ws.onerror = () => out.innerHTML += '<span style="color:var(--red)">Error de conexión. Instala node-pty en el servidor.</span>';
+  ws.onclose = () => termWrite('\nConexión cerrada.\n', 'var(--text-muted)');
+  ws.onerror = () => termWrite('Error de conexión. Verifica que node-pty está instalado en el servidor.\n', 'var(--red)');
 }
 
 // ── Utils ─────────────────────────────────────────────────────
