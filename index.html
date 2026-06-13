@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TecXPaneL — Panel de Control VPS</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.2.0/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Variables ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-app:#f0f4f8;
+  --bg-sidebar:#ffffff;
+  --bg-card:#ffffff;
+  --bg-card2:#f7f9fc;
+  --bg-hover:#edf2f7;
+  --border:#dde3ec;
+  --border2:#c8d3e0;
+  --accent:#1a6ef5;
+  --accent2:#0f56d1;
+  --accent-glow:rgba(26,110,245,0.10);
+  --text-primary:#0d1b2a;
+  --text-secondary:#4a5568;
+  --text-muted:#90a0b0;
+  --green:#0e9e6e;
+  --red:#d93025;
+  --yellow:#e67e22;
+  --blue:#1a6ef5;
+  --cyan:#4aa3df;
+  --font:'Inter',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --sidebar-w:240px;
+  --radius:10px;
+  --radius-sm:6px;
+  --radius-lg:14px;
+  --transition:0.18s ease;
+}
+
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);font-size:14px;line-height:1.5}
+
+/* ── Login Screen ── */
+#login-screen{
+  position:fixed;inset:0;background:var(--bg-app);
+  display:flex;align-items:center;justify-content:center;z-index:1000;
+}
+.login-box{
+  background:var(--bg-card);border:1px solid var(--border2);
+  border-radius:var(--radius-lg);padding:2.5rem 2rem;width:360px;
+  box-shadow:0 4px 24px rgba(26,110,245,0.08);
+}
+.login-logo{text-align:center;margin-bottom:2rem}
+.login-logo .txpl-mark{
+  font-size:2.5rem;font-weight:800;letter-spacing:-2px;
+  color:var(--accent);
+}
+.login-logo p{color:var(--text-muted);font-size:12px;margin-top:4px}
+.login-field{margin-bottom:1rem}
+.login-field label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+.login-field input{
+  width:100%;background:var(--bg-app);border:1px solid var(--border2);
+  color:var(--text-primary);padding:10px 14px;border-radius:var(--radius-sm);
+  font-family:var(--font);font-size:14px;outline:none;transition:border var(--transition);
+}
+.login-field input:focus{border-color:var(--accent)}
+.login-btn{
+  width:100%;background:var(--accent);color:#fff;border:none;
+  padding:11px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;
+  cursor:pointer;transition:background var(--transition);margin-top:0.5rem;
+}
+.login-btn:hover{background:var(--accent2)}
+.login-error{color:var(--red);font-size:12px;text-align:center;margin-top:0.75rem;display:none}
+
+/* ── Layout ── */
+#app{display:flex;height:100vh;display:none}
+.sidebar{
+  width:var(--sidebar-w);min-width:var(--sidebar-w);
+  background:var(--bg-sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto;
+}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{
+  height:56px;min-height:56px;background:var(--bg-card);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 1.5rem;gap:1rem;
+}
+.content{flex:1;overflow-y:auto;padding:1.5rem;background:var(--bg-app)}
+
+/* ── Sidebar ── */
+.sidebar-logo{
+  padding:1.25rem 1.25rem 1rem;
+  border-bottom:1px solid var(--border);
+}
+.logo-txpl{
+  font-size:1.5rem;font-weight:800;letter-spacing:-1px;
+  color:var(--accent);
+}
+.logo-sub{font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+
+.sidebar-section{
+  padding:1rem 0.75rem 0.25rem;
+  font-size:10px;font-weight:600;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--text-muted);
+}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 1.25rem;
+  color:var(--text-secondary);cursor:pointer;transition:all var(--transition);
+  border-radius:0;font-size:13.5px;font-weight:500;position:relative;
+}
+.nav-item:hover{color:var(--text-primary);background:var(--bg-hover)}
+.nav-item.active{
+  color:var(--accent);background:var(--accent-glow);
+}
+.nav-item.active::before{
+  content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:3px;height:60%;background:var(--accent);border-radius:0 3px 3px 0;
+}
+.nav-item i{font-size:18px;min-width:20px}
+.nav-badge{
+  margin-left:auto;background:var(--accent);color:#fff;
+  font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;
+}
+
+.sidebar-bottom{padding:1rem;border-top:1px solid var(--border);margin-top:auto}
+.user-chip{
+  display:flex;align-items:center;gap:10px;
+  background:var(--bg-hover);border-radius:var(--radius-sm);padding:8px 10px;cursor:pointer;
+}
+.user-avatar{
+  width:30px;height:30px;border-radius:8px;
+  background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:#fff;flex-shrink:0;
+}
+.user-name{font-size:12.5px;font-weight:600;color:var(--text-primary)}
+.user-role{font-size:11px;color:var(--text-muted)}
+
+/* ── Topbar ── */
+.topbar-title{font-size:15px;font-weight:600;color:var(--text-primary)}
+.topbar-subtitle{font-size:12px;color:var(--text-muted);margin-left:auto}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 14px;
+  border-radius:var(--radius-sm);font-size:13px;font-weight:500;
+  cursor:pointer;transition:all var(--transition);border:1px solid var(--border2);
+  background:var(--bg-card2);color:var(--text-primary);font-family:var(--font);
+}
+.btn:hover{background:var(--bg-hover);border-color:var(--accent)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2);border-color:var(--accent2)}
+.btn-danger{background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.3);color:var(--red)}
+.btn-success{background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.3);color:var(--green)}
+.btn-sm{padding:5px 10px;font-size:12px}
+
+/* ── Cards ── */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.card-title{font-size:13.5px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px}
+.card-title i{color:var(--accent);font-size:17px}
+
+/* ── Stat Cards ── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem}
+.stat-card{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:1.25rem;position:relative;overflow:hidden;
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;right:0;width:80px;height:80px;
+  border-radius:50%;opacity:0.05;transform:translate(30%,-30%);
+}
+.stat-card.cpu::before{background:var(--accent)}
+.stat-card.mem::before{background:var(--cyan)}
+.stat-card.disk::before{background:var(--green)}
+.stat-card.net::before{background:var(--yellow)}
+.stat-label{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:0.5rem;display:flex;align-items:center;gap:6px}
+.stat-label i{font-size:14px}
+.stat-value{font-size:2.2rem;font-weight:700;line-height:1;color:var(--text-primary);margin-bottom:0.5rem}
+.stat-value span{font-size:1rem;font-weight:400;color:var(--text-muted)}
+.stat-bar{height:4px;background:var(--border2);border-radius:2px;overflow:hidden}
+.stat-bar-fill{height:100%;border-radius:2px;transition:width 0.5s ease}
+.stat-bar-fill.cpu{background:var(--accent)}
+.stat-bar-fill.mem{background:var(--cyan)}
+.stat-bar-fill.disk{background:var(--green)}
+
+/* ── Tables ── */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)}
+td{padding:11px 12px;border-bottom:1px solid var(--border);color:var(--text-secondary);transition:background var(--transition)}
+tr:hover td{background:var(--bg-hover);color:var(--text-primary)}
+tr:last-child td{border-bottom:none}
+
+/* ── Badges ── */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;
+}
+.badge-green{background:rgba(34,197,94,0.15);color:var(--green)}
+.badge-red{background:rgba(239,68,68,0.15);color:var(--red)}
+.badge-yellow{background:rgba(245,158,11,0.15);color:var(--yellow)}
+.badge-blue{background:rgba(59,130,246,0.15);color:var(--blue)}
+.badge-purple{background:rgba(124,109,250,0.15);color:var(--accent)}
+.badge::before{content:'•';font-size:8px}
+
+/* ── Gauge ── */
+.gauge-wrap{position:relative;width:120px;height:70px;margin:0 auto}
+.gauge-svg{width:120px;height:70px}
+.gauge-text{
+  position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+  font-size:1.4rem;font-weight:700;color:var(--text-primary);text-align:center;
+}
+
+/* ── Forms & Modals ── */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;
+  display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity var(--transition);
+}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{
+  background:var(--bg-card);border:1px solid var(--border2);border-radius:var(--radius-lg);
+  width:100%;max-width:500px;max-height:90vh;overflow-y:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);transform:translateY(10px);transition:transform var(--transition);
+}
+.modal-overlay.open .modal{transform:translateY(0)}
+.modal-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:15px;font-weight:600}
+.modal-body{padding:1.5rem}
+.modal-footer{padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:0.75rem}
+.form-group{margin-bottom:1rem}
+.form-group label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:500}
+.form-group input,.form-group select,.form-group textarea{
+  width:100%;background:var(--bg-app);border:1px solid var(--border2);
+  color:var(--text-primary);padding:9px 12px;border-radius:var(--radius-sm);
+  font-family:var(--font);font-size:13px;outline:none;transition:border var(--transition);
+}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
+.form-group select option{background:var(--bg-card)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+
+/* ── Terminal ── */
+#terminal-container{
+  background:#0a0a0a;border-radius:var(--radius);padding:0;
+  height:400px;overflow:hidden;border:1px solid var(--border);
+}
+.terminal-toolbar{
+  background:var(--bg-card2);padding:8px 12px;display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid var(--border);
+}
+.term-dot{width:12px;height:12px;border-radius:50%}
+.term-dot.r{background:#ef4444}.term-dot.y{background:#f59e0b}.term-dot.g{background:#22c55e}
+#terminal-output{
+  font-family:var(--mono);font-size:13px;padding:12px;height:calc(400px - 37px);
+  overflow-y:auto;color:#e0e0e0;line-height:1.6;
+}
+
+/* ── Real-time chart ── */
+.chart-wrap{height:60px;position:relative}
+canvas.sparkline{width:100%;height:60px}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
+.tab{
+  padding:10px 16px;font-size:13px;font-weight:500;color:var(--text-muted);
+  cursor:pointer;border-bottom:2px solid transparent;transition:all var(--transition);
+}
+.tab:hover{color:var(--text-primary)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── Notifications ── */
+.toast{
+  position:fixed;bottom:1.5rem;right:1.5rem;
+  background:var(--bg-card2);border:1px solid var(--border2);border-radius:var(--radius);
+  padding:12px 16px;font-size:13px;color:var(--text-primary);z-index:900;
+  transform:translateX(120%);transition:transform 0.3s ease;
+  display:flex;align-items:center;gap:10px;max-width:320px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.3);
+}
+.toast.show{transform:translateX(0)}
+.toast.success{border-left:3px solid var(--green)}
+.toast.error{border-left:3px solid var(--red)}
+.toast.info{border-left:3px solid var(--accent)}
+
+/* ── Section Pages ── */
+.page{display:none}
+.page.active{display:block}
+
+/* ── Overview grid ── */
+.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+.services-list{display:flex;flex-direction:column;gap:8px}
+.service-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;background:var(--bg-card2);border-radius:var(--radius-sm);
+  border:1px solid var(--border);
+}
+.service-name{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.service-actions{display:flex;gap:6px}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+
+/* ── Misc ── */
+.text-muted{color:var(--text-muted)}
+.text-accent{color:var(--accent)}
+.mt-1{margin-top:0.5rem}.mt-2{margin-top:1rem}.mt-3{margin-top:1.5rem}
+.flex{display:flex}.items-center{align-items:center}.gap-2{gap:0.5rem}.gap-3{gap:0.75rem}
+.ml-auto{margin-left:auto}
+.empty-state{text-align:center;padding:3rem;color:var(--text-muted)}
+.empty-state i{font-size:3rem;opacity:0.3;display:block;margin-bottom:1rem}
+.domain-pill{
+  font-family:var(--mono);font-size:11.5px;
+  background:var(--bg-hover);padding:3px 8px;border-radius:var(--radius-sm);color:var(--cyan);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ LOGIN ═══════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="txpl-mark">TXPL</div>
+      <p>TecXPaneL — Panel de Control VPS</p>
+    </div>
+    <div class="login-field">
+      <label>Usuario</label>
+      <input type="text" id="login-user" value="admin" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Iniciar sesión</button>
+    <p class="login-error" id="login-error">Credenciales incorrectas</p>
+  </div>
+</div>
+
+<!-- ═══════════════════ APP ═══════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-txpl">TecXPaneL</div>
+      <div class="logo-sub">VPS Control Panel</div>
+    </div>
+
+    <div class="sidebar-section">General</div>
+    <div class="nav-item active" data-page="dashboard" onclick="navigate(this)">
+      <i class="ti ti-layout-dashboard"></i> Dashboard
+    </div>
+    <div class="nav-item" data-page="terminal" onclick="navigate(this)">
+      <i class="ti ti-terminal-2"></i> Terminal
+    </div>
+    <div class="nav-item" data-page="logs" onclick="navigate(this)">
+      <i class="ti ti-file-text"></i> Logs del sistema
+    </div>
+
+    <div class="sidebar-section">Servicios</div>
+    <div class="nav-item" data-page="websites" onclick="navigate(this)">
+      <i class="ti ti-world"></i> Sitios web
+    </div>
+    <div class="nav-item" data-page="apps" onclick="navigate(this)">
+      <i class="ti ti-brand-nodejs"></i> Aplicaciones
+    </div>
+    <div class="nav-item" data-page="databases" onclick="navigate(this)">
+      <i class="ti ti-database"></i> Bases de datos
+    </div>
+
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item" data-page="files" onclick="navigate(this)">
+      <i class="ti ti-folders"></i> Archivos
+    </div>
+    <div class="nav-item" data-page="firewall" onclick="navigate(this)">
+      <i class="ti ti-shield-lock"></i> Firewall UFW
+    </div>
+    <div class="nav-item" data-page="ssl" onclick="navigate(this)">
+      <i class="ti ti-certificate"></i> SSL / HTTPS
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="user-chip" onclick="navigate(document.querySelector('[data-page=settings]'))">
+        <div class="user-avatar" id="user-avatar">A</div>
+        <div>
+          <div class="user-name" id="user-name">Admin</div>
+          <div class="user-role">Administrador</div>
+        </div>
+        <i class="ti ti-settings" style="margin-left:auto;color:var(--text-muted);font-size:16px"></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <span class="topbar-title" id="page-title">Dashboard</span>
+      <span class="topbar-subtitle" id="server-hostname">—</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <span id="uptime-display" style="font-size:12px;color:var(--text-muted)"></span>
+        <div class="badge badge-green" id="status-badge" style="display:none">
+          <span style="font-size:10px">● Online</span>
+        </div>
+        <button class="btn btn-sm" onclick="doLogout()">
+          <i class="ti ti-logout"></i> Salir
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="page active" id="page-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card cpu">
+            <div class="stat-label"><i class="ti ti-cpu"></i> CPU</div>
+            <div class="stat-value"><span id="cpu-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill cpu" id="cpu-bar" style="width:0%"></div></div>
+          </div>
+          <div class="stat-card mem">
+            <div class="stat-label"><i class="ti ti-cpu-2"></i> Memoria RAM</div>
+            <div class="stat-value"><span id="mem-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill mem" id="mem-bar" style="width:0%;background:var(--cyan)"></div></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="mem-detail">— / —</div>
+          </div>
+          <div class="stat-card disk">
+            <div class="stat-label"><i class="ti ti-database"></i> Disco</div>
+            <div class="stat-value"><span id="disk-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill disk" id="disk-bar" style="width:0%;background:var(--green)"></div></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="disk-detail">— / —</div>
+          </div>
+          <div class="stat-card net">
+            <div class="stat-label"><i class="ti ti-activity"></i> Red</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.25rem">
+              <div>
+                <div style="font-size:10px;color:var(--text-muted)">↓ RECV</div>
+                <div style="font-size:1.1rem;font-weight:700" id="net-rx">—</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text-muted)">↑ SEND</div>
+                <div style="font-size:1.1rem;font-weight:700" id="net-tx">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overview-grid">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-server"></i> Servicios del sistema</div>
+              <button class="btn btn-sm" onclick="loadServices()"><i class="ti ti-refresh"></i></button>
+            </div>
+            <div class="services-list" id="services-list">
+              <div class="empty-state"><i class="ti ti-loader"></i> Cargando...</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-activity"></i> Procesos top</div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>PID</th><th>Proceso</th><th>CPU%</th><th>MEM%</th></tr></thead>
+                <tbody id="procs-table"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Cargando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-2">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-info-circle"></i> Información del sistema</div>
+          </div>
+          <div id="os-info" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TERMINAL ── -->
+      <div class="page" id="page-terminal">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-terminal-2"></i> Terminal SSH</div>
+            <button class="btn btn-sm btn-primary" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
+          </div>
+          <div id="terminal-container">
+            <div class="terminal-toolbar">
+              <div class="term-dot r"></div>
+              <div class="term-dot y"></div>
+              <div class="term-dot g"></div>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:8px">bash — TecXPaneL Terminal</span>
+            </div>
+            <div id="terminal-output">
+              <span style="color:#7c6dfa">┌──</span>(<span style="color:#22c55e">txpl</span>@<span style="color:#06b6d4">server</span>)<span style="color:#7c6dfa">─[</span><span style="color:#e8e8f5">~</span><span style="color:#7c6dfa">]</span><br>
+              <span style="color:#7c6dfa">└─$</span> <span id="term-cursor" style="background:var(--text-primary);color:var(--bg-app)">&nbsp;</span>
+              <div style="margin-top:1rem;color:var(--text-muted);font-size:12px">Pulsa "Conectar" para iniciar la terminal interactiva.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── WEBSITES ── -->
+      <div class="page" id="page-websites">
+        <div class="flex items-center gap-3 mb" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-site')">
+            <i class="ti ti-plus"></i> Nuevo sitio web
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-world"></i> Sitios web gestionados</div>
+            <button class="btn btn-sm" onclick="loadWebsites()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Dominio</th><th>Tipo</th><th>SSL</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+              <tbody id="websites-table">
+                <tr><td colspan="6" class="empty-state">Sin sitios web aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── APPS ── -->
+      <div class="page" id="page-apps">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-app')">
+            <i class="ti ti-plus"></i> Nueva aplicación
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-brand-nodejs"></i> Aplicaciones PM2</div>
+            <button class="btn btn-sm" onclick="loadApps()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Tipo</th><th>Puerto</th><th>Estado</th><th>Dominio</th><th>Acciones</th></tr></thead>
+              <tbody id="apps-table">
+                <tr><td colspan="6" class="empty-state">Sin aplicaciones aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DATABASES ── -->
+      <div class="page" id="page-databases">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-db')">
+            <i class="ti ti-plus"></i> Nueva base de datos
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-database"></i> Bases de datos</div>
+            <button class="btn btn-sm" onclick="loadDatabases()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Tipo</th><th>Usuario</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+              <tbody id="databases-table">
+                <tr><td colspan="6" class="empty-state">Sin bases de datos aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── FILES ── -->
+      <div class="page" id="page-files">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-folders"></i> Gestor de archivos</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:1rem">
+            <input type="text" id="file-path" value="/var/www" style="flex:1;background:var(--bg-app);border:1px solid var(--border2);color:var(--text-primary);padding:8px 12px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:13px;outline:none">
+            <button class="btn" onclick="loadFiles()"><i class="ti ti-arrow-right"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Tipo</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
+              <tbody id="files-table"><tr><td colspan="5" class="empty-state">Navega a un directorio</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── FIREWALL ── -->
+      <div class="page" id="page-firewall">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-rule')">
+            <i class="ti ti-plus"></i> Nueva regla
+          </button>
+          <button class="btn btn-sm" onclick="loadFirewall()"><i class="ti ti-refresh"></i></button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-shield-lock"></i> Reglas del Firewall UFW</div>
+            <div id="ufw-status" class="badge badge-green">Activo</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Destino</th><th>Acción</th><th>Desde</th><th>Acciones</th></tr></thead>
+              <tbody id="firewall-table"><tr><td colspan="5" class="empty-state">Cargando reglas...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SSL ── -->
+      <div class="page" id="page-ssl">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-certificate"></i> Certificados SSL — Let's Encrypt</div>
+          </div>
+          <p style="color:var(--text-muted);font-size:13px;margin-bottom:1.5rem">Instala certificados SSL gratuitos para tus dominios. El dominio debe apuntar a este servidor.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Dominio</th><th>SSL activo</th><th>Acciones</th></tr></thead>
+              <tbody id="ssl-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LOGS ── -->
+      <div class="page" id="page-logs">
+        <div class="tabs">
+          <div class="tab active" onclick="loadLog('nginx_access',this)">Nginx Access</div>
+          <div class="tab" onclick="loadLog('nginx_error',this)">Nginx Error</div>
+          <div class="tab" onclick="loadLog('system',this)">Sistema</div>
+        </div>
+        <div class="card">
+          <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Selecciona un log para verlo...</pre>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div><!-- /app -->
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- New Website -->
+<div class="modal-overlay" id="modal-new-site">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-world" style="color:var(--accent)"></i> Nuevo sitio web</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-site')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Dominio</label><input type="text" id="site-domain" placeholder="ejemplo.com"></div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="site-type">
+          <option value="html">HTML estático</option>
+          <option value="php">PHP</option>
+          <option value="nodejs">Node.js (proxy)</option>
+          <option value="react">React (build)</option>
+          <option value="python">Python (proxy)</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><input type="checkbox" id="site-php"> Habilitar PHP</label>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="site-ssl"> SSL automático</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-site')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createWebsite()"><i class="ti ti-plus"></i> Crear sitio</button>
+    </div>
+  </div>
+</div>
+
+<!-- New App -->
+<div class="modal-overlay" id="modal-new-app">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Nueva aplicación</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-app')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre de la app</label><input type="text" id="app-name" placeholder="mi-api"></div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="app-type">
+          <option value="nodejs">Node.js</option>
+          <option value="typescript">TypeScript</option>
+          <option value="react">React</option>
+          <option value="python">Python</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Ruta del proyecto</label><input type="text" id="app-path" placeholder="/var/www/mi-api"></div>
+      <div class="form-group"><label>Comando de inicio</label><input type="text" id="app-cmd" placeholder="server.js o app.py"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Puerto</label><input type="number" id="app-port" placeholder="3000"></div>
+        <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain" placeholder="api.ejemplo.com"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-app')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createApp()"><i class="ti ti-player-play"></i> Iniciar app</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Database -->
+<div class="modal-overlay" id="modal-new-db">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-database" style="color:var(--accent)"></i> Nueva base de datos</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-db')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Motor</label>
+        <select id="db-type">
+          <option value="mysql">MySQL</option>
+          <option value="postgresql">PostgreSQL</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Nombre de la BD</label><input type="text" id="db-name" placeholder="mi_base_datos"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="db-user" placeholder="Auto-generado"></div>
+        <div class="form-group"><label>Contraseña (opcional)</label><input type="password" id="db-pass" placeholder="Auto-generada"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-db')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createDatabase()"><i class="ti ti-plus"></i> Crear BD</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Firewall Rule -->
+<div class="modal-overlay" id="modal-new-rule">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Nueva regla de firewall</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-rule')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>Acción</label>
+          <select id="rule-action"><option value="allow">ALLOW (permitir)</option><option value="deny">DENY (bloquear)</option></select>
+        </div>
+        <div class="form-group"><label>Puerto</label><input type="text" id="rule-port" placeholder="80, 443, 3000..."></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Protocolo</label>
+          <select id="rule-proto"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="">Ambos</option></select>
+        </div>
+        <div class="form-group"><label>Desde IP (vacío = any)</label><input type="text" id="rule-from" placeholder="0.0.0.0/0"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-rule')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createRule()"><i class="ti ti-shield-check"></i> Añadir regla</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// TXPL Frontend Logic
+// ════════════════════════════════════════════════════════════
+
+const API = window.location.origin;
+let TOKEN = localStorage.getItem('txpl_token') || '';
+let statsWS = null;
+let currentPage = 'dashboard';
+
+// ── Helpers ──────────────────────────────────────────────────
+async function req(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + '/api' + path, opts);
+  if (r.status === 401) { doLogout(); return; }
+  return r.json();
+}
+
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function fmtBytes(b) {
+  if (!b || b === 0) return '0 B';
+  const k = 1024, sz = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return (b / Math.pow(k, i)).toFixed(1) + ' ' + sz[i];
+}
+
+function fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString('es-ES', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open') }
+function closeModal(id) { document.getElementById(id).classList.remove('open') }
+
+// Click outside modal to close
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open') });
+});
+
+// ── Auth ──────────────────────────────────────────────────────
+async function doLogin() {
+  const user = document.getElementById('login-user').value;
+  const pass = document.getElementById('login-pass').value;
+  const data = await fetch(API + '/api/auth/login', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ username: user, password: pass })
+  }).then(r => r.json()).catch(() => ({}));
+
+  if (data.token) {
+    TOKEN = data.token;
+    localStorage.setItem('txpl_token', TOKEN);
+    document.getElementById('user-name').textContent = data.user.username;
+    document.getElementById('user-avatar').textContent = data.user.username[0].toUpperCase();
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('status-badge').style.display = 'flex';
+    initApp();
+  } else {
+    document.getElementById('login-error').style.display = 'block';
+  }
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+function doLogout() {
+  TOKEN = '';
+  localStorage.removeItem('txpl_token');
+  if (statsWS) statsWS.close();
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+// Check existing token on load
+async function checkAuth() {
+  if (!TOKEN) return;
+  const data = await req('GET', '/auth/me');
+  if (data && data.username) {
+    document.getElementById('user-name').textContent = data.username;
+    document.getElementById('user-avatar').textContent = data.username[0].toUpperCase();
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('status-badge').style.display = 'flex';
+    initApp();
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────
+function navigate(el) {
+  const page = el.dataset.page;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+
+  const titles = {
+    dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
+    websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
+    files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL'
+  };
+  document.getElementById('page-title').textContent = titles[page] || page;
+  currentPage = page;
+
+  if (page === 'websites') loadWebsites();
+  if (page === 'apps') loadApps();
+  if (page === 'databases') loadDatabases();
+  if (page === 'firewall') loadFirewall();
+  if (page === 'files') loadFiles();
+  if (page === 'ssl') loadSSL();
+}
+
+// ── Init ──────────────────────────────────────────────────────
+function initApp() {
+  loadDashboard();
+  connectStatsWS();
+  loadServices();
+  loadProcesses();
+}
+
+// ── Stats WebSocket ───────────────────────────────────────────
+function connectStatsWS() {
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${wsProto}://${location.host}/ws/stats?token=${TOKEN}`;
+  statsWS = new WebSocket(wsUrl);
+
+  statsWS.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type !== 'stats') return;
+
+    // CPU
+    document.getElementById('cpu-val').textContent = d.cpu;
+    document.getElementById('cpu-bar').style.width = d.cpu + '%';
+    document.getElementById('cpu-bar').style.background = d.cpu > 80 ? 'var(--red)' : d.cpu > 60 ? 'var(--yellow)' : 'var(--accent)';
+
+    // MEM
+    document.getElementById('mem-val').textContent = d.memory.percent;
+    document.getElementById('mem-bar').style.width = d.memory.percent + '%';
+    document.getElementById('mem-detail').textContent = `${fmtBytes(d.memory.used)} / ${fmtBytes(d.memory.total)}`;
+
+    // NET
+    document.getElementById('net-rx').textContent = fmtBytes(d.network.rx) + '/s';
+    document.getElementById('net-tx').textContent = fmtBytes(d.network.tx) + '/s';
+  };
+
+  statsWS.onclose = () => setTimeout(connectStatsWS, 5000);
+}
+
+// ── Dashboard ─────────────────────────────────────────────────
+async function loadDashboard() {
+  const data = await req('GET', '/system/stats');
+  if (!data) return;
+
+  // Disk
+  const mainDisk = data.disk.find(d => d.mount === '/') || data.disk[0];
+  if (mainDisk) {
+    document.getElementById('disk-val').textContent = Math.round(mainDisk.percent);
+    document.getElementById('disk-bar').style.width = mainDisk.percent + '%';
+    document.getElementById('disk-detail').textContent = `${fmtBytes(mainDisk.used)} / ${fmtBytes(mainDisk.size)}`;
+  }
+
+  // OS Info
+  const os = data.os;
+  document.getElementById('server-hostname').textContent = os.hostname;
+  document.getElementById('uptime-display').textContent = `↑ ${Math.floor(os.uptime / 3600)}h ${Math.floor((os.uptime % 3600) / 60)}m`;
+
+  const osGrid = document.getElementById('os-info');
+  const items = [
+    { icon: 'ti-server', label: 'Hostname', value: os.hostname },
+    { icon: 'ti-brand-ubuntu', label: 'Sistema', value: `${os.distro} ${os.release}` },
+    { icon: 'ti-cpu', label: 'Arquitectura', value: os.arch },
+    { icon: 'ti-clock', label: 'Uptime', value: `${Math.floor(os.uptime / 3600)}h ${Math.floor((os.uptime % 3600)/60)}m` },
+  ];
+  osGrid.innerHTML = items.map(i => `
+    <div style="background:var(--bg-card2);border-radius:var(--radius-sm);padding:12px;border:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">
+        <i class="ti ${i.icon}" style="font-size:14px;color:var(--accent)"></i>${i.label}
+      </div>
+      <div style="font-size:14px;font-weight:600">${i.value}</div>
+    </div>
+  `).join('');
+}
+
+// ── Services ──────────────────────────────────────────────────
+async function loadServices() {
+  const data = await req('GET', '/system/services');
+  if (!data) return;
+  const list = document.getElementById('services-list');
+  const icons = { nginx: 'ti-layout', mysql: 'ti-database', postgresql: 'ti-elephant', redis: 'ti-bolt', ssh: 'ti-key' };
+  list.innerHTML = data.map(s => `
+    <div class="service-row">
+      <div class="service-name">
+        <i class="ti ${icons[s.name] || 'ti-server'}" style="color:var(--accent);font-size:16px"></i>
+        ${s.name.charAt(0).toUpperCase() + s.name.slice(1)}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${s.status === 'running' ? 'badge-green' : 'badge-red'}">${s.status === 'running' ? 'Activo' : 'Parado'}</span>
+        <div class="service-actions">
+          ${s.status === 'running'
+            ? `<button class="btn btn-sm btn-danger" onclick="svcAction('${s.name}','stop')"><i class="ti ti-player-stop"></i></button>
+               <button class="btn btn-sm" onclick="svcAction('${s.name}','restart')"><i class="ti ti-refresh"></i></button>`
+            : `<button class="btn btn-sm btn-success" onclick="svcAction('${s.name}','start')"><i class="ti ti-player-play"></i></button>`}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function svcAction(name, action) {
+  toast(`${action} ${name}...`, 'info');
+  const r = await req('POST', `/system/service/${name}/${action}`);
+  if (r?.success) { toast(`${name} ${action} correcto`, 'success'); loadServices(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+// ── Processes ─────────────────────────────────────────────────
+async function loadProcesses() {
+  const data = await req('GET', '/system/processes');
+  if (!data) return;
+  const tb = document.getElementById('procs-table');
+  tb.innerHTML = data.slice(0,10).map(p => `
+    <tr>
+      <td style="color:var(--text-muted);font-family:var(--mono)">${p.pid}</td>
+      <td style="font-weight:500">${p.name}</td>
+      <td><span style="color:${p.cpu > 50 ? 'var(--red)' : p.cpu > 20 ? 'var(--yellow)' : 'var(--green)'}">${p.cpu.toFixed(1)}%</span></td>
+      <td>${p.mem.toFixed(1)}%</td>
+    </tr>
+  `).join('');
+}
+
+// ── Websites ──────────────────────────────────────────────────
+async function loadWebsites() {
+  const data = await req('GET', '/websites');
+  if (!data) return;
+  const tb = document.getElementById('websites-table');
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-world-off"></i><br>Sin sitios web aún</td></tr>'; return; }
+  tb.innerHTML = data.map(s => `
+    <tr>
+      <td><span class="domain-pill">${s.domain}</span></td>
+      <td><span class="badge badge-purple">${s.type}</span></td>
+      <td>${s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
+      <td><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${s.status}</span></td>
+      <td style="color:var(--text-muted)">${fmtDate(s.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="window.open('http://${s.domain}','_blank')"><i class="ti ti-external-link"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  // Llenar tabla SSL
+  document.getElementById('ssl-table').innerHTML = data.map(s => `
+    <tr>
+      <td><span class="domain-pill">${s.domain}</span></td>
+      <td>${s.ssl ? '<span class="badge badge-green">🔒 Activo</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
+      <td>
+        ${!s.ssl ? `<button class="btn btn-sm btn-primary" onclick="installSSL(${s.id})"><i class="ti ti-certificate"></i> Instalar SSL</button>` : '<span style="color:var(--text-muted);font-size:12px">Renovación automática</span>'}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function createWebsite() {
+  const domain = document.getElementById('site-domain').value.trim();
+  if (!domain) { toast('Introduce un dominio', 'error'); return; }
+  toast('Creando sitio web...', 'info');
+  const r = await req('POST', '/websites', {
+    domain, type: document.getElementById('site-type').value,
+    php: document.getElementById('site-php').checked,
+    ssl: document.getElementById('site-ssl').checked
+  });
+  if (r?.success) { toast(`Sitio ${domain} creado`, 'success'); closeModal('modal-new-site'); loadWebsites(); }
+  else toast(r?.error || 'Error al crear sitio', 'error');
+}
+
+async function deleteWebsite(id) {
+  if (!confirm('¿Eliminar este sitio web?')) return;
+  const r = await req('DELETE', `/websites/${id}`);
+  if (r?.success) { toast('Sitio eliminado', 'success'); loadWebsites(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function installSSL(id) {
+  toast('Instalando certificado SSL...', 'info');
+  const r = await req('POST', `/websites/${id}/ssl`);
+  if (r?.success) { toast('SSL instalado correctamente', 'success'); loadWebsites(); }
+  else toast(r?.error || 'Error al instalar SSL', 'error');
+}
+
+// ── Apps ──────────────────────────────────────────────────────
+async function loadApps() {
+  const data = await req('GET', '/apps');
+  if (!data) return;
+  const tb = document.getElementById('apps-table');
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-brand-nodejs"></i><br>Sin aplicaciones aún</td></tr>'; return; }
+
+  const typeColors = { nodejs:'badge-green', typescript:'badge-blue', react:'badge-blue', python:'badge-yellow' };
+  tb.innerHTML = data.map(a => `
+    <tr>
+      <td style="font-weight:600">${a.name}</td>
+      <td><span class="badge ${typeColors[a.type]||'badge-purple'}">${a.type}</span></td>
+      <td style="font-family:var(--mono);color:var(--cyan)">${a.port || '—'}</td>
+      <td><span class="badge ${a.status==='running'?'badge-green':'badge-red'}">${a.status}</span></td>
+      <td>${a.domain ? `<span class="domain-pill">${a.domain}</span>` : '—'}</td>
+      <td>
+        <div style="display:flex;gap:5px">
+          ${a.status==='running'
+            ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop')" title="Parar"><i class="ti ti-player-stop"></i></button>
+               <button class="btn btn-sm" onclick="appAction(${a.id},'restart')" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
+            : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i></button>`}
+          <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function createApp() {
+  const name = document.getElementById('app-name').value.trim();
+  if (!name) { toast('Nombre requerido', 'error'); return; }
+  toast('Iniciando aplicación...', 'info');
+  const r = await req('POST', '/apps', {
+    name, type: document.getElementById('app-type').value,
+    path: document.getElementById('app-path').value,
+    startCmd: document.getElementById('app-cmd').value,
+    port: document.getElementById('app-port').value,
+    domain: document.getElementById('app-domain').value
+  });
+  if (r?.success) { toast(`App ${name} iniciada`, 'success'); closeModal('modal-new-app'); loadApps(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function appAction(id, action) {
+  const r = await req('POST', `/apps/${id}/${action}`);
+  if (r?.success) { toast(`Acción ${action} completada`, 'success'); loadApps(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function viewAppLogs(id, name) {
+  const r = await req('GET', `/apps/${id}/logs`);
+  document.getElementById('log-output').textContent = r?.logs || 'Sin logs';
+  navigate(document.querySelector('[data-page=logs]'));
+}
+
+// ── Databases ─────────────────────────────────────────────────
+async function loadDatabases() {
+  const data = await req('GET', '/databases');
+  if (!data) return;
+  const tb = document.getElementById('databases-table');
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
+  tb.innerHTML = data.map(d => `
+    <tr>
+      <td style="font-weight:600;font-family:var(--mono)">${d.name}</td>
+      <td><span class="badge ${d.type==='mysql'?'badge-blue':'badge-purple'}">${d.type}</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${d.db_user}</td>
+      <td><span class="badge badge-green">${d.status}</span></td>
+      <td style="color:var(--text-muted)">${fmtDate(d.created_at)}</td>
+      <td>
+        <button class="btn btn-sm" onclick="copyText('${d.db_password}')" title="Copiar contraseña"><i class="ti ti-copy"></i></button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function createDatabase() {
+  const name = document.getElementById('db-name').value.trim();
+  if (!name) { toast('Nombre de BD requerido', 'error'); return; }
+  toast('Creando base de datos...', 'info');
+  const r = await req('POST', '/databases', {
+    type: document.getElementById('db-type').value, name,
+    user: document.getElementById('db-user').value,
+    password: document.getElementById('db-pass').value
+  });
+  if (r?.success) {
+    toast(`BD ${name} creada. Usuario: ${r.user}`, 'success');
+    closeModal('modal-new-db'); loadDatabases();
+  } else toast(r?.error || 'Error', 'error');
+}
+
+// ── Files ─────────────────────────────────────────────────────
+async function loadFiles() {
+  const path = document.getElementById('file-path').value;
+  const data = await req('GET', `/files?path=${encodeURIComponent(path)}`);
+  if (!data) return;
+  const tb = document.getElementById('files-table');
+  const items = data.items || [];
+  if (!items.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-state">Directorio vacío</td></tr>'; return; }
+
+  tb.innerHTML = `
+    <tr>
+      <td colspan="5">
+        <button class="btn btn-sm" onclick="goUp('${path}')"><i class="ti ti-arrow-up"></i> Subir un nivel</button>
+      </td>
+    </tr>
+    ${items.map(f => `
+      <tr>
+        <td>
+          <span style="cursor:pointer;color:${f.type==='directory'?'var(--accent)':'var(--text-primary)'};display:flex;align-items:center;gap:8px"
+            onclick="${f.type==='directory' ? `browseDir('${f.path}')` : ''}">
+            <i class="ti ${f.type==='directory'?'ti-folder':'ti-file'}" style="font-size:16px"></i>
+            ${f.name}
+          </span>
+        </td>
+        <td>${f.type}</td>
+        <td>${f.type==='file' ? fmtBytes(f.size) : '—'}</td>
+        <td style="color:var(--text-muted)">${fmtDate(f.modified)}</td>
+        <td>
+          <div style="display:flex;gap:5px">
+            ${f.type==='file' ? `<button class="btn btn-sm" onclick="editFile('${f.path}')"><i class="ti ti-edit"></i></button>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="deleteFile('${f.path}')"><i class="ti ti-trash"></i></button>
+          </div>
+        </td>
+      </tr>
+    `).join('')}
+  `;
+}
+
+function browseDir(path) {
+  document.getElementById('file-path').value = path;
+  loadFiles();
+}
+
+function goUp(path) {
+  const parts = path.split('/');
+  parts.pop();
+  browseDir(parts.join('/') || '/');
+}
+
+async function deleteFile(path) {
+  if (!confirm(`¿Eliminar ${path}?`)) return;
+  const r = await req('DELETE', '/files', { path });
+  if (r?.success) { toast('Eliminado', 'success'); loadFiles(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function editFile(path) {
+  const r = await req('GET', `/files/read?path=${encodeURIComponent(path)}`);
+  const content = prompt(`Editando: ${path}\n\n(Esto es un editor simple — próximamente editor completo)`, r?.content || '');
+  if (content !== null) {
+    const wr = await req('POST', '/files/write', { path, content });
+    if (wr?.success) toast('Guardado', 'success');
+    else toast(wr?.error || 'Error', 'error');
+  }
+}
+
+// ── Firewall ──────────────────────────────────────────────────
+async function loadFirewall() {
+  const data = await req('GET', '/firewall');
+  if (!data) return;
+  document.getElementById('ufw-status').className = `badge ${data.enabled ? 'badge-green' : 'badge-red'}`;
+  document.getElementById('ufw-status').textContent = data.enabled ? 'Activo' : 'Inactivo';
+
+  const tb = document.getElementById('firewall-table');
+  const rules = (data.rules || []).filter(r => r.num);
+  if (!rules.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-state">Sin reglas</td></tr>'; return; }
+  tb.innerHTML = rules.map(r => `
+    <tr>
+      <td style="color:var(--text-muted);font-family:var(--mono)">${r.num}</td>
+      <td style="font-weight:500">${r.to}</td>
+      <td><span class="badge ${r.action==='ALLOW'?'badge-green':'badge-red'}">${r.action}</span></td>
+      <td style="color:var(--text-muted)">${r.from || 'Anywhere'}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteRule(${r.num})"><i class="ti ti-trash"></i></button></td>
+    </tr>
+  `).join('');
+}
+
+async function createRule() {
+  const r = await req('POST', '/firewall/rule', {
+    action: document.getElementById('rule-action').value,
+    port: document.getElementById('rule-port').value,
+    protocol: document.getElementById('rule-proto').value,
+    from: document.getElementById('rule-from').value
+  });
+  if (r?.success) { toast('Regla añadida', 'success'); closeModal('modal-new-rule'); loadFirewall(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+async function deleteRule(num) {
+  if (!confirm('¿Eliminar esta regla?')) return;
+  const r = await req('DELETE', `/firewall/rule/${num}`);
+  if (r?.success) { toast('Regla eliminada', 'success'); loadFirewall(); }
+  else toast(r?.error || 'Error', 'error');
+}
+
+// ── SSL ───────────────────────────────────────────────────────
+async function loadSSL() {
+  await loadWebsites();
+}
+
+// ── Logs ──────────────────────────────────────────────────────
+async function loadLog(type, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const r = await req('GET', `/logs/${type}`);
+  document.getElementById('log-output').textContent = r?.logs || 'Log no disponible';
+  const logEl = document.getElementById('log-output');
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Terminal ──────────────────────────────────────────────────
+function initTerminal() {
+  const out = document.getElementById('terminal-output');
+  out.innerHTML = '<span style="color:var(--yellow)">Conectando a terminal...</span>\n';
+
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${TOKEN}`);
+
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'output') {
+      out.innerHTML += d.data.replace(/\n/g, '<br>');
+      out.scrollTop = out.scrollHeight;
+    }
+  };
+
+  ws.onopen = () => {
+    out.innerHTML += '<span style="color:var(--green)">Terminal conectada ✓</span>\n\n';
+
+    // Input handler
+    document.addEventListener('keydown', function termKeyHandler(e) {
+      if (currentPage !== 'terminal') return;
+      if (ws.readyState !== 1) { document.removeEventListener('keydown', termKeyHandler); return; }
+      ws.send(JSON.stringify({ type: 'input', data: e.key === 'Enter' ? '\r' : e.key === 'Backspace' ? '\x7f' : e.key.length === 1 ? e.key : '' }));
+    });
+  };
+
+  ws.onerror = () => out.innerHTML += '<span style="color:var(--red)">Error de conexión. Instala node-pty en el servidor.</span>';
+}
+
+// ── Utils ─────────────────────────────────────────────────────
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Copiado al portapapeles', 'success'));
+}
+
+// ── Init ──────────────────────────────────────────────────────
+checkAuth();
+
+// Auto-refresh stats cada 30s
+setInterval(() => {
+  if (currentPage === 'dashboard') { loadServices(); loadProcesses(); }
+}, 30000);
+</script>
+</body>
+</html>
