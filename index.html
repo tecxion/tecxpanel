@@ -1482,12 +1482,21 @@ async function loadFiles() {
 }
 
 function updateBreadcrumb(path) {
-  const parts = path.split('/').filter(p => p);
+  const SITES_DIR = '/var/www';
+  let relativePath = path === SITES_DIR ? '' : path.substring(SITES_DIR.length);
+  relativePath = relativePath.replace(/^\/+/, '');
+
+  if (!relativePath) {
+    document.getElementById('file-breadcrumb').innerHTML = '<span style="color:var(--text-muted)">/ var / www</span>';
+    return;
+  }
+
+  const parts = relativePath.split('/').filter(p => p);
   const crumbs = parts.map((part, i) => {
-    const fullPath = '/' + parts.slice(0, i + 1).join('/');
-    return `<a href="#" onclick="event.preventDefault();browseDir('${fullPath}')" style="color:var(--accent);text-decoration:none;cursor:pointer">${esc(part)}</a>`;
+    const subPath = SITES_DIR + '/' + parts.slice(0, i + 1).join('/');
+    return `<a href="#" onclick="event.preventDefault();browseDir('${subPath}')" style="color:var(--accent);text-decoration:none;cursor:pointer">${esc(part)}</a>`;
   }).join(' <span style="color:var(--text-muted)">/</span> ');
-  document.getElementById('file-breadcrumb').innerHTML = crumbs ? `<span style="color:var(--text-muted)">/</span> ${crumbs}` : '';
+  document.getElementById('file-breadcrumb').innerHTML = `<span style="color:var(--text-muted)">/ var / www /</span> ${crumbs}`;
 }
 
 function getFileIcon(filename) {
