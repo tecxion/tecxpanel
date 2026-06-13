@@ -8,36 +8,38 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>
 /* ── Reset & Variables ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg-app:#f0f4f8;
-  --bg-sidebar:#ffffff;
-  --bg-card:#ffffff;
-  --bg-card2:#f7f9fc;
-  --bg-hover:#edf2f7;
-  --border:#dde3ec;
-  --border2:#c8d3e0;
-  --accent:#1a6ef5;
-  --accent2:#0f56d1;
-  --accent-glow:rgba(26,110,245,0.10);
-  --text-primary:#0d1b2a;
-  --text-secondary:#4a5568;
-  --text-muted:#90a0b0;
-  --green:#0e9e6e;
-  --red:#d93025;
-  --yellow:#e67e22;
-  --blue:#1a6ef5;
-  --cyan:#4aa3df;
+  --bg-app:#050505;
+  --bg-sidebar:#0a0a0a;
+  --bg-card:#0a0a0a;
+  --bg-card2:#111111;
+  --bg-hover:#1a1a1a;
+  --border:#1f1f1f;
+  --border2:#333333;
+  --accent:#00FF41;
+  --accent2:#00cc33;
+  --accent-glow:rgba(0, 255, 65, 0.10);
+  --text-primary:#f3f4f6;
+  --text-secondary:#9ca3af;
+  --text-muted:#6b7280;
+  --green:#00FF41;
+  --red:#ef4444;
+  --yellow:#FFB000;
+  --blue:#3b82f6;
+  --cyan:#06b6d4;
   --font:'Inter',system-ui,sans-serif;
   --mono:'JetBrains Mono',monospace;
+  --display:'Space Grotesk',sans-serif;
   --sidebar-w:240px;
-  --radius:10px;
-  --radius-sm:6px;
-  --radius-lg:14px;
+  --radius:8px;
+  --radius-sm:4px;
+  --radius-lg:12px;
   --transition:0.18s ease;
 }
 
@@ -96,10 +98,11 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
   border-bottom:1px solid var(--border);
 }
 .logo-txpl{
-  font-size:1.5rem;font-weight:800;letter-spacing:-1px;
-  color:var(--accent);
+  font-size:1.6rem;font-family:var(--display);font-weight:700;letter-spacing:-1px;
+  color:var(--text-primary);
 }
-.logo-sub{font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.logo-txpl span{color:var(--accent)}
+.logo-sub{font-size:10px;font-family:var(--mono);color:var(--accent);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
 
 .sidebar-section{
   padding:1rem 0.75rem 0.25rem;
@@ -140,8 +143,8 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
 .user-role{font-size:11px;color:var(--text-muted)}
 
 /* ── Topbar ── */
-.topbar-title{font-size:15px;font-weight:600;color:var(--text-primary)}
-.topbar-subtitle{font-size:12px;color:var(--text-muted);margin-left:auto}
+.topbar-title{font-size:16px;font-family:var(--display);font-weight:700;letter-spacing:-0.5px;color:var(--text-primary)}
+.topbar-subtitle{font-size:12px;font-family:var(--mono);color:var(--text-muted);margin-left:auto}
 .btn{
   display:inline-flex;align-items:center;gap:6px;padding:7px 14px;
   border-radius:var(--radius-sm);font-size:13px;font-weight:500;
@@ -158,7 +161,7 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
 /* ── Cards ── */
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
-.card-title{font-size:13.5px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px}
+.card-title{font-size:14px;font-family:var(--display);font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px}
 .card-title i{color:var(--accent);font-size:17px}
 
 /* ── Stat Cards ── */
@@ -335,6 +338,10 @@ canvas.sparkline{width:100%;height:60px}
       <label>Contraseña</label>
       <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
     </div>
+    <div class="login-field" id="login-2fa-field" style="display:none">
+      <label>Código 2FA</label>
+      <input type="text" id="login-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+    </div>
     <button class="login-btn" onclick="doLogin()">Iniciar sesión</button>
     <p class="login-error" id="login-error">Credenciales incorrectas</p>
   </div>
@@ -346,7 +353,7 @@ canvas.sparkline{width:100%;height:60px}
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <div class="logo-txpl">TecXPaneL</div>
+      <div class="logo-txpl">TecXPaneL<span>.</span></div>
       <div class="logo-sub">VPS Control Panel</div>
     </div>
 
@@ -381,6 +388,14 @@ canvas.sparkline{width:100%;height:60px}
     </div>
     <div class="nav-item" data-page="ssl" onclick="navigate(this)">
       <i class="ti ti-certificate"></i> SSL / HTTPS
+    </div>
+    <div class="nav-item" data-page="plugins" onclick="navigate(this)">
+      <i class="ti ti-puzzle"></i> Plugins
+    </div>
+
+    <div class="sidebar-section">Ayuda</div>
+    <div class="nav-item" data-page="help" onclick="navigate(this)">
+      <i class="ti ti-book"></i> Manual de uso
     </div>
 
     <div class="sidebar-bottom">
@@ -639,6 +654,85 @@ canvas.sparkline{width:100%;height:60px}
         </div>
       </div>
 
+      <!-- ── PLUGINS ── -->
+      <div class="page" id="page-plugins">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-puzzle"></i> Plugins del servidor</div>
+            <button class="btn btn-sm" onclick="loadPlugins()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <p style="color:var(--text-secondary);margin-bottom:1rem;font-size:13px">
+            Instala software adicional en tu VPS directamente desde el panel, sin usar la terminal.
+          </p>
+          <div id="plugins-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+            <div class="empty-state"><i class="ti ti-loader"></i> Cargando plugins...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── HELP ── -->
+      <div class="page" id="page-help">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-book"></i> Manual de uso de TecXPaneL</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.9">
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-layout-dashboard" style="color:var(--accent)"></i> Dashboard</h3>
+            <p>Muestra el estado del servidor en tiempo real: uso de CPU, RAM, disco y red. Tambi&eacute;n ves los servicios activos (Nginx, MySQL, etc.) y los procesos que m&aacute;s recursos consumen. Los datos se actualizan autom&aacute;ticamente cada pocos segundos.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Terminal</h3>
+            <p>Una terminal SSH real dentro del navegador. Puedes ejecutar cualquier comando como si estuvieras conectado por SSH. Pulsa <strong>Conectar</strong> para abrir la sesi&oacute;n. Soporta colores, autocompletado y todo lo que har&iacute;as en una terminal normal.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios web</h3>
+            <p>Crea y gestiona sitios web alojados en tu VPS. Puedes crear sitios de tipo:</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>HTML est&aacute;tico</strong> &mdash; p&aacute;ginas simples sin backend.</li>
+              <li><strong>PHP</strong> &mdash; WordPress, Laravel y cualquier app PHP. Puedes elegir la versi&oacute;n de PHP.</li>
+              <li><strong>Node.js / React / Python</strong> &mdash; se configura como proxy inverso hacia tu app.</li>
+            </ul>
+            <p><strong>Sin dominio:</strong> Si no tienes un dominio, marca &laquo;Acceso por IP:Puerto&raquo; y el panel asignar&aacute; un puerto autom&aacute;ticamente. Podr&aacute;s acceder al sitio desde <code>http://tu-ip:puerto</code>.</p>
+            <p><strong>Con dominio:</strong> Introduce tu dominio (ej: <code>ejemplo.com</code>). Recuerda crear un registro A apuntando a la IP de tu VPS. Luego puedes instalar SSL desde la secci&oacute;n SSL/HTTPS.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Aplicaciones</h3>
+            <p>Despliega aplicaciones Node.js, Python, TypeScript o React gestionadas por PM2. El panel se encarga de mantenerlas vivas y reiniciarlas si se caen.</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>Ruta del proyecto:</strong> la carpeta donde est&aacute; tu c&oacute;digo (ej: <code>/var/www/mi-api</code>).</li>
+              <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>).</li>
+              <li><strong>Puerto:</strong> en qu&eacute; puerto escucha tu app (informativo, para configurar el proxy).</li>
+            </ul>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-database" style="color:var(--accent)"></i> Bases de datos</h3>
+            <p>Crea bases de datos MySQL (MariaDB) o PostgreSQL con un clic. El panel genera autom&aacute;ticamente un usuario y contrase&ntilde;a seguros. Las contrase&ntilde;as se almacenan cifradas y puedes copiarlas con el bot&oacute;n de copiar.</p>
+            <p><strong>Requisito:</strong> el motor de BD debe estar instalado. Si no lo instalaste durante el setup, puedes hacerlo desde <strong>Plugins</strong>.</p>
+            <p><strong>phpMyAdmin:</strong> para gestionar tus bases de datos visualmente, instala phpMyAdmin desde Plugins. Estar&aacute; accesible en el puerto 8081.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-folders" style="color:var(--accent)"></i> Gestor de archivos</h3>
+            <p>Navega, crea, edita y elimina archivos y carpetas dentro de <code>/var/www</code>. Ideal para subir o editar el c&oacute;digo de tus sitios web directamente desde el navegador.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Firewall UFW</h3>
+            <p>Gestiona las reglas del firewall UFW. Por defecto se abren los puertos 22 (SSH), 80 (HTTP) y 443 (HTTPS). Puedes a&ntilde;adir reglas para abrir otros puertos que necesiten tus apps.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-certificate" style="color:var(--accent)"></i> SSL / HTTPS</h3>
+            <p>Instala certificados SSL gratuitos de Let&rsquo;s Encrypt en tus sitios con dominio. El certificado se renueva autom&aacute;ticamente. Requisitos: tener un dominio apuntando a la IP del VPS y Certbot instalado (viene por defecto o se instala desde Plugins).</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-puzzle" style="color:var(--accent)"></i> Plugins</h3>
+            <p>Instala software adicional sin tocar la terminal:</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>Docker</strong> &mdash; contenedores para aislar aplicaciones.</li>
+              <li><strong>phpMyAdmin</strong> &mdash; gestor web para MySQL/MariaDB (puerto 8081).</li>
+              <li><strong>Redis</strong> &mdash; cach&eacute; en memoria para mejorar rendimiento.</li>
+              <li><strong>Fail2Ban</strong> &mdash; protege SSH y otros servicios contra ataques de fuerza bruta.</li>
+              <li><strong>Composer</strong> &mdash; gestor de paquetes PHP (Laravel, WordPress plugins).</li>
+              <li><strong>Certbot</strong> &mdash; certificados SSL gratuitos.</li>
+            </ul>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes</h3>
+            <p>Cambia tu contrase&ntilde;a de acceso al panel. La contrase&ntilde;a debe tener al menos 8 caracteres.</p>
+          </div>
+        </div>
+      </div>
+
       <!-- ── SETTINGS ── -->
       <div class="page" id="page-settings">
         <div class="overview-grid">
@@ -683,22 +777,44 @@ canvas.sparkline{width:100%;height:60px}
       <button class="btn btn-sm" onclick="closeModal('modal-new-site')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label>Dominio</label><input type="text" id="site-domain" placeholder="ejemplo.com"></div>
+      <div class="form-group">
+        <label>Modo de acceso</label>
+        <select id="site-mode" onchange="toggleSiteMode()">
+          <option value="domain">Con dominio (ejemplo.com)</option>
+          <option value="port">Sin dominio &mdash; acceso por IP:Puerto</option>
+        </select>
+      </div>
+      <div id="site-domain-group" class="form-group">
+        <label id="site-domain-label">Dominio</label>
+        <input type="text" id="site-domain" placeholder="ejemplo.com">
+        <div id="site-domain-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+      </div>
       <div class="form-group"><label>Tipo</label>
-        <select id="site-type">
-          <option value="html">HTML estático</option>
+        <select id="site-type" onchange="togglePhpVersion()">
+          <option value="html">HTML est&aacute;tico</option>
           <option value="php">PHP</option>
           <option value="nodejs">Node.js (proxy)</option>
           <option value="react">React (build)</option>
           <option value="python">Python (proxy)</option>
         </select>
       </div>
+      <div class="form-group" id="site-php-version-group" style="display:none">
+        <label>Versi&oacute;n de PHP</label>
+        <select id="site-php-version">
+          <option value="">Auto-detectar</option>
+          <option value="8.3">PHP 8.3</option>
+          <option value="8.2">PHP 8.2</option>
+          <option value="8.1">PHP 8.1</option>
+          <option value="8.0">PHP 8.0</option>
+          <option value="7.4">PHP 7.4</option>
+        </select>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label><input type="checkbox" id="site-php"> Habilitar PHP</label>
         </div>
-        <div class="form-group">
-          <label><input type="checkbox" id="site-ssl"> SSL automático</label>
+        <div class="form-group" id="site-ssl-group">
+          <label><input type="checkbox" id="site-ssl"> SSL autom&aacute;tico</label>
         </div>
       </div>
     </div>
@@ -726,10 +842,22 @@ canvas.sparkline{width:100%;height:60px}
           <option value="python">Python</option>
         </select>
       </div>
-      <div class="form-group"><label>Ruta del proyecto</label><input type="text" id="app-path" placeholder="/var/www/mi-api"></div>
-      <div class="form-group"><label>Comando de inicio</label><input type="text" id="app-cmd" placeholder="server.js o app.py"></div>
+      <div class="form-group">
+        <label>Ruta del proyecto</label>
+        <input type="text" id="app-path" placeholder="/var/www/mi-api">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Carpeta donde est&aacute; el c&oacute;digo de tu app</div>
+      </div>
+      <div class="form-group">
+        <label>Comando de inicio</label>
+        <input type="text" id="app-cmd" placeholder="npm start">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ejemplos: <code>npm start</code>, <code>npm run dev</code>, <code>server.js</code>, <code>app.py</code></div>
+      </div>
       <div class="form-row">
-        <div class="form-group"><label>Puerto</label><input type="number" id="app-port" placeholder="3000"></div>
+        <div class="form-group">
+          <label>Puerto</label>
+          <input type="number" id="app-port" placeholder="3000">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Puerto en el que escucha tu app</div>
+        </div>
         <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain" placeholder="api.ejemplo.com"></div>
       </div>
     </div>
@@ -807,6 +935,7 @@ const API = window.location.origin;
 let TOKEN = localStorage.getItem('txpl_token') || '';
 let statsWS = null;
 let currentPage = 'dashboard';
+let serverIp = '';
 
 // ── Helpers ──────────────────────────────────────────────────
 async function req(method, path, body) {
@@ -919,7 +1048,7 @@ function navigate(el) {
     dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
     websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
     files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
-    settings: 'Ajustes'
+    plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
@@ -931,6 +1060,7 @@ function navigate(el) {
   if (page === 'firewall') loadFirewall();
   if (page === 'files') loadFiles();
   if (page === 'ssl') loadSSL();
+  if (page === 'plugins') loadPlugins();
   if (page === 'settings') loadSettings();
 }
 
@@ -940,6 +1070,7 @@ function initApp() {
   connectStatsWS();
   loadServices();
   loadProcesses();
+  req('GET', '/system/ip').then(d => { if (d?.ip) serverIp = d.ip; });
 }
 
 // ── Stats WebSocket ───────────────────────────────────────────
@@ -1058,21 +1189,25 @@ async function loadWebsites() {
   if (!data) return;
   const tb = document.getElementById('websites-table');
   if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-world-off"></i><br>Sin sitios web aún</td></tr>'; return; }
-  tb.innerHTML = data.map(s => `
+  tb.innerHTML = data.map(s => {
+    const isPort = !!s.listen_port;
+    const accessUrl = isPort ? `http://${serverIp || location.hostname}:${s.listen_port}` : `http://${s.domain}`;
+    const domainLabel = isPort ? `${esc(s.domain)} <span style="font-size:11px;color:var(--cyan)">:${s.listen_port}</span>` : esc(s.domain);
+    return `
     <tr>
-      <td><span class="domain-pill">${esc(s.domain)}</span></td>
-      <td><span class="badge badge-purple">${esc(s.type)}</span></td>
-      <td>${s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
+      <td><span class="domain-pill">${domainLabel}</span></td>
+      <td><span class="badge badge-purple">${esc(s.type)}${s.php_version ? ' '+esc(s.php_version) : ''}</span></td>
+      <td>${isPort ? '<span class="badge" style="background:#eee;color:#666">IP:Puerto</span>' : s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
       <td><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${esc(s.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(s.created_at)}</td>
       <td>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="window.open('http://' + encodeURIComponent(${JSON.stringify(s.domain)}),'_blank')"><i class="ti ti-external-link"></i></button>
+          <button class="btn btn-sm" onclick="window.open('${accessUrl}','_blank')"><i class="ti ti-external-link"></i></button>
           <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})"><i class="ti ti-trash"></i></button>
         </div>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 
   // Llenar tabla SSL
   document.getElementById('ssl-table').innerHTML = data.map(s => `
@@ -1086,17 +1221,48 @@ async function loadWebsites() {
   `).join('');
 }
 
+function toggleSiteMode() {
+  const mode = document.getElementById('site-mode').value;
+  const label = document.getElementById('site-domain-label');
+  const input = document.getElementById('site-domain');
+  const hint = document.getElementById('site-domain-hint');
+  const sslGroup = document.getElementById('site-ssl-group');
+  if (mode === 'port') {
+    label.textContent = 'Nombre del sitio';
+    input.placeholder = 'mi-web';
+    hint.textContent = 'Se asignará un puerto automáticamente. Accederás vía http://tu-ip:puerto';
+    sslGroup.style.display = 'none';
+  } else {
+    label.textContent = 'Dominio';
+    input.placeholder = 'ejemplo.com';
+    hint.textContent = '';
+    sslGroup.style.display = '';
+  }
+}
+
+function togglePhpVersion() {
+  const type = document.getElementById('site-type').value;
+  document.getElementById('site-php-version-group').style.display = type === 'php' ? '' : 'none';
+}
+
 async function createWebsite() {
   const domain = document.getElementById('site-domain').value.trim();
-  if (!domain) { toast('Introduce un dominio', 'error'); return; }
+  if (!domain) { toast('Introduce un dominio o nombre', 'error'); return; }
+  const usePort = document.getElementById('site-mode').value === 'port';
+  const type = document.getElementById('site-type').value;
+  const phpVersion = type === 'php' ? document.getElementById('site-php-version').value : '';
   toast('Creando sitio web...', 'info');
   const r = await req('POST', '/websites', {
-    domain, type: document.getElementById('site-type').value,
+    domain, type, usePort, phpVersion: phpVersion || undefined,
     php: document.getElementById('site-php').checked,
-    ssl: document.getElementById('site-ssl').checked
+    ssl: !usePort && document.getElementById('site-ssl').checked
   });
-  if (r?.success) { toast(`Sitio ${domain} creado`, 'success'); closeModal('modal-new-site'); loadWebsites(); }
-  else toast(r?.error || 'Error al crear sitio', 'error');
+  if (r?.success) {
+    const msg = r.port ? `Sitio creado. Accede en http://tu-ip:${r.port}` : `Sitio ${domain} creado`;
+    toast(msg, 'success');
+    closeModal('modal-new-site');
+    loadWebsites();
+  } else toast(r?.error || 'Error al crear sitio', 'error');
 }
 
 async function deleteWebsite(id) {
@@ -1433,6 +1599,48 @@ function initTerminal() {
 
   ws.onclose = () => { if (term) term.write('\r\n\x1b[90mConexión cerrada.\x1b[0m\r\n'); };
   ws.onerror = () => { if (term) term.write('\r\n\x1b[31mError de conexión. Verifica node-pty en el servidor.\x1b[0m\r\n'); };
+}
+
+// ── Plugins ──────────────────────────────────────────────────
+async function loadPlugins() {
+  const data = await req('GET', '/plugins');
+  if (!data) return;
+  const grid = document.getElementById('plugins-grid');
+  const icons = { 'brand-docker':'#2496ED', 'database-cog':'#F89820', 'database-heart':'#DC382D', 'shield-lock':'#4CAF50', 'package':'#F28D1A', 'certificate':'#0E9E6E' };
+  grid.innerHTML = data.map(p => `
+    <div style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;display:flex;flex-direction:column;gap:0.5rem">
+      <div style="display:flex;align-items:center;gap:10px">
+        <i class="ti ti-${esc(p.icon)}" style="font-size:24px;color:${icons[p.icon]||'var(--accent)'}"></i>
+        <div>
+          <div style="font-weight:600;font-size:14px">${esc(p.name)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${esc(p.category)}</div>
+        </div>
+        <span class="badge ${p.installed ? 'badge-green' : ''}" style="margin-left:auto">${p.installed ? 'Instalado' : 'No instalado'}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary)">${esc(p.desc)}</div>
+      <div style="margin-top:auto;display:flex;gap:6px">
+        ${p.installed
+          ? `<button class="btn btn-sm btn-danger" onclick="uninstallPlugin('${esc(p.id)}','${esc(p.name)}')"><i class="ti ti-trash"></i> Desinstalar</button>`
+          : `<button class="btn btn-sm btn-primary" onclick="installPlugin('${esc(p.id)}','${esc(p.name)}')"><i class="ti ti-download"></i> Instalar</button>`}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function installPlugin(id, name) {
+  if (!confirm(`¿Instalar ${name}? Esto puede tardar unos minutos.`)) return;
+  toast(`Instalando ${name}... esto puede tardar unos minutos`, 'info');
+  const r = await req('POST', `/plugins/${id}/install`);
+  if (r?.success) { toast(r.message || `${name} instalado`, 'success'); loadPlugins(); }
+  else toast(r?.error || `Error instalando ${name}`, 'error');
+}
+
+async function uninstallPlugin(id, name) {
+  if (!confirm(`¿Desinstalar ${name}?`)) return;
+  toast(`Desinstalando ${name}...`, 'info');
+  const r = await req('POST', `/plugins/${id}/uninstall`);
+  if (r?.success) { toast(r.message || `${name} desinstalado`, 'success'); loadPlugins(); }
+  else toast(r?.error || `Error desinstalando ${name}`, 'error');
 }
 
 // ── Utils ─────────────────────────────────────────────────────

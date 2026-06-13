@@ -38,9 +38,7 @@ dependencias y arranca el panel.
 
 ```bash
 # En el VPS (como root o con sudo):
-git clone https://github.com/TU_USUARIO/tecxpanel.git
-cd tecxpanel
-sudo bash txpl-setup.sh
+git clone https://github.com/TU_USUARIO/tecxpanel.git && cd tecxpanel && sudo bash txpl-setup.sh
 ```
 
 Al terminar imprime la URL del panel y las credenciales generadas (usuario,

@@ -32,6 +32,7 @@ db.exec(`
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'admin',
     totp_secret   TEXT,
+    totp_enabled  INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -78,6 +79,12 @@ db.exec(`
   );
 `);
 
+// ── Migraciones para BDs creadas con versiones anteriores ─────
+// ALTER TABLE lanza si la columna ya existe → se ignora con try/catch.
+try { db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"); } catch (_) { /* ya existe */ }
+try { db.exec("ALTER TABLE websites ADD COLUMN listen_port INTEGER"); } catch (_) {}
+try { db.exec("ALTER TABLE websites ADD COLUMN php_version TEXT"); } catch (_) {}
+
 // ── Seed del usuario admin desde el .env ──────────────────────
 // La contraseña NUNCA se guarda en claro: se almacena el hash bcrypt.
 function seedAdmin() {
@@ -108,16 +115,19 @@ function seedAdmin() {
 const queries = {
   // users
   getUserByName: db.prepare('SELECT * FROM users WHERE username = ?'),
-  getUserById:   db.prepare('SELECT id, username, role, totp_secret FROM users WHERE id = ?'),
+  getUserById:   db.prepare('SELECT id, username, role, totp_secret, totp_enabled FROM users WHERE id = ?'),
   getUserFullById: db.prepare('SELECT * FROM users WHERE id = ?'),
   setPassword:   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?'),
-  setTotp:       db.prepare('UPDATE users SET totp_secret = ? WHERE id = ?'),
+  setTotpSecret: db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?'),
+  enableTotp:    db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?'),
+  disableTotp:   db.prepare('UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?'),
 
   // websites
   listWebsites:  db.prepare('SELECT * FROM websites ORDER BY created_at DESC'),
   getWebsite:    db.prepare('SELECT * FROM websites WHERE id = ?'),
   getWebsiteByDomain: db.prepare('SELECT * FROM websites WHERE domain = ?'),
-  insertWebsite: db.prepare('INSERT INTO websites (domain, type, php, ssl, status) VALUES (@domain, @type, @php, @ssl, @status)'),
+  insertWebsite: db.prepare('INSERT INTO websites (domain, type, php, ssl, status, listen_port, php_version) VALUES (@domain, @type, @php, @ssl, @status, @listen_port, @php_version)'),
+  getMaxListenPort: db.prepare('SELECT MAX(listen_port) as maxPort FROM websites'),
   setWebsiteSsl: db.prepare('UPDATE websites SET ssl = 1 WHERE id = ?'),
   deleteWebsite: db.prepare('DELETE FROM websites WHERE id = ?'),
 

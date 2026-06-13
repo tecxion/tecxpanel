@@ -79,6 +79,81 @@ const RE_IP_CIDR = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
 const isPort = (v) => Number.isInteger(v) && v > 0 && v <= 65535;
 const isValidDomain = (d) => typeof d === 'string' && RE_DOMAIN.test(d);
 
+// ── Cifrado en reposo (AES-256-GCM) ───────────────────────────
+// Para secretos que hay que poder mostrar (contraseñas de BD). La clave se
+// deriva de TXPL_SECRET_KEY (o, en su defecto, de JWT_SECRET) con scrypt.
+const ENC_KEY = crypto.scryptSync(process.env.TXPL_SECRET_KEY || JWT_SECRET, 'txpl-enc-v1', 32);
+function encryptSecret(plain) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENC_KEY, iv);
+  const enc = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()]);
+  return 'enc:v1:' + Buffer.concat([iv, cipher.getAuthTag(), enc]).toString('base64');
+}
+function decryptSecret(stored) {
+  // Tolerante con filas antiguas en texto plano (sin prefijo enc:v1:).
+  if (typeof stored !== 'string' || !stored.startsWith('enc:v1:')) return stored;
+  try {
+    const raw = Buffer.from(stored.slice(7), 'base64');
+    const iv = raw.subarray(0, 12), tag = raw.subarray(12, 28), data = raw.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', ENC_KEY, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+  } catch (_) { return '(no descifrable)'; }
+}
+
+// ── TOTP (2FA) — RFC 6238, SHA-1, 6 dígitos, paso 30s ─────────
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(buf) {
+  let bits = 0, value = 0, out = '';
+  for (const b of buf) {
+    value = (value << 8) | b; bits += 8;
+    while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(str) {
+  const clean = str.replace(/=+$/, '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0; const out = [];
+  for (const c of clean) {
+    value = (value << 5) | B32.indexOf(c); bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+function hotp(keyBuf, counter) {
+  const buf = Buffer.alloc(8); buf.writeBigUInt64BE(BigInt(counter));
+  const h = crypto.createHmac('sha1', keyBuf).update(buf).digest();
+  const off = h[h.length - 1] & 0xf;
+  const code = ((h[off] & 0x7f) << 24) | ((h[off + 1] & 0xff) << 16) | ((h[off + 2] & 0xff) << 8) | (h[off + 3] & 0xff);
+  return (code % 1_000_000).toString().padStart(6, '0');
+}
+function totpVerify(secretB32, token) {
+  if (!secretB32 || !/^\d{6}$/.test(String(token || '').trim())) return false;
+  const key = base32Decode(secretB32);
+  const step = Math.floor(Date.now() / 1000 / 30);
+  for (let w = -1; w <= 1; w++) {           // tolera ±1 ventana (reloj desfasado)
+    if (hotp(key, step + w) === String(token).trim()) return true;
+  }
+  return false;
+}
+
+// ── Bloqueo por intentos fallidos de login (por IP) ───────────
+const LOGIN_MAX_FAILS = 5;
+const LOGIN_LOCK_MS = 15 * 60_000;
+const loginFails = new Map(); // ip -> { count, until }
+function loginLocked(ip) {
+  const e = loginFails.get(ip);
+  return e && e.until && e.until > Date.now();
+}
+function recordLoginFail(ip) {
+  const e = loginFails.get(ip) || { count: 0, until: 0 };
+  e.count++;
+  if (e.count >= LOGIN_MAX_FAILS) e.until = Date.now() + LOGIN_LOCK_MS;
+  loginFails.set(ip, e);
+}
+function clearLoginFails(ip) { loginFails.delete(ip); }
+
 // ── App Express ───────────────────────────────────────────────
 const app = express();
 app.set('trust proxy', 1); // detrás de nginx
@@ -139,7 +214,13 @@ const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
 //  AUTH
 // ════════════════════════════════════════════════════════════
 app.post('/api/auth/login', loginLimiter, wrap(async (req, res) => {
-  const { username, password } = req.body || {};
+  const ip = clientIp(req);
+  if (loginLocked(ip)) {
+    audit(req.body?.username, ip, 'login.locked', null);
+    return fail(res, 429, 'Demasiados intentos fallidos. Cuenta bloqueada temporalmente.');
+  }
+
+  const { username, password, code } = req.body || {};
   if (typeof username !== 'string' || typeof password !== 'string') {
     return fail(res, 400, 'Credenciales requeridas');
   }
@@ -150,12 +231,24 @@ app.post('/api/auth/login', loginLimiter, wrap(async (req, res) => {
   const valid = await bcrypt.compare(password, hash);
 
   if (!user || !valid) {
-    audit(username, clientIp(req), 'login.fail', null);
+    recordLoginFail(ip);
+    audit(username, ip, 'login.fail', null);
     return fail(res, 401, 'Credenciales incorrectas');
   }
 
+  // Segundo factor: si el usuario tiene 2FA activo, exige código TOTP válido.
+  if (user.totp_enabled) {
+    if (!code) return res.status(401).json({ error: 'Código 2FA requerido', twofa: true });
+    if (!totpVerify(user.totp_secret, code)) {
+      recordLoginFail(ip);
+      audit(user.username, ip, 'login.2fa.fail', null);
+      return res.status(401).json({ error: 'Código 2FA incorrecto', twofa: true });
+    }
+  }
+
+  clearLoginFails(ip);
   const token = jwt.sign({ uid: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: TOKEN_TTL });
-  audit(user.username, clientIp(req), 'login.ok', null);
+  audit(user.username, ip, 'login.ok', null);
   ok(res, { token, user: { username: user.username, role: user.role } });
 }));
 
@@ -179,6 +272,44 @@ app.post('/api/auth/password', auth, wrap(async (req, res) => {
   }
   queries.setPassword.run(bcrypt.hashSync(newPassword, 12), u.id);
   audit(u.username, clientIp(req), 'password.change.ok', null);
+  ok(res);
+}));
+
+// ── 2FA (TOTP) ────────────────────────────────────────────────
+app.get('/api/auth/2fa/status', auth, (req, res) => {
+  const u = queries.getUserById.get(req.user.uid);
+  ok(res, { enabled: !!(u && u.totp_enabled) });
+});
+
+// Genera un secreto nuevo (aún sin activar) y devuelve el URI otpauth para el QR.
+app.post('/api/auth/2fa/setup', auth, wrap(async (req, res) => {
+  const u = queries.getUserFullById.get(req.user.uid);
+  if (!u) return fail(res, 401, 'No autorizado');
+  const secret = base32Encode(crypto.randomBytes(20));
+  queries.setTotpSecret.run(secret, u.id); // queda totp_enabled = 0 hasta verificar
+  const label = encodeURIComponent(`TecXPaneL:${u.username}`);
+  const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=TecXPaneL&algorithm=SHA1&digits=6&period=30`;
+  ok(res, { secret, otpauth });
+}));
+
+// Verifica el primer código y activa el 2FA.
+app.post('/api/auth/2fa/enable', auth, wrap(async (req, res) => {
+  const u = queries.getUserFullById.get(req.user.uid);
+  if (!u || !u.totp_secret) return fail(res, 400, 'Primero genera un secreto (setup)');
+  if (!totpVerify(u.totp_secret, req.body?.code)) return fail(res, 400, 'Código incorrecto');
+  queries.enableTotp.run(u.id);
+  audit(u.username, clientIp(req), '2fa.enable', null);
+  ok(res);
+}));
+
+// Desactiva el 2FA (requiere la contraseña actual).
+app.post('/api/auth/2fa/disable', auth, wrap(async (req, res) => {
+  const u = queries.getUserFullById.get(req.user.uid);
+  if (!u) return fail(res, 401, 'No autorizado');
+  const valid = await bcrypt.compare(req.body?.password || '', u.password_hash);
+  if (!valid) return fail(res, 403, 'Contraseña incorrecta');
+  queries.disableTotp.run(u.id);
+  audit(u.username, clientIp(req), '2fa.disable', null);
   ok(res);
 }));
 
@@ -296,14 +427,20 @@ function siteRootFor(domain) {
   return path.join(SITES_DIR, domain);
 }
 
-function buildNginxSite(domain, type, port) {
-  const root = path.join(siteRootFor(domain), 'public');
+function buildNginxSite(domain, type, proxyPort, opts = {}) {
+  const { listenPort, phpVersion } = opts;
+  const root = path.join(SITES_DIR, domain, 'public');
+  const listen = listenPort ? `listen ${listenPort}` : 'listen 80';
+  const serverName = listenPort ? '' : `\n    server_name ${domain} www.${domain};`;
+  const fpmSock = phpVersion
+    ? `/run/php/php${phpVersion}-fpm.sock`
+    : '/run/php/php-fpm.sock';
+
   if (type === 'nodejs' || type === 'python') {
     return `server {
-    listen 80;
-    server_name ${domain} www.${domain};
+    ${listen};${serverName}
     location / {
-        proxy_pass http://127.0.0.1:${port};
+        proxy_pass http://127.0.0.1:${proxyPort};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -316,55 +453,78 @@ function buildNginxSite(domain, type, port) {
 `;
   }
   return `server {
-    listen 80;
-    server_name ${domain} www.${domain};
+    ${listen};${serverName}
     root ${root};
     index index.html index.htm${type === 'php' ? ' index.php' : ''};
     location / { try_files $uri $uri/ ${type === 'react' ? '/index.html' : '=404'}; }
 ${type === 'php' ? `    location ~ \\.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_pass unix:${fpmSock};
     }
 ` : ''}}
 `;
 }
 
 app.get('/api/websites', (req, res) => {
-  const rows = queries.listWebsites.all().map((w) => ({ ...w, ssl: !!w.ssl, php: !!w.php }));
+  const rows = queries.listWebsites.all().map((w) => ({
+    ...w, ssl: !!w.ssl, php: !!w.php,
+    listen_port: w.listen_port || null,
+    php_version: w.php_version || null,
+  }));
   ok(res, rows);
 });
 
 app.post('/api/websites', wrap(async (req, res) => {
-  const { domain, type = 'html', php = false, ssl = false } = req.body || {};
-  if (!isValidDomain(domain)) return fail(res, 400, 'Dominio inválido');
+  const { domain, type = 'html', php = false, ssl = false, usePort = false, phpVersion } = req.body || {};
   if (!ALLOWED_SITE_TYPES.includes(type)) return fail(res, 400, 'Tipo de sitio inválido');
-  if (queries.getWebsiteByDomain.get(domain)) return fail(res, 409, 'Ese dominio ya existe');
 
-  const root = path.join(siteRootFor(domain), 'public');
+  let siteDomain, listenPort = null;
+  if (usePort) {
+    // Sin dominio: acceso por IP:puerto. domain es un slug (ej: "mi-web").
+    if (!domain || !RE_APP_NAME.test(domain)) return fail(res, 400, 'Nombre inválido (letras, números, guiones)');
+    siteDomain = domain;
+    if (queries.getWebsiteByDomain.get(siteDomain)) return fail(res, 409, 'Ya existe un sitio con ese nombre');
+    // Asigna el siguiente puerto disponible a partir de 8001.
+    const maxRow = queries.getMaxListenPort.get();
+    listenPort = Math.max(8001, (maxRow?.maxPort || 8000) + 1);
+  } else {
+    if (!isValidDomain(domain)) return fail(res, 400, 'Dominio inválido');
+    siteDomain = domain;
+    if (queries.getWebsiteByDomain.get(siteDomain)) return fail(res, 409, 'Ese dominio ya existe');
+  }
+
+  const root = path.join(SITES_DIR, siteDomain, 'public');
   fs.mkdirSync(root, { recursive: true });
   if (type === 'html' || type === 'react') {
     fs.writeFileSync(path.join(root, 'index.html'),
-      `<!doctype html><meta charset="utf-8"><title>${domain}</title><h1>${domain}</h1><p>Servido por TecXPaneL.</p>`);
+      `<!doctype html><meta charset="utf-8"><title>${siteDomain}</title><h1>${siteDomain}</h1><p>Servido por TecXPaneL.</p>`);
   }
 
-  // Config nginx (los proxies usan un puerto por defecto editable luego).
-  const conf = buildNginxSite(domain, type, 3000);
-  const confPath = path.join(NGINX_AVAILABLE, domain);
+  const conf = buildNginxSite(siteDomain, type, 3000, { listenPort, phpVersion: phpVersion || null });
+  const confPath = path.join(NGINX_AVAILABLE, siteDomain);
   fs.writeFileSync(confPath, conf);
-  try { fs.symlinkSync(confPath, path.join(NGINX_ENABLED, domain)); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  try { fs.symlinkSync(confPath, path.join(NGINX_ENABLED, siteDomain)); } catch (e) { if (e.code !== 'EEXIST') throw e; }
 
   const test = await runSafe('nginx', ['-t']);
   if (!test.ok) {
-    fs.rmSync(path.join(NGINX_ENABLED, domain), { force: true });
+    fs.rmSync(path.join(NGINX_ENABLED, siteDomain), { force: true });
     return fail(res, 500, 'Config nginx inválida: ' + test.stderr.split('\n')[0]);
   }
   await runSafe('systemctl', ['reload', 'nginx']);
 
-  const info = queries.insertWebsite.run({ domain, type, php: php ? 1 : 0, ssl: 0, status: 'active' });
-  audit(req.user.username, clientIp(req), 'website.create', domain);
+  // Abre el puerto en UFW si es un sitio por puerto.
+  if (listenPort) {
+    await runSafe('ufw', ['allow', `${listenPort}/tcp`]);
+  }
 
-  if (ssl) await installSsl(domain).catch(() => {});
-  ok(res, { success: true, id: info.lastInsertRowid });
+  const info = queries.insertWebsite.run({
+    domain: siteDomain, type, php: php ? 1 : 0, ssl: 0, status: 'active',
+    listen_port: listenPort, php_version: phpVersion || null,
+  });
+  audit(req.user.username, clientIp(req), 'website.create', siteDomain);
+
+  if (ssl && !usePort) await installSsl(siteDomain).catch(() => {});
+  ok(res, { success: true, id: info.lastInsertRowid, port: listenPort });
 }));
 
 app.delete('/api/websites/:id', wrap(async (req, res) => {
@@ -373,6 +533,7 @@ app.delete('/api/websites/:id', wrap(async (req, res) => {
   fs.rmSync(path.join(NGINX_ENABLED, site.domain), { force: true });
   fs.rmSync(path.join(NGINX_AVAILABLE, site.domain), { force: true });
   await runSafe('systemctl', ['reload', 'nginx']);
+  if (site.listen_port) await runSafe('ufw', ['delete', 'allow', `${site.listen_port}/tcp`]);
   queries.deleteWebsite.run(site.id);
   audit(req.user.username, clientIp(req), 'website.delete', site.domain);
   ok(res);
@@ -433,14 +594,29 @@ app.post('/api/apps', wrap(async (req, res) => {
   }
 
   const pm2Name = `txpl-app-${name}`;
-  // Comando de arranque según el tipo. startCmd es el fichero/entrypoint.
-  let interpreter, script;
-  if (type === 'python') { interpreter = 'python3'; script = startCmd || 'app.py'; }
-  else { interpreter = null; script = startCmd || 'index.js'; }
+  const cmd = (startCmd || '').trim();
+  let pm2Args;
 
-  const pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
-  if (interpreter) pm2Args.push('--interpreter', interpreter);
-  if (portNum) pm2Args.push('--', `PORT=${portNum}`); // se pasa como arg, no como shell
+  if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
+    // npm start, npm run dev, yarn start, pnpm start → pm2 start npm -- start
+    const parts = cmd.split(/\s+/);
+    pm2Args = ['start', parts[0], '--name', pm2Name, '--cwd', cwd, '--', ...parts.slice(1)];
+  } else if (/^(python3?|node)\s/.test(cmd)) {
+    // node server.js → pm2 start server.js; python3 app.py → pm2 start app.py --interpreter python3
+    const parts = cmd.split(/\s+/);
+    const interp = parts[0];
+    const script = parts.slice(1).join(' ') || (interp.startsWith('python') ? 'app.py' : 'index.js');
+    pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
+    if (interp.startsWith('python')) pm2Args.push('--interpreter', interp);
+  } else {
+    const script = cmd || (type === 'python' ? 'app.py' : 'index.js');
+    const fullPath = path.join(cwd, script);
+    if (!fs.existsSync(fullPath)) {
+      return fail(res, 400, `No se encontró "${script}" en ${cwd}. Escribe el archivo a ejecutar (ej: server.js) o un comando npm (ej: npm start).`);
+    }
+    pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
+    if (type === 'python') pm2Args.push('--interpreter', 'python3');
+  }
 
   const r = await runSafe('pm2', pm2Args, { cwd });
   if (!r.ok) return fail(res, 500, r.stderr.split('\n').slice(-2).join(' ') || 'PM2 no pudo iniciar la app');
@@ -488,7 +664,9 @@ function genPassword(len = 20) {
 }
 
 app.get('/api/databases', (req, res) => {
-  ok(res, queries.listDatabases.all());
+  // Las contraseñas se guardan cifradas (AES-256-GCM); se descifran al mostrarlas.
+  const rows = queries.listDatabases.all().map(d => ({ ...d, db_password: decryptSecret(d.db_password) }));
+  ok(res, rows);
 });
 
 app.post('/api/databases', wrap(async (req, res) => {
@@ -502,26 +680,33 @@ app.post('/api/databases', wrap(async (req, res) => {
   const dbPass = (password && password.trim()) || genPassword();
 
   if (type === 'mysql') {
-    const rootPass = process.env.MYSQL_ROOT_PASSWORD;
-    if (!rootPass) return fail(res, 500, 'MYSQL_ROOT_PASSWORD no configurado');
-    // Sentencias parametrizadas vía stdin con identificadores ya validados por regex.
+    const mysqlCheck = await runSafe('which', ['mysql']);
+    if (!mysqlCheck.ok) return fail(res, 400, 'MariaDB/MySQL no está instalado. Instálalo desde Plugins.');
+
     const sql = `CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER '${dbUser}'@'localhost' IDENTIFIED BY '${dbPass.replace(/'/g, "''")}';
 GRANT ALL PRIVILEGES ON \`${name}\`.* TO '${dbUser}'@'localhost';
 FLUSH PRIVILEGES;`;
-    const r = await runSafe('mysql', ['-u', 'root', `-p${rootPass}`], { input: sql });
-    if (!r.ok) return fail(res, 500, r.stderr.split('\n')[0] || 'Error al crear la BD MySQL');
+    // Intenta primero unix_socket (MariaDB default), luego con contraseña.
+    let r = await runSafe('mysql', ['-u', 'root'], { input: sql });
+    if (!r.ok) {
+      const rootPass = process.env.MYSQL_ROOT_PASSWORD;
+      if (rootPass) r = await runSafe('mysql', ['-u', 'root', `-p${rootPass}`], { input: sql });
+    }
+    if (!r.ok) return fail(res, 500, r.stderr.split('\n').filter(l => l.trim()).pop() || 'Error al crear la BD MySQL');
   } else {
-    // PostgreSQL: createuser/createdb como usuario postgres.
+    const pgCheck = await runSafe('which', ['psql']);
+    if (!pgCheck.ok) return fail(res, 400, 'PostgreSQL no está instalado. Instálalo desde Plugins.');
+
     const r1 = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c',
       `CREATE USER ${dbUser} WITH PASSWORD '${dbPass.replace(/'/g, "''")}';`]);
-    if (!r1.ok) return fail(res, 500, r1.stderr.split('\n')[0] || 'Error al crear el usuario PostgreSQL');
+    if (!r1.ok) return fail(res, 500, r1.stderr.split('\n').filter(l => l.trim()).pop() || 'Error al crear el usuario PostgreSQL');
     const r2 = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c',
       `CREATE DATABASE ${name} OWNER ${dbUser};`]);
-    if (!r2.ok) return fail(res, 500, r2.stderr.split('\n')[0] || 'Error al crear la BD PostgreSQL');
+    if (!r2.ok) return fail(res, 500, r2.stderr.split('\n').filter(l => l.trim()).pop() || 'Error al crear la BD PostgreSQL');
   }
 
-  queries.insertDatabase.run({ name, type, db_user: dbUser, db_password: dbPass, status: 'active' });
+  queries.insertDatabase.run({ name, type, db_user: dbUser, db_password: encryptSecret(dbPass), status: 'active' });
   audit(req.user.username, clientIp(req), 'database.create', `${type}:${name}`);
   ok(res, { success: true, name, user: dbUser, password: dbPass });
 }));
@@ -633,6 +818,168 @@ app.get('/api/logs/:type', wrap(async (req, res) => {
   if (!file) return fail(res, 400, 'Tipo de log no permitido');
   const r = await runSafe('tail', ['-n', '300', file]);
   ok(res, { logs: r.stdout || r.stderr || 'Log no disponible' });
+}));
+
+// ════════════════════════════════════════════════════════════
+//  PLUGINS — software instalable desde el panel
+// ════════════════════════════════════════════════════════════
+const PLUGINS = {
+  docker: {
+    name: 'Docker', desc: 'Motor de contenedores y Docker Compose',
+    icon: 'brand-docker', category: 'Infraestructura',
+    check: async () => (await runSafe('which', ['docker'])).ok,
+    install: async () => {
+      await runSafe('apt-get', ['update', '-qq'], { timeout: 120_000 });
+      const r = await runSafe('apt-get', ['install', '-y', '-qq', 'docker.io', 'docker-compose-plugin'], { timeout: 300_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+      await runSafe('systemctl', ['enable', '--now', 'docker']);
+    },
+    uninstall: async () => {
+      await runSafe('apt-get', ['remove', '-y', 'docker.io', 'docker-compose-plugin'], { timeout: 120_000 });
+    },
+  },
+  phpmyadmin: {
+    name: 'phpMyAdmin', desc: 'Administración web de MySQL/MariaDB (puerto 8081)',
+    icon: 'database-cog', category: 'Bases de datos',
+    check: async () => fs.existsSync('/usr/share/phpmyadmin'),
+    install: async () => {
+      // Detecta la versión de PHP-FPM disponible
+      const fpmCheck = await runSafe('bash', ['-c', 'ls /run/php/php*-fpm.sock 2>/dev/null | head -1']);
+      let phpPkg = 'php-fpm';
+      if (!fpmCheck.ok || !fpmCheck.stdout.trim()) phpPkg = 'php8.2-fpm';
+      // Preseed debconf para instalación no interactiva
+      await runSafe('bash', ['-c', [
+        'echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections',
+        'echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect " | debconf-set-selections',
+      ].join(' && ')]);
+      const r = await runSafe('apt-get', ['install', '-y', '-qq', 'phpmyadmin', phpPkg, 'php-mysql', 'php-mbstring'], { timeout: 300_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+      // Crear config nginx para phpMyAdmin en puerto 8081
+      const fpmSock2 = fpmCheck.stdout.trim() || '/run/php/php-fpm.sock';
+      const pmaConf = `server {\n    listen 8081;\n    root /usr/share/phpmyadmin;\n    index index.php;\n    location / { try_files $uri $uri/ /index.php?$args; }\n    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${fpmSock2};\n    }\n}\n`;
+      fs.writeFileSync('/etc/nginx/sites-available/phpmyadmin', pmaConf);
+      try { fs.symlinkSync('/etc/nginx/sites-available/phpmyadmin', '/etc/nginx/sites-enabled/phpmyadmin'); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+      await runSafe('ufw', ['allow', '8081/tcp']);
+      await runSafe('nginx', ['-t']).then(async (t) => { if (t.ok) await runSafe('systemctl', ['reload', 'nginx']); });
+    },
+    uninstall: async () => {
+      await runSafe('apt-get', ['remove', '-y', 'phpmyadmin'], { timeout: 120_000 });
+      fs.rmSync('/etc/nginx/sites-enabled/phpmyadmin', { force: true });
+      fs.rmSync('/etc/nginx/sites-available/phpmyadmin', { force: true });
+      await runSafe('ufw', ['delete', 'allow', '8081/tcp']);
+      await runSafe('systemctl', ['reload', 'nginx']);
+    },
+  },
+  redis: {
+    name: 'Redis', desc: 'Base de datos en memoria / caché',
+    icon: 'database-heart', category: 'Bases de datos',
+    check: async () => (await runSafe('which', ['redis-server'])).ok,
+    install: async () => {
+      const r = await runSafe('apt-get', ['install', '-y', '-qq', 'redis-server'], { timeout: 120_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+      await runSafe('systemctl', ['enable', '--now', 'redis-server']);
+    },
+    uninstall: async () => {
+      await runSafe('systemctl', ['stop', 'redis-server']);
+      await runSafe('apt-get', ['remove', '-y', 'redis-server'], { timeout: 120_000 });
+    },
+  },
+  fail2ban: {
+    name: 'Fail2Ban', desc: 'Protección contra ataques de fuerza bruta (SSH, etc.)',
+    icon: 'shield-lock', category: 'Seguridad',
+    check: async () => (await runSafe('which', ['fail2ban-client'])).ok,
+    install: async () => {
+      const r = await runSafe('apt-get', ['install', '-y', '-qq', 'fail2ban'], { timeout: 120_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+      await runSafe('systemctl', ['enable', '--now', 'fail2ban']);
+    },
+    uninstall: async () => {
+      await runSafe('systemctl', ['stop', 'fail2ban']);
+      await runSafe('apt-get', ['remove', '-y', 'fail2ban'], { timeout: 120_000 });
+    },
+  },
+  composer: {
+    name: 'Composer', desc: 'Gestor de paquetes PHP',
+    icon: 'package', category: 'Desarrollo',
+    check: async () => (await runSafe('which', ['composer'])).ok,
+    install: async () => {
+      const r = await runSafe('bash', ['-c',
+        'curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer'], { timeout: 120_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+    },
+    uninstall: async () => { fs.rmSync('/usr/local/bin/composer', { force: true }); },
+  },
+  certbot: {
+    name: 'Certbot', desc: 'Certificados SSL gratuitos de Let\'s Encrypt',
+    icon: 'certificate', category: 'Seguridad',
+    check: async () => (await runSafe('which', ['certbot'])).ok,
+    install: async () => {
+      const r = await runSafe('apt-get', ['install', '-y', '-qq', 'certbot', 'python3-certbot-nginx'], { timeout: 120_000 });
+      if (!r.ok) throw new Error(r.stderr.split('\n').filter(l => l.trim()).pop());
+    },
+    uninstall: async () => {
+      await runSafe('apt-get', ['remove', '-y', 'certbot', 'python3-certbot-nginx'], { timeout: 120_000 });
+    },
+  },
+};
+
+app.get('/api/plugins', wrap(async (req, res) => {
+  const result = [];
+  for (const [id, p] of Object.entries(PLUGINS)) {
+    result.push({ id, name: p.name, desc: p.desc, icon: p.icon, category: p.category, installed: await p.check() });
+  }
+  ok(res, result);
+}));
+
+app.post('/api/plugins/:id/install', wrap(async (req, res) => {
+  const p = PLUGINS[req.params.id];
+  if (!p) return fail(res, 404, 'Plugin no encontrado');
+  if (await p.check()) return fail(res, 409, `${p.name} ya está instalado`);
+  try {
+    await p.install();
+    audit(req.user.username, clientIp(req), 'plugin.install', p.name);
+    ok(res, { success: true, message: `${p.name} instalado correctamente` });
+  } catch (e) {
+    fail(res, 500, e.message || `Error instalando ${p.name}`);
+  }
+}));
+
+app.post('/api/plugins/:id/uninstall', wrap(async (req, res) => {
+  const p = PLUGINS[req.params.id];
+  if (!p) return fail(res, 404, 'Plugin no encontrado');
+  if (!(await p.check())) return fail(res, 409, `${p.name} no está instalado`);
+  try {
+    await p.uninstall();
+    audit(req.user.username, clientIp(req), 'plugin.uninstall', p.name);
+    ok(res, { success: true, message: `${p.name} desinstalado` });
+  } catch (e) {
+    fail(res, 500, e.message || `Error desinstalando ${p.name}`);
+  }
+}));
+
+// Endpoint para obtener la IP pública del VPS (útil para mostrar URLs de sitios por puerto).
+app.get('/api/system/ip', wrap(async (req, res) => {
+  let ip = '';
+  const r1 = await runSafe('curl', ['-4', '-s', '--max-time', '3', 'https://api.ipify.org']);
+  if (r1.ok && r1.stdout.trim()) ip = r1.stdout.trim();
+  if (!ip) {
+    const r2 = await runSafe('hostname', ['-I']);
+    if (r2.ok) ip = r2.stdout.trim().split(/\s+/).find(a => /^\d+\.\d+\.\d+\.\d+$/.test(a)) || '';
+  }
+  ok(res, { ip: ip || 'desconocida' });
+}));
+
+// Endpoint para listar versiones de PHP instaladas.
+app.get('/api/system/php-versions', wrap(async (req, res) => {
+  const r = await runSafe('bash', ['-c', 'ls /run/php/php*-fpm.sock 2>/dev/null || true']);
+  const versions = [];
+  if (r.ok && r.stdout.trim()) {
+    for (const line of r.stdout.trim().split('\n')) {
+      const m = line.match(/php(\d+\.\d+)-fpm\.sock/);
+      if (m) versions.push(m[1]);
+    }
+  }
+  ok(res, versions);
 }));
 
 // ════════════════════════════════════════════════════════════

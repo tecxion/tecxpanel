@@ -245,7 +245,7 @@ if nginx -t >>"$LOGFILE" 2>&1; then systemctl reload nginx; else warn "Config Ng
 step_done
 
 step_begin "Configurando firewall UFW"
-{ ufw allow OpenSSH || ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw --force enable; } >>"$LOGFILE" 2>&1 || true
+{ ufw allow OpenSSH || ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 8080/tcp; ufw --force enable; } >>"$LOGFILE" 2>&1 || true
 step_done
 
 step_begin "Arrancando el panel con PM2"
@@ -269,7 +269,9 @@ IPV4=$(curl -4 -s --max-time 4 https://api.ipify.org 2>/dev/null)
 [[ -z "$IPV4" ]] && IPV4=$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print $2}')
 [[ -z "$IPV4" ]] && IPV4=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 [[ -z "$IPV4" ]] && IPV4="LA-IP-DE-TU-VPS"
-ACCESS="${PANEL_DOMAIN:-$IPV4}"
+PANEL_PORT=8080
+ACCESS_HOST="${PANEL_DOMAIN:-$IPV4}"
+ACCESS_URL="http://${ACCESS_HOST}:${PANEL_PORT}"
 
 echo ""
 sep
@@ -278,8 +280,8 @@ sep
 echo ""
 echo -e "  ${BOLD}1) CÓMO ENTRAR AL PANEL${RESET}"
 echo -e "  ${CYAN}─────────────────────────${RESET}"
-echo -e "     Abre en tu navegador:   ${BOLD}${GREEN}http://${ACCESS}/${RESET}"
-echo -e "     ${YELLOW}Usa http:// (NO https) y SIN número de puerto, hasta tener SSL.${RESET}"
+echo -e "     Abre en tu navegador:   ${BOLD}${GREEN}${ACCESS_URL}${RESET}"
+echo -e "     ${CYAN}El panel usa el puerto ${PANEL_PORT}. Los sitios web que alojes usarán el puerto 80.${RESET}"
 echo ""
 if [[ "$GENERATED_CREDS" == "1" ]]; then
     echo -e "     Usuario:     ${BOLD}$ADMIN_USER${RESET}"
@@ -294,8 +296,9 @@ fi
 echo ""
 echo -e "  ${BOLD}2) ¿NO CARGA LA PÁGINA?${RESET}  Repasa esto:"
 echo -e "  ${CYAN}─────────────────────────${RESET}"
-echo -e "     · Escribe ${BOLD}http://${RESET} (no https) y ${BOLD}sin :puerto${RESET}"
-echo -e "     · Abre el ${BOLD}puerto 80${RESET} en el firewall de tu proveedor (panel del VPS)"
+echo -e "     · La URL debe incluir ${BOLD}:${PANEL_PORT}${RESET} al final (ej: http://tu-ip:${PANEL_PORT})"
+echo -e "     · Abre el ${BOLD}puerto ${PANEL_PORT}${RESET} en el firewall de tu proveedor (panel web del VPS)"
+echo -e "     · El puerto 80 es para tus sitios web alojados, ${BOLD}no${RESET} para el panel"
 echo -e "     · En el servidor:  ${BOLD}txpl status${RESET}   y   ${BOLD}txpl logs${RESET}"
 echo ""
 echo -e "  ${BOLD}3) DOMINIO + HTTPS (candado, recomendado)${RESET}"
