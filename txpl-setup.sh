@@ -12,13 +12,12 @@
 #    ADMIN_USER, ADMIN_PASS, PANEL_DOMAIN, INSTALL_MYSQL=1, INSTALL_PG=1
 # ============================================================
 
-set -euo pipefail
+set -uo pipefail
 
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'
 RED='\033[0;31m'; BOLD='\033[1m'; RESET='\033[0m'
-log()  { echo -e "${GREEN}[TXPL]${RESET} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${RESET} $1"; }
-err()  { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
+warn() { printf "\n${YELLOW}[WARN]${RESET} %s\n" "$1"; }
+err()  { printf "\n${RED}[ERROR]${RESET} %s\n" "$1"; exit 1; }
 sep()  { echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
 [[ $EUID -ne 0 ]] && err "Ejecuta como root:  sudo bash txpl-setup.sh"
@@ -27,91 +26,178 @@ command -v apt-get >/dev/null || err "Este instalador es para Ubuntu/Debian (apt
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TXPL_DIR="/opt/txpl"
 SITES_DIR="/var/www"
+LOGFILE="/tmp/txpl-setup.log"
+: > "$LOGFILE"
 
-sep
-echo -e "${BOLD}TecXPaneL — Instalador${RESET}"
-sep
+# ════════════════════════════════════════════════════════════
+#  Motor de barra de progreso
+# ════════════════════════════════════════════════════════════
+TOTAL_STEPS=13
+STEP=0
+CUR_MSG=""
 
-# ── 1. Paquetes base del sistema ──────────────────────────────
-log "Actualizando índices de apt..."
+# Dibuja la barra en una sola línea: spinner [████░░░░] 42% (5/13) mensaje
+draw() {
+    local step=$1 msg=$2 spin=$3
+    local pct=$(( step * 100 / TOTAL_STEPS )); (( pct > 100 )) && pct=100
+    local width=30 filled=$(( pct * width / 100 )) i bar=""
+    for ((i = 0; i < filled; i++)); do bar+="█"; done
+    for ((i = filled; i < width; i++)); do bar+="░"; done
+    # \033[K borra hasta el final de línea → sin restos de mensajes anteriores
+    printf "\r  ${GREEN}%s${RESET} ${CYAN}[${RESET}%s${CYAN}]${RESET} ${BOLD}%3d%%${RESET} ${CYAN}(%d/%d)${RESET} %s\033[K" \
+        "$spin" "$bar" "$pct" "$step" "$TOTAL_STEPS" "$msg"
+}
+
+step_begin() {
+    STEP=$(( STEP + 1 )); CUR_MSG="$1"
+    if [[ -t 1 ]]; then draw "$STEP" "$CUR_MSG" "•"
+    else printf "  [%d/%d] %s ... " "$STEP" "$TOTAL_STEPS" "$CUR_MSG"; fi
+}
+
+step_done() {
+    if [[ -t 1 ]]; then draw "$STEP" "$CUR_MSG" "✓"; printf "\n"
+    else printf "OK\n"; fi
+}
+
+# Ejecuta un comando/función en segundo plano y anima el spinner mientras corre.
+# Toda la salida va a $LOGFILE. Devuelve el código de salida del comando.
+run_spin() {
+    if [[ ! -t 1 ]]; then "$@" >>"$LOGFILE" 2>&1; return $?; fi
+    "$@" >>"$LOGFILE" 2>&1 &
+    local pid=$! i=0 rc=0
+    local frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    while kill -0 "$pid" 2>/dev/null; do
+        draw "$STEP" "$CUR_MSG" "${frames:i++%${#frames}:1}"
+        sleep 0.1
+    done
+    wait "$pid" || rc=$?
+    return $rc
+}
+
+# ════════════════════════════════════════════════════════════
+#  Fases de instalación (cada una corre dentro de run_spin)
+# ════════════════════════════════════════════════════════════
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
 
-log "Instalando dependencias base (git, build-essential, python3, nginx, ufw, certbot)..."
-apt-get install -y -qq \
-    curl git ca-certificates gnupg build-essential python3 python3-pip \
-    nginx ufw certbot python3-certbot-nginx sqlite3 >/dev/null
+phase_base() {
+    apt-get update -qq
+    apt-get install -y -qq \
+        curl git ca-certificates gnupg build-essential python3 python3-pip \
+        nginx ufw certbot python3-certbot-nginx sqlite3
+}
 
-# ── 2. Node.js LTS (si falta o es < 18) ───────────────────────
-NODE_OK=0
-if command -v node >/dev/null; then
-    NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-    [[ "$NODE_MAJOR" -ge 18 ]] && NODE_OK=1
-fi
-if [[ "$NODE_OK" -eq 0 ]]; then
-    log "Instalando Node.js 20 LTS..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
-    apt-get install -y -qq nodejs >/dev/null
-else
-    log "Node.js $(node -v) ya instalado."
-fi
+phase_node() {
+    local ok=0
+    if command -v node >/dev/null; then
+        local major; major=$(node -v | sed 's/v\([0-9]*\).*/\1/')
+        [[ "$major" -ge 18 ]] && ok=1
+    fi
+    if [[ "$ok" -eq 0 ]]; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y -qq nodejs
+    fi
+}
 
-# ── 3. PM2 global ─────────────────────────────────────────────
-if ! command -v pm2 >/dev/null; then
-    log "Instalando PM2..."
-    npm install -g pm2 >/dev/null 2>&1
-else
-    log "PM2 $(pm2 -v) ya instalado."
-fi
+phase_pm2() { command -v pm2 >/dev/null || npm install -g pm2; }
 
-# ── 4. Bases de datos (opcional) ──────────────────────────────
+phase_db() {
+    if [[ "${INSTALL_MYSQL:-0}" == "1" ]] && ! command -v mysql >/dev/null; then
+        apt-get install -y -qq mariadb-server
+        systemctl enable --now mariadb || true
+    fi
+    if [[ "${INSTALL_PG:-0}" == "1" ]] && ! command -v psql >/dev/null; then
+        apt-get install -y -qq postgresql
+        systemctl enable --now postgresql || true
+    fi
+}
+
+phase_npm() {
+    cd "$TXPL_DIR/backend"
+    npm install --omit=dev --no-audit --no-fund || npm install --production
+}
+
+phase_pty() { cd "$TXPL_DIR/backend" && npm install node-pty --no-audit --no-fund; }
+
+phase_pm2_start() {
+    cd "$TXPL_DIR"
+    pm2 start ecosystem.config.js --env production || pm2 restart txpl-panel
+    pm2 save
+    pm2 startup systemd -u root --hp /root || true
+}
+
+# ════════════════════════════════════════════════════════════
+#  Configuración interactiva (ANTES de la barra, sin interrupciones)
+# ════════════════════════════════════════════════════════════
+clear 2>/dev/null || true
+sep
+echo -e "${BOLD}   TecXPaneL — Instalador${RESET}"
+sep
+echo ""
+
 INSTALL_MYSQL="${INSTALL_MYSQL:-}"
 if [[ -z "$INSTALL_MYSQL" ]] && [[ -t 0 ]]; then
-    read -p "¿Instalar MariaDB (MySQL)? (S/n): " ans; [[ "$ans" =~ ^[Nn]$ ]] || INSTALL_MYSQL=1
+    read -rp "  ¿Instalar MariaDB (MySQL)? (S/n): " ans
+    [[ "$ans" =~ ^[Nn]$ ]] && INSTALL_MYSQL=0 || INSTALL_MYSQL=1
 fi
-if [[ "$INSTALL_MYSQL" == "1" ]] && ! command -v mysql >/dev/null; then
-    log "Instalando MariaDB..."
-    apt-get install -y -qq mariadb-server >/dev/null
-    systemctl enable --now mariadb >/dev/null 2>&1 || true
-fi
+INSTALL_MYSQL="${INSTALL_MYSQL:-0}"
 
 INSTALL_PG="${INSTALL_PG:-}"
 if [[ -z "$INSTALL_PG" ]] && [[ -t 0 ]]; then
-    read -p "¿Instalar PostgreSQL? (s/N): " ans; [[ "$ans" =~ ^[Ss]$ ]] && INSTALL_PG=1
+    read -rp "  ¿Instalar PostgreSQL? (s/N): " ans
+    [[ "$ans" =~ ^[Ss]$ ]] && INSTALL_PG=1 || INSTALL_PG=0
 fi
-if [[ "$INSTALL_PG" == "1" ]] && ! command -v psql >/dev/null; then
-    log "Instalando PostgreSQL..."
-    apt-get install -y -qq postgresql >/dev/null
-    systemctl enable --now postgresql >/dev/null 2>&1 || true
-fi
+INSTALL_PG="${INSTALL_PG:-0}"
 
-# ── 5. Estructura de directorios ──────────────────────────────
-log "Creando estructura en $TXPL_DIR ..."
+echo ""
+echo -e "  ${CYAN}Instalando TecXPaneL...${RESET}  (detalle en $LOGFILE)"
+echo ""
+
+# ════════════════════════════════════════════════════════════
+#  Instalación con barra de progreso
+# ════════════════════════════════════════════════════════════
+
+step_begin "Instalando paquetes base del sistema"
+run_spin phase_base || err "Fallo instalando paquetes base. Revisa $LOGFILE"
+step_done
+
+step_begin "Instalando Node.js 20 LTS"
+run_spin phase_node || err "Fallo instalando Node.js. Revisa $LOGFILE"
+step_done
+
+step_begin "Instalando PM2"
+run_spin phase_pm2 || err "Fallo instalando PM2. Revisa $LOGFILE"
+step_done
+
+step_begin "Instalando bases de datos"
+run_spin phase_db || warn "Algún motor de BD no se instaló. Revisa $LOGFILE"
+step_done
+
+step_begin "Creando estructura de directorios"
 mkdir -p "$TXPL_DIR/backend" "$TXPL_DIR/frontend" "$TXPL_DIR/data" \
          "$TXPL_DIR/backups" /var/log/txpl "$SITES_DIR"
+step_done
 
-# ── 6. Copiar archivos del repo ───────────────────────────────
-log "Copiando archivos del panel..."
-cp "$SCRIPT_DIR/server.js"            "$TXPL_DIR/backend/"
-cp "$SCRIPT_DIR/database.js"          "$TXPL_DIR/backend/"
-cp "$SCRIPT_DIR/package.json"         "$TXPL_DIR/backend/"
-cp "$SCRIPT_DIR/index.html"           "$TXPL_DIR/frontend/"
-cp "$SCRIPT_DIR/ecosystem.config.js"  "$TXPL_DIR/"
+step_begin "Copiando archivos del panel"
+cp "$SCRIPT_DIR/server.js"           "$TXPL_DIR/backend/"
+cp "$SCRIPT_DIR/database.js"         "$TXPL_DIR/backend/"
+cp "$SCRIPT_DIR/package.json"        "$TXPL_DIR/backend/"
+cp "$SCRIPT_DIR/index.html"          "$TXPL_DIR/frontend/"
+cp "$SCRIPT_DIR/ecosystem.config.js" "$TXPL_DIR/"
 cp "$SCRIPT_DIR/txpl-backup.sh" "$SCRIPT_DIR/txpl-update.sh" "$TXPL_DIR/" 2>/dev/null || true
 chmod +x "$TXPL_DIR"/*.sh 2>/dev/null || true
+step_done
 
-# ── 7. Generar .env (solo si no existe) ───────────────────────
+step_begin "Generando configuración (.env)"
 ENV_FILE="$TXPL_DIR/.env"
+GENERATED_CREDS=0
+MYSQL_ROOT_PASSWORD=""
 if [[ ! -f "$ENV_FILE" ]]; then
-    log "Generando .env con secretos aleatorios..."
     JWT_SECRET=$(openssl rand -hex 32)
     ADMIN_USER="${ADMIN_USER:-admin}"
     ADMIN_PASS="${ADMIN_PASS:-$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)}"
-    MYSQL_ROOT_PASSWORD=""
     if [[ "$INSTALL_MYSQL" == "1" ]]; then
         MYSQL_ROOT_PASSWORD=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)
-        # Fijar contraseña root de MariaDB (auth socket por defecto en root local)
-        mysql -u root <<SQL 2>/dev/null || true
+        mysql -u root >>"$LOGFILE" 2>&1 <<SQL || true
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 SQL
@@ -130,65 +216,52 @@ PG_PASSWORD=
 SSL_EMAIL=
 EOF
     GENERATED_CREDS=1
-else
-    warn ".env ya existe, se conserva. (No se regeneran secretos.)"
-    GENERATED_CREDS=0
 fi
 chmod 600 "$ENV_FILE"
+step_done
 
-# ── 8. Dependencias del backend ───────────────────────────────
-log "Instalando dependencias Node del backend..."
-cd "$TXPL_DIR/backend"
-npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || npm install --production >/dev/null
-# Terminal interactiva (opcional; requiere build tools ya instalados)
-log "Instalando node-pty (terminal interactiva)..."
-npm install node-pty --no-audit --no-fund >/dev/null 2>&1 || warn "node-pty no se pudo compilar; la terminal quedará deshabilitada."
+step_begin "Instalando dependencias del backend"
+run_spin phase_npm || err "Fallo en npm install. Revisa $LOGFILE"
+step_done
 
-# ── 9. Nginx ──────────────────────────────────────────────────
-log "Configurando Nginx..."
+step_begin "Compilando node-pty (terminal interactiva)"
+run_spin phase_pty || warn "node-pty no se pudo compilar; la terminal quedará deshabilitada."
+step_done
+
+step_begin "Configurando Nginx"
 cp "$SCRIPT_DIR/txpl-nginx.conf" /etc/nginx/sites-available/txpl-panel
-if [[ -n "${PANEL_DOMAIN:-}" ]]; then
-    sed -i "s/server_name _;/server_name ${PANEL_DOMAIN};/" /etc/nginx/sites-available/txpl-panel
-fi
+[[ -n "${PANEL_DOMAIN:-}" ]] && sed -i "s/server_name _;/server_name ${PANEL_DOMAIN};/" /etc/nginx/sites-available/txpl-panel
 ln -sf /etc/nginx/sites-available/txpl-panel /etc/nginx/sites-enabled/txpl-panel
 rm -f /etc/nginx/sites-enabled/default
-if nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx
-    log "Nginx configurado."
-else
-    warn "Config de Nginx inválida; revisa: nginx -t"
-fi
+if nginx -t >>"$LOGFILE" 2>&1; then systemctl reload nginx; else warn "Config Nginx inválida; revisa: nginx -t"; fi
+step_done
 
-# ── 10. Firewall UFW ──────────────────────────────────────────
-log "Configurando firewall UFW (SSH, HTTP, HTTPS)..."
-ufw allow OpenSSH >/dev/null 2>&1 || ufw allow 22/tcp >/dev/null 2>&1 || true
-ufw allow 80/tcp  >/dev/null 2>&1 || true
-ufw allow 443/tcp >/dev/null 2>&1 || true
-ufw --force enable >/dev/null 2>&1 || true
+step_begin "Configurando firewall UFW"
+{ ufw allow OpenSSH || ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw --force enable; } >>"$LOGFILE" 2>&1 || true
+step_done
 
-# ── 11. Arrancar el panel con PM2 ─────────────────────────────
-log "Arrancando el panel con PM2..."
-cd "$TXPL_DIR"
-pm2 start ecosystem.config.js --env production >/dev/null 2>&1 || pm2 restart txpl-panel >/dev/null
-pm2 save >/dev/null 2>&1
-pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+step_begin "Arrancando el panel con PM2"
+run_spin phase_pm2_start || err "El panel no arrancó. Revisa: pm2 logs txpl-panel"
+step_done
 
-# ── 12. CLI txpl ──────────────────────────────────────────────
+step_begin "Instalando la CLI txpl"
 if [[ -f "$SCRIPT_DIR/txpl-cli.sh" ]]; then
-    cp "$SCRIPT_DIR/txpl-cli.sh" /usr/local/bin/txpl
-    chmod +x /usr/local/bin/txpl
-    log "CLI 'txpl' instalada."
+    cp "$SCRIPT_DIR/txpl-cli.sh" /usr/local/bin/txpl && chmod +x /usr/local/bin/txpl
 fi
+step_done
 
-# ── Resumen ───────────────────────────────────────────────────
-sleep 2
+# ════════════════════════════════════════════════════════════
+#  Resumen
+# ════════════════════════════════════════════════════════════
+sleep 1
 IP=$(curl -s --max-time 3 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+echo ""
 sep
-echo -e "${BOLD}${GREEN}✅ TecXPaneL instalado${RESET}"
+echo -e "${BOLD}${GREEN}  ✅ TecXPaneL instalado correctamente${RESET}"
 sep
 echo -e "  Panel:    http://${PANEL_DOMAIN:-$IP}/"
 echo -e "  Estado:   $(pm2 describe txpl-panel 2>/dev/null | grep -m1 status | awk '{print $4}' || echo '?')"
-if [[ "${GENERATED_CREDS:-0}" == "1" ]]; then
+if [[ "$GENERATED_CREDS" == "1" ]]; then
     echo ""
     echo -e "  ${YELLOW}Credenciales generadas (guárdalas):${RESET}"
     echo -e "    Usuario:     ${BOLD}$ADMIN_USER${RESET}"
@@ -198,8 +271,7 @@ if [[ "${GENERATED_CREDS:-0}" == "1" ]]; then
 fi
 echo ""
 echo -e "  ${CYAN}Siguiente paso recomendado — HTTPS:${RESET}"
-echo -e "    Apunta tu dominio a $IP y luego:"
-echo -e "    certbot --nginx -d tudominio.com"
+echo -e "    Apunta tu dominio a $IP y luego:  certbot --nginx -d tudominio.com"
 echo ""
 echo -e "  Comandos:  txpl status | txpl logs | txpl restart"
 sep
