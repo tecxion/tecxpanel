@@ -720,7 +720,16 @@ FLUSH PRIVILEGES;`;
 function safePath(input) {
   if (typeof input !== 'string') return null;
   if (!input || input === '/' || input === SITES_DIR) return SITES_DIR;
-  const resolved = path.resolve(SITES_DIR, input.replace(/^\/+/, ''));
+
+  // Si es una ruta absoluta que está dentro de SITES_DIR, usarla directamente
+  const normalized = path.normalize(input);
+  if (path.isAbsolute(normalized)) {
+    if (normalized === SITES_DIR || normalized.startsWith(SITES_DIR + path.sep)) return normalized;
+    return null; // ruta absoluta fuera de SITES_DIR
+  }
+
+  // Si es relativa, resolverla relativo a SITES_DIR
+  const resolved = path.resolve(SITES_DIR, normalized);
   if (resolved !== SITES_DIR && !resolved.startsWith(SITES_DIR + path.sep)) return null;
   return resolved;
 }
