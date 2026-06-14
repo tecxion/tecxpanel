@@ -1491,6 +1491,7 @@ async function loadDockerContainers() {
         <div style="display:flex;gap:6px">
           ${controlBtn}
           <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDockerContainer('${c.Id}','${esc(name)}')" title="Eliminar contenedor"><i class="ti ti-trash"></i></button>
         </div>
       </td>
     </tr>
@@ -1516,6 +1517,55 @@ async function viewDockerLogs(id, name) {
 
   const r = await req('GET', `/docker/containers/${id}/logs`);
   document.getElementById('docker-logs-output').textContent = r?.logs || 'Sin logs en las últimas 200 líneas.';
+}
+
+async function createDockerContainer() {
+  const name = document.getElementById('docker-create-name').value.trim();
+  const image = document.getElementById('docker-create-image').value.trim();
+  const hostPort = document.getElementById('docker-create-hostport').value.trim();
+  const containerPort = document.getElementById('docker-create-contport').value.trim();
+  const envs = document.getElementById('docker-create-envs').value;
+
+  if (!image) {
+    toast('La imagen de Docker es obligatoria', 'error');
+    return;
+  }
+
+  toast('Creando y arrancando contenedor (puede tardar en descargar la imagen)...', 'info');
+
+  const r = await req('POST', '/docker/containers/create', {
+    name: name || undefined,
+    image,
+    hostPort: hostPort ? parseInt(hostPort, 10) : undefined,
+    containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
+    envs: envs || undefined
+  });
+
+  if (r?.success) {
+    toast('Contenedor creado y arrancado con éxito', 'success');
+    closeModal('modal-new-container');
+    loadDockerContainers();
+
+    // Reset inputs
+    ['docker-create-name', 'docker-create-image', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  } else {
+    toast(r?.error || 'Error al crear el contenedor', 'error');
+  }
+}
+
+async function deleteDockerContainer(id, name) {
+  if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el contenedor "${name}"?`)) return;
+  toast('Eliminando contenedor...', 'info');
+  const r = await req('DELETE', `/docker/containers/${id}`);
+  if (r?.success) {
+    toast(`Contenedor "${name}" eliminado`, 'success');
+    loadDockerContainers();
+  } else {
+    toast(r?.error || 'Error al eliminar contenedor', 'error');
+  }
 }
 
 // ── Git / Webhooks ────────────────────────────────────────────

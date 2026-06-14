@@ -146,6 +146,22 @@ router.post('/containers/:id/:action', wrap(async (req, res) => {
   }
 }));
 
+// DELETE /api/docker/containers/:id - delete/remove container (force delete)
+router.delete('/containers/:id', wrap(async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await dockerRequest('DELETE', `/containers/${id}?v=1&force=1`);
+    if (result.statusCode === 204) {
+      audit(req.user.username, clientIp(req), 'docker.delete', id.substring(0, 12));
+      return ok(res, { success: true });
+    }
+    fail(res, result.statusCode, `Error de Docker: ${result.body.toString() || 'No se pudo eliminar el contenedor'}`);
+  } catch (err) {
+    console.error(`[docker] Error al eliminar el contenedor ${id}:`, err.message);
+    fail(res, 500, err.message || 'No se pudo eliminar el contenedor');
+  }
+}));
+
 // GET /api/docker/containers/:id/logs - Get container logs (last 200 lines)
 router.get('/containers/:id/logs', wrap(async (req, res) => {
   const { id } = req.params;
@@ -159,6 +175,73 @@ router.get('/containers/:id/logs', wrap(async (req, res) => {
   } catch (err) {
     console.error(`[docker] Error al obtener logs del contenedor ${id}:`, err.message);
     fail(res, 500, err.message || 'No se pudieron obtener los logs');
+  }
+}));
+
+// POST /api/docker/containers/create - pull, create, and start a container
+router.post('/containers/create', wrap(async (req, res) => {
+  const { name, image, hostPort, containerPort, envs } = req.body || {};
+  if (!image) {
+    return fail(res, 400, 'La imagen de Docker es obligatoria.');
+  }
+
+  try {
+    // 1. Pull the image
+    console.log(`[docker] Descargando imagen: ${image}...`);
+    const pullResult = await dockerRequest('POST', `/images/create?fromImage=${encodeURIComponent(image)}`);
+    if (pullResult.statusCode >= 400) {
+      return fail(res, pullResult.statusCode, `Error al descargar la imagen: ${pullResult.body.toString()}`);
+    }
+
+    // 2. Build configuration
+    const config = {
+      Image: image,
+      Env: []
+    };
+
+    if (envs && typeof envs === 'string') {
+      config.Env = envs.split('\n')
+        .map(line => line.trim())
+        .filter(line => line && line.includes('='));
+    }
+
+    if (hostPort && containerPort) {
+      const cPort = containerPort.includes('/') ? containerPort : `${containerPort}/tcp`;
+      config.ExposedPorts = { [cPort]: {} };
+      config.HostConfig = {
+        PortBindings: {
+          [cPort]: [{ HostPort: String(hostPort) }]
+        }
+      };
+    }
+
+    // 3. Create container
+    let createUrl = '/containers/create';
+    if (name && name.trim()) {
+      createUrl += `?name=${encodeURIComponent(name.trim())}`;
+    }
+
+    console.log(`[docker] Creando contenedor con config:`, JSON.stringify(config));
+    const createResult = await dockerRequest('POST', createUrl, config);
+    if (createResult.statusCode >= 400) {
+      return fail(res, createResult.statusCode, `Error al crear contenedor: ${createResult.body.toString()}`);
+    }
+
+    const response = JSON.parse(createResult.body.toString());
+    const containerId = response.Id;
+
+    // 4. Start container
+    console.log(`[docker] Iniciando contenedor: ${containerId}...`);
+    const startResult = await dockerRequest('POST', `/containers/${containerId}/start`);
+    if (startResult.statusCode >= 400) {
+      return fail(res, startResult.statusCode, `Contenedor creado pero falló al iniciar: ${startResult.body.toString()}`);
+    }
+
+    audit(req.user.username, clientIp(req), 'docker.create', name || image);
+    ok(res, { success: true, id: containerId });
+  } catch (err) {
+    console.error('[docker] Error al crear contenedor:', err.message);
+    fail(res, 500, err.message || 'No se pudo crear el contenedor');
   }
 }));
 

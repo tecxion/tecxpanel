@@ -287,9 +287,9 @@
       <!-- ── DOCKER ── -->
       <div class="page" id="page-docker">
         <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
-          <div style="font-size:1.2rem;font-weight:600;color:var(--text-main);display:flex;align-items:center;gap:8px">
-            <i class="ti ti-brand-docker" style="font-size:24px;color:var(--cyan)"></i> Contenedores Docker
-          </div>
+          <button class="btn btn-primary" onclick="openModal('modal-new-container')">
+            <i class="ti ti-plus"></i> Crear contenedor
+          </button>
           <button class="btn btn-sm" onclick="loadDockerContainers()" style="margin-left:auto"><i class="ti ti-refresh"></i> Actualizar</button>
         </div>
         <div class="card">
@@ -826,6 +826,46 @@
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-docker-logs')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Docker Container -->
+<div class="modal-overlay" id="modal-new-container">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-brand-docker" style="color:var(--cyan)"></i> Crear Contenedor Docker</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-container')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nombre del contenedor (opcional)</label>
+        <input type="text" id="docker-create-name" placeholder="mi-nginx">
+      </div>
+      <div class="form-group">
+        <label>Imagen de Docker</label>
+        <input type="text" id="docker-create-image" placeholder="nginx:alpine">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si no existe localmente, se descargará automáticamente desde Docker Hub.</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Puerto Host</label>
+          <input type="number" id="docker-create-hostport" placeholder="8080">
+        </div>
+        <div class="form-group">
+          <label>Puerto Contenedor</label>
+          <input type="number" id="docker-create-contport" placeholder="80">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Variables de entorno (opcional)</label>
+        <textarea id="docker-create-envs" placeholder="KEY=VALUE&#10;PORT=80" style="width:100%;height:100px;font-family:var(--mono);font-size:12px;padding:8px"></textarea>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Escribe una variable KEY=VALUE por línea.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-container')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createDockerContainer()"><i class="ti ti-plus"></i> Crear y Arrancar</button>
     </div>
   </div>
 </div>
