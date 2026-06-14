@@ -279,4 +279,93 @@ router.post('/containers/create', wrap(async (req, res) => {
   }
 }));
 
+// Define global paths
+const TXPL_DIR = process.env.TXPL_DIR || '/opt/txpl';
+const DATA_DIR = path.join(TXPL_DIR, 'data');
+const DOCKERFILE_PATH = path.join(DATA_DIR, 'Dockerfile');
+const DOCKER_COMPOSE_PATH = path.join(DATA_DIR, 'docker-compose.yml');
+
+// GET /api/docker/dockerfile - get default global Dockerfile
+router.get('/dockerfile', wrap(async (req, res) => {
+  try {
+    let content = 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 80\n';
+    if (fs.existsSync(DOCKERFILE_PATH)) {
+      content = fs.readFileSync(DOCKERFILE_PATH, 'utf8');
+    }
+    ok(res, { content });
+  } catch (err) {
+    fail(res, 500, err.message || 'No se pudo leer el Dockerfile');
+  }
+}));
+
+// POST /api/docker/dockerfile - save and build global Dockerfile
+router.post('/dockerfile', wrap(async (req, res) => {
+  const { content } = req.body || {};
+  if (typeof content !== 'string') {
+    return fail(res, 400, 'El contenido del Dockerfile es requerido.');
+  }
+
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DOCKERFILE_PATH, content, 'utf8');
+
+    console.log('[docker] Compilando Dockerfile global...');
+    const buildRes = await runSafe('docker', ['build', '-t', 'txpl-global-image', '.'], { cwd: DATA_DIR, timeout: 300_000 });
+
+    if (!buildRes.ok) {
+      const errMsg = buildRes.stderr || buildRes.stdout || 'Error de compilación';
+      return fail(res, 400, `Error de compilación:\n${errMsg}`);
+    }
+
+    audit(req.user.username, clientIp(req), 'docker.build_global', 'txpl-global-image');
+    ok(res, { success: true, output: buildRes.stdout || 'Imagen compilada con éxito' });
+  } catch (err) {
+    fail(res, 500, err.message || 'Error al guardar/compilar Dockerfile');
+  }
+}));
+
+// GET /api/docker/compose - get global docker-compose.yml
+router.get('/compose', wrap(async (req, res) => {
+  try {
+    let content = 'version: "3.8"\nservices:\n  web:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n';
+    if (fs.existsSync(DOCKER_COMPOSE_PATH)) {
+      content = fs.readFileSync(DOCKER_COMPOSE_PATH, 'utf8');
+    }
+    ok(res, { content });
+  } catch (err) {
+    fail(res, 500, err.message || 'No se pudo leer docker-compose.yml');
+  }
+}));
+
+// POST /api/docker/compose - save and run docker compose up -d
+router.post('/compose', wrap(async (req, res) => {
+  const { content } = req.body || {};
+  if (typeof content !== 'string') {
+    return fail(res, 400, 'El contenido de docker-compose.yml es requerido.');
+  }
+
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DOCKER_COMPOSE_PATH, content, 'utf8');
+
+    console.log('[docker] Ejecutando docker compose up -d...');
+    let composeRes = await runSafe('docker', ['compose', 'up', '-d', '--remove-orphans'], { cwd: DATA_DIR, timeout: 300_000 });
+
+    if (!composeRes.ok) {
+      console.log('[docker] docker compose falló, reintentando con docker-compose...');
+      composeRes = await runSafe('docker-compose', ['up', '-d', '--remove-orphans'], { cwd: DATA_DIR, timeout: 300_000 });
+    }
+
+    if (!composeRes.ok) {
+      const errMsg = composeRes.stderr || composeRes.stdout || 'Error de Docker Compose';
+      return fail(res, 400, `Error de Docker Compose:\n${errMsg}`);
+    }
+
+    audit(req.user.username, clientIp(req), 'docker.compose_up', null);
+    ok(res, { success: true, output: composeRes.stdout || 'Servicios levantados con éxito' });
+  } catch (err) {
+    fail(res, 500, err.message || 'Error al guardar/ejecutar docker-compose.yml');
+  }
+}));
+
 module.exports = router;

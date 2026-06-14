@@ -1591,6 +1591,74 @@ async function deleteDockerContainer(id, name) {
   }
 }
 
+let currentDockerEditType = 'dockerfile';
+
+async function openDockerEditModal(type) {
+  currentDockerEditType = type;
+  const titleEl = document.getElementById('docker-edit-title');
+  const textarea = document.getElementById('docker-edit-textarea');
+  const hintEl = document.getElementById('docker-edit-hint');
+  const progress = document.getElementById('docker-edit-progress');
+  const log = document.getElementById('docker-edit-log');
+
+  const titleText = type === 'dockerfile' ? 'Dockerfile global' : 'docker-compose.yml global';
+  const hintText = type === 'dockerfile' 
+    ? 'Este Dockerfile global se guarda en el VPS y al aplicar ejecuta: <strong>docker build -t txpl-global-image .</strong>'
+    : 'Este archivo define tus contenedores globales. Al aplicar ejecuta: <strong>docker compose up -d --remove-orphans</strong>';
+
+  titleEl.textContent = titleText;
+  hintEl.innerHTML = hintText;
+  textarea.value = 'Cargando archivo...';
+  
+  progress.style.display = 'none';
+  log.textContent = '';
+
+  openModal('modal-docker-edit');
+
+  const r = await req('GET', `/docker/${type}`);
+  if (r && r.content !== undefined) {
+    textarea.value = r.content;
+  } else {
+    textarea.value = '';
+    toast('No se pudo cargar el contenido del archivo', 'error');
+  }
+}
+
+async function saveDockerFile() {
+  const content = document.getElementById('docker-edit-textarea').value;
+  const progress = document.getElementById('docker-edit-progress');
+  const log = document.getElementById('docker-edit-log');
+  const saveBtn = document.getElementById('docker-edit-save-btn');
+  const cancelBtn = document.getElementById('docker-edit-cancel-btn');
+
+  toast('Guardando y aplicando configuración...', 'info');
+
+  progress.style.display = 'block';
+  log.textContent = 'Enviando cambios al servidor...\n';
+  log.scrollTop = log.scrollHeight;
+  
+  saveBtn.disabled = true;
+  cancelBtn.disabled = true;
+
+  const r = await req('POST', `/docker/${currentDockerEditType}`, { content });
+
+  if (r?.success) {
+    log.textContent += `\n[ÉXITO] Archivo guardado correctamente.\nSalida del comando:\n${r.output || 'Sin salida'}\n`;
+    toast('Configuración guardada y aplicada con éxito', 'success');
+    loadDockerContainers();
+    setTimeout(() => {
+      closeModal('modal-docker-edit');
+    }, 2500);
+  } else {
+    log.textContent += `\n[ERROR] Falló la ejecución:\n${r?.error || 'Error desconocido'}\n`;
+    toast('Error al aplicar configuración', 'error');
+  }
+  
+  log.scrollTop = log.scrollHeight;
+  saveBtn.disabled = false;
+  cancelBtn.disabled = false;
+}
+
 // ── Git / Webhooks ────────────────────────────────────────────
 let gitInfoAppId = null;
 

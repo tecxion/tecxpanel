@@ -286,9 +286,15 @@
 
       <!-- ── DOCKER ── -->
       <div class="page" id="page-docker">
-        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem; flex-wrap:wrap">
           <button class="btn btn-primary" onclick="openModal('modal-new-container')">
             <i class="ti ti-plus"></i> Crear contenedor
+          </button>
+          <button class="btn btn-primary" onclick="openDockerEditModal('dockerfile')">
+            <i class="ti ti-file-code"></i> Editar Dockerfile
+          </button>
+          <button class="btn btn-primary" onclick="openDockerEditModal('compose')">
+            <i class="ti ti-file-settings"></i> Editar Docker Compose
           </button>
           <button class="btn btn-sm" onclick="loadDockerContainers()" style="margin-left:auto"><i class="ti ti-refresh"></i> Actualizar</button>
         </div>
@@ -826,6 +832,30 @@
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-docker-logs')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Docker Edit Modal (Generic for Dockerfile / docker-compose.yml) -->
+<div class="modal-overlay" id="modal-docker-edit">
+  <div class="modal" style="width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-edit" style="color:var(--cyan)"></i> Editar <span id="docker-edit-title"></span></div>
+      <button class="btn btn-sm" onclick="closeModal('modal-docker-edit')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="flex:1;overflow:hidden;padding:1rem;display:flex;flex-direction:column;gap:12px">
+      <textarea id="docker-edit-textarea" style="width:100%;flex:1;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none"></textarea>
+      <div id="docker-edit-hint" style="font-size:11px;color:var(--text-muted)"></div>
+      <div id="docker-edit-progress" style="display:none;margin-top:4px">
+        <div style="font-weight:600;font-size:12px;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-loader-2 ti-spin" style="color:var(--accent)"></i> Sincronizando y ejecutando comando en segundo plano...
+        </div>
+        <pre id="docker-edit-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:11.5px;line-height:1.4;padding:10px;border-radius:var(--radius);height:150px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-docker-edit')" id="docker-edit-cancel-btn">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveDockerFile()" id="docker-edit-save-btn"><i class="ti ti-device-floppy"></i> Guardar y Aplicar</button>
     </div>
   </div>
 </div>
