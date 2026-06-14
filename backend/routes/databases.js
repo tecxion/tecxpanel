@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { RE_APP_NAME } = require('../lib/validators');
@@ -7,6 +8,28 @@ const { encryptSecret, decryptSecret, genPassword } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 
 const router = express.Router();
+
+// Ejecuta SQL en MySQL/MariaDB probando varios métodos de autenticación:
+// 1) root por socket (proceso root), 2) sudo (auth_socket), 3) debian-sys-maint,
+// 4) contraseña root desde .env (MYSQL_ROOT_PASSWORD).
+async function mysqlExec(sql) {
+  let last = await runSafe('mysql', ['-e', sql]);
+  if (last.ok) return last;
+
+  const sudo = await runSafe('sudo', ['-n', 'mysql', '-e', sql]);
+  if (sudo.ok) return sudo; last = sudo;
+
+  if (fs.existsSync('/etc/mysql/debian.cnf')) {
+    const deb = await runSafe('sudo', ['-n', 'mysql', '--defaults-file=/etc/mysql/debian.cnf', '-e', sql]);
+    if (deb.ok) return deb; last = deb;
+  }
+
+  if (process.env.MYSQL_ROOT_PASSWORD) {
+    const pw = await runSafe('mysql', ['-u', 'root', `-p${process.env.MYSQL_ROOT_PASSWORD}`, '-e', sql]);
+    if (pw.ok) return pw; last = pw;
+  }
+  return last;
+}
 
 router.get('/', (req, res) => {
   const rows = queries.listDatabases.all().map((d) => ({
@@ -32,9 +55,11 @@ router.post('/', wrap(async (req, res) => {
       'FLUSH PRIVILEGES;',
     ];
     for (const sql of cmds) {
-      // sudo mysql → conexión por socket como root (auth_socket en Ubuntu/Debian)
-      const r = await runSafe('sudo', ['mysql', '-e', sql]);
-      if (!r.ok) return fail(res, 500, 'Error MySQL: ' + (r.stderr.split('\n').find((l) => /error/i.test(l)) || r.stderr.split('\n')[0]));
+      const r = await mysqlExec(sql);
+      if (!r.ok) {
+        const detail = (r.stderr || '').split('\n').find((l) => /error|denied|not found|command/i.test(l)) || (r.stderr || '').split('\n')[0] || 'fallo desconocido';
+        return fail(res, 500, 'Error MySQL: ' + detail + ' — verifica que MySQL/MariaDB esté instalado y que el panel pueda acceder (auth_socket o MYSQL_ROOT_PASSWORD en .env).');
+      }
     }
   } else {
     let r = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `CREATE USER ${dbUser} WITH PASSWORD '${dbPass}';`]);
@@ -49,13 +74,79 @@ router.post('/', wrap(async (req, res) => {
   ok(res, { success: true, user: dbUser, password: dbPass });
 }));
 
+// ── phpMyAdmin: servirlo por nginx en un puerto dedicado ──────
+const PMA_DIR = '/usr/share/phpmyadmin';
+const PMA_PORT = 8081;
+const PMA_CONF = '/etc/nginx/sites-available/txpl-phpmyadmin';
+const PMA_LINK = '/etc/nginx/sites-enabled/txpl-phpmyadmin';
+
+function detectPhpFpmSock() {
+  try {
+    const socks = fs.readdirSync('/run/php').filter((f) => f.endsWith('.sock') && f.includes('fpm'));
+    if (socks.length) {
+      socks.sort().reverse(); // versión más alta primero
+      return '/run/php/' + socks[0];
+    }
+  } catch (_) {}
+  return null;
+}
+
+function buildPmaNginx(sock) {
+  return `server {
+    listen ${PMA_PORT};
+    server_name _;
+    root ${PMA_DIR};
+    index index.php index.html;
+    location / { try_files $uri $uri/ /index.php?$query_string; }
+    location ~ \\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:${sock};
+    }
+    location ~ /\\.ht { deny all; }
+}
+`;
+}
+
+router.get('/phpmyadmin/status', (req, res) => {
+  const installed = fs.existsSync(PMA_DIR);
+  const configured = fs.existsSync(PMA_LINK);
+  ok(res, { installed, configured, port: PMA_PORT });
+});
+
+router.post('/phpmyadmin/setup', wrap(async (req, res) => {
+  if (!fs.existsSync(PMA_DIR)) return fail(res, 400, 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.');
+
+  // 1. Asegurar php-fpm
+  let sock = detectPhpFpmSock();
+  if (!sock) {
+    await runSafe('apt-get', ['install', '-y', 'php-fpm', 'php-mysql'], { timeout: 300_000 });
+    sock = detectPhpFpmSock();
+  }
+  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
+
+  // 2. Escribir vhost nginx
+  fs.writeFileSync(PMA_CONF, buildPmaNginx(sock));
+  try { fs.symlinkSync(PMA_CONF, PMA_LINK); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+
+  const test = await runSafe('nginx', ['-t']);
+  if (!test.ok) {
+    fs.rmSync(PMA_LINK, { force: true });
+    return fail(res, 500, 'Config nginx inválida: ' + (test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0]));
+  }
+  await runSafe('systemctl', ['reload', 'nginx']);
+  await runSafe('ufw', ['allow', `${PMA_PORT}/tcp`]);
+
+  audit(req.user.username, clientIp(req), 'phpmyadmin.setup', `puerto ${PMA_PORT}`);
+  ok(res, { success: true, port: PMA_PORT });
+}));
+
 router.delete('/:id', wrap(async (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);
   if (!db) return fail(res, 404, 'DB no encontrada');
 
   if (db.type === 'mysql') {
-    await runSafe('sudo', ['mysql', '-e', `DROP DATABASE IF EXISTS \`${db.name}\`;`]);
-    await runSafe('sudo', ['mysql', '-e', `DROP USER IF EXISTS '${db.db_user}'@'localhost';`]);
+    await mysqlExec(`DROP DATABASE IF EXISTS \`${db.name}\`;`);
+    await mysqlExec(`DROP USER IF EXISTS '${db.db_user}'@'localhost';`);
   } else {
     await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP DATABASE IF EXISTS ${db.name};`]);
     await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP USER IF EXISTS ${db.db_user};`]);

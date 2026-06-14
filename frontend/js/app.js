@@ -631,6 +631,7 @@ async function installApp(id, name) {
 let dbPassCache = {};
 
 async function loadDatabases() {
+  loadPmaAction();
   const data = await req('GET', '/databases');
   if (!data) return;
   dbPassCache = {};
@@ -671,6 +672,29 @@ async function createDatabase() {
     toast(`BD ${name} creada. Usuario: ${r.user}`, 'success');
     closeModal('modal-new-db'); loadDatabases();
   } else toast(r?.error || 'Error', 'error');
+}
+
+// ── phpMyAdmin ────────────────────────────────────────────────
+async function loadPmaAction() {
+  const el = document.getElementById('pma-action');
+  if (!el) return;
+  const st = await req('GET', '/databases/phpmyadmin/status');
+  if (!st) { el.innerHTML = ''; return; }
+  if (st.configured) {
+    const host = serverIp || location.hostname;
+    el.innerHTML = `<a class="btn" href="http://${host}:${st.port}" target="_blank" title="Abrir phpMyAdmin"><i class="ti ti-external-link"></i> Abrir phpMyAdmin</a>`;
+  } else if (st.installed) {
+    el.innerHTML = `<button class="btn" onclick="setupPma()" title="Configurar acceso web a phpMyAdmin"><i class="ti ti-settings"></i> Configurar phpMyAdmin</button>`;
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+async function setupPma() {
+  toast('Configurando phpMyAdmin (puede instalar PHP-FPM)...', 'info');
+  const r = await req('POST', '/databases/phpmyadmin/setup');
+  if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadPmaAction(); }
+  else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
 
 // ── Files ─────────────────────────────────────────────────────
