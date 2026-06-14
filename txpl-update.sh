@@ -34,22 +34,18 @@ log "✅ Backup guardado en $BACKUP_DIR"
 # ── 2. Copiar nuevos archivos ─────────────────────────────────
 log "📁 Copiando archivos actualizados..."
 
-# Copiar archivos del directorio actual al panel
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -f "$SCRIPT_DIR/server.js" ]]; then
-    cp "$SCRIPT_DIR/server.js" "$TXPL_DIR/backend/server.js"
-    log "  ↳ server.js actualizado"
+# Backend (server.js, database.js, lib/, routes/)
+if [[ -d "$SCRIPT_DIR/backend" ]]; then
+    cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
+    log "  ↳ backend/ actualizado"
 fi
 
-if [[ -f "$SCRIPT_DIR/database.js" ]]; then
-    cp "$SCRIPT_DIR/database.js" "$TXPL_DIR/backend/database.js"
-    log "  ↳ database.js actualizado"
-fi
-
-if [[ -f "$SCRIPT_DIR/index.html" ]]; then
-    cp "$SCRIPT_DIR/index.html" "$TXPL_DIR/frontend/index.html"
-    log "  ↳ index.html actualizado"
+# Frontend (css + js + index.html)
+if [[ -d "$SCRIPT_DIR/frontend" ]]; then
+    cp -r "$SCRIPT_DIR/frontend/." "$TXPL_DIR/frontend/"
+    log "  ↳ frontend/ actualizado"
 fi
 
 if [[ -f "$SCRIPT_DIR/ecosystem.config.js" ]]; then

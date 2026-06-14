@@ -186,10 +186,11 @@ mkdir -p "$TXPL_DIR/backend" "$TXPL_DIR/frontend" "$TXPL_DIR/data" \
 step_done
 
 step_begin "Copiando archivos del panel"
-cp "$SCRIPT_DIR/server.js"           "$TXPL_DIR/backend/"
-cp "$SCRIPT_DIR/database.js"         "$TXPL_DIR/backend/"
+# Backend (server.js, database.js, lib/, routes/)
+cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
 cp "$SCRIPT_DIR/package.json"        "$TXPL_DIR/backend/"
-cp "$SCRIPT_DIR/index.html"          "$TXPL_DIR/frontend/"
+# Frontend (index.html, css/, js/)
+cp -r "$SCRIPT_DIR/frontend/." "$TXPL_DIR/frontend/"
 cp "$SCRIPT_DIR/ecosystem.config.js" "$TXPL_DIR/"
 cp "$SCRIPT_DIR/txpl-backup.sh" "$SCRIPT_DIR/txpl-update.sh" "$TXPL_DIR/" 2>/dev/null || true
 chmod +x "$TXPL_DIR"/*.sh 2>/dev/null || true

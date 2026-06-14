@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TecXPaneL — Panel de Control VPS</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.2.0/tabler-icons.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ═══════════════════ LOGIN ═══════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="txpl-mark">TXPL</div>
+      <p>TecXPaneL — Panel de Control VPS</p>
+    </div>
+    <div class="login-field">
+      <label>Usuario</label>
+      <input type="text" id="login-user" value="admin" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div class="login-field" id="login-2fa-field" style="display:none">
+      <label>Código 2FA</label>
+      <input type="text" id="login-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Iniciar sesión</button>
+    <p class="login-error" id="login-error">Credenciales incorrectas</p>
+  </div>
+</div>
+
+<!-- ═══════════════════ APP ═══════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-txpl">TecXPaneL<span>.</span></div>
+      <div class="logo-sub">VPS Control Panel</div>
+    </div>
+
+    <div class="sidebar-section">General</div>
+    <div class="nav-item active" data-page="dashboard" onclick="navigate(this)">
+      <i class="ti ti-layout-dashboard"></i> Dashboard
+    </div>
+    <div class="nav-item" data-page="terminal" onclick="navigate(this)">
+      <i class="ti ti-terminal-2"></i> Terminal
+    </div>
+    <div class="nav-item" data-page="logs" onclick="navigate(this)">
+      <i class="ti ti-file-text"></i> Logs del sistema
+    </div>
+
+    <div class="sidebar-section">Servicios</div>
+    <div class="nav-item" data-page="websites" onclick="navigate(this)">
+      <i class="ti ti-world"></i> Sitios web
+    </div>
+    <div class="nav-item" data-page="apps" onclick="navigate(this)">
+      <i class="ti ti-brand-nodejs"></i> Aplicaciones
+    </div>
+    <div class="nav-item" data-page="databases" onclick="navigate(this)">
+      <i class="ti ti-database"></i> Bases de datos
+    </div>
+
+    <div class="sidebar-section">Sistema</div>
+    <div class="nav-item" data-page="files" onclick="navigate(this)">
+      <i class="ti ti-folders"></i> Archivos
+    </div>
+    <div class="nav-item" data-page="firewall" onclick="navigate(this)">
+      <i class="ti ti-shield-lock"></i> Firewall UFW
+    </div>
+    <div class="nav-item" data-page="ssl" onclick="navigate(this)">
+      <i class="ti ti-certificate"></i> SSL / HTTPS
+    </div>
+    <div class="nav-item" data-page="plugins" onclick="navigate(this)">
+      <i class="ti ti-puzzle"></i> Plugins
+    </div>
+
+    <div class="sidebar-section">Ayuda</div>
+    <div class="nav-item" data-page="help" onclick="navigate(this)">
+      <i class="ti ti-book"></i> Manual de uso
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="user-chip" onclick="navigate('settings')">
+        <div class="user-avatar" id="user-avatar">A</div>
+        <div>
+          <div class="user-name" id="user-name">Admin</div>
+          <div class="user-role">Administrador</div>
+        </div>
+        <i class="ti ti-settings" style="margin-left:auto;color:var(--text-muted);font-size:16px"></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <span class="topbar-title" id="page-title">Dashboard</span>
+      <span class="topbar-subtitle" id="server-hostname">—</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <span id="uptime-display" style="font-size:12px;color:var(--text-muted)"></span>
+        <div class="badge badge-green" id="status-badge" style="display:none">
+          <span style="font-size:10px">● Online</span>
+        </div>
+        <button class="btn btn-sm" onclick="doLogout()">
+          <i class="ti ti-logout"></i> Salir
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="page active" id="page-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card cpu">
+            <div class="stat-label"><i class="ti ti-cpu"></i> CPU</div>
+            <div class="stat-value"><span id="cpu-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill cpu" id="cpu-bar" style="width:0%"></div></div>
+          </div>
+          <div class="stat-card mem">
+            <div class="stat-label"><i class="ti ti-cpu-2"></i> Memoria RAM</div>
+            <div class="stat-value"><span id="mem-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill mem" id="mem-bar" style="width:0%;background:var(--cyan)"></div></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="mem-detail">— / —</div>
+          </div>
+          <div class="stat-card disk">
+            <div class="stat-label"><i class="ti ti-database"></i> Disco</div>
+            <div class="stat-value"><span id="disk-val">—</span><span>%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill disk" id="disk-bar" style="width:0%;background:var(--green)"></div></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="disk-detail">— / —</div>
+          </div>
+          <div class="stat-card net">
+            <div class="stat-label"><i class="ti ti-activity"></i> Red</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.25rem">
+              <div>
+                <div style="font-size:10px;color:var(--text-muted)">↓ RECV</div>
+                <div style="font-size:1.1rem;font-weight:700" id="net-rx">—</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text-muted)">↑ SEND</div>
+                <div style="font-size:1.1rem;font-weight:700" id="net-tx">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overview-grid">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-server"></i> Servicios del sistema</div>
+              <button class="btn btn-sm" onclick="loadServices()"><i class="ti ti-refresh"></i></button>
+            </div>
+            <div class="services-list" id="services-list">
+              <div class="empty-state"><i class="ti ti-loader"></i> Cargando...</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-activity"></i> Procesos top</div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>PID</th><th>Proceso</th><th>CPU%</th><th>MEM%</th></tr></thead>
+                <tbody id="procs-table"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Cargando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-2">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-info-circle"></i> Información del sistema</div>
+          </div>
+          <div id="os-info" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem"></div>
+        </div>
+      </div>
+
+      <!-- ── TERMINAL ── -->
+      <div class="page" id="page-terminal">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-terminal-2"></i> Terminal SSH</div>
+          </div>
+          <div id="terminal-container">
+            <div class="terminal-toolbar">
+              <div class="term-dot r"></div>
+              <div class="term-dot y"></div>
+              <div class="term-dot g"></div>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:8px">bash — TecXPaneL Terminal</span>
+            </div>
+            <div id="xterm-mount"></div>
+            <div class="terminal-footer">
+              <button class="btn btn-sm btn-primary" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── WEBSITES ── -->
+      <div class="page" id="page-websites">
+        <div class="flex items-center gap-3 mb" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-site')">
+            <i class="ti ti-plus"></i> Nuevo sitio web
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-world"></i> Sitios web gestionados</div>
+            <button class="btn btn-sm" onclick="loadWebsites()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Dominio</th><th>Tipo</th><th>SSL</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+              <tbody id="websites-table">
+                <tr><td colspan="6" class="empty-state">Sin sitios web aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── APPS ── -->
+      <div class="page" id="page-apps">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-app')">
+            <i class="ti ti-plus"></i> Nueva aplicación
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-brand-nodejs"></i> Aplicaciones PM2</div>
+            <button class="btn btn-sm" onclick="loadApps()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Tipo</th><th>Puerto</th><th>Estado</th><th>Dominio</th><th>Acciones</th></tr></thead>
+              <tbody id="apps-table">
+                <tr><td colspan="6" class="empty-state">Sin aplicaciones aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DATABASES ── -->
+      <div class="page" id="page-databases">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-db')">
+            <i class="ti ti-plus"></i> Nueva base de datos
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-database"></i> Bases de datos</div>
+            <button class="btn btn-sm" onclick="loadDatabases()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Tipo</th><th>Usuario</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+              <tbody id="databases-table">
+                <tr><td colspan="6" class="empty-state">Sin bases de datos aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── FILES ── -->
+      <div class="page" id="page-files">
+        <div style="margin-bottom:1rem;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="openModal('modal-new-folder')"><i class="ti ti-folder-plus"></i> Nueva carpeta</button>
+          <button class="btn btn-primary" onclick="openModal('modal-new-file')"><i class="ti ti-file-plus"></i> Nuevo archivo</button>
+          <button class="btn btn-sm" onclick="loadFiles()"><i class="ti ti-refresh"></i></button>
+        </div>
+        <div id="file-breadcrumb" style="margin-bottom:1rem;font-size:13px;color:var(--text-secondary)"></div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-folders"></i> Archivos y carpetas</div>
+          </div>
+          <div id="drop-zone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:2rem;text-align:center;color:var(--text-muted);background:var(--bg-card2);cursor:pointer;margin-bottom:1rem;transition:all 0.15s">
+            <p><i class="ti ti-cloud-upload" style="font-size:24px;display:block;margin-bottom:0.5rem"></i></p>
+            <p style="margin:0"><strong>Arrastra archivos aquí</strong></p>
+            <p style="margin:0;font-size:12px">o haz clic para seleccionar</p>
+            <input type="file" id="file-upload" style="display:none" multiple onchange="handleFileUpload(event)">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th style="width:40px"></th><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
+              <tbody id="files-table"><tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted)"><i class="ti ti-inbox"></i> Cargando...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── FIREWALL ── -->
+      <div class="page" id="page-firewall">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <button class="btn btn-primary" onclick="openModal('modal-new-rule')">
+            <i class="ti ti-plus"></i> Nueva regla
+          </button>
+          <button class="btn btn-sm" onclick="loadFirewall()"><i class="ti ti-refresh"></i></button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-shield-lock"></i> Reglas del Firewall UFW</div>
+            <div id="ufw-status" class="badge badge-green">Activo</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Destino</th><th>Acción</th><th>Desde</th><th>Acciones</th></tr></thead>
+              <tbody id="firewall-table"><tr><td colspan="5" class="empty-state">Cargando reglas...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SSL ── -->
+      <div class="page" id="page-ssl">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-certificate"></i> Certificados SSL — Let's Encrypt</div>
+          </div>
+          <p style="color:var(--text-muted);font-size:13px;margin-bottom:1.5rem">Instala certificados SSL gratuitos para tus dominios. El dominio debe apuntar a este servidor.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Dominio</th><th>SSL activo</th><th>Acciones</th></tr></thead>
+              <tbody id="ssl-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LOGS ── -->
+      <div class="page" id="page-logs">
+        <div class="tabs">
+          <div class="tab active" onclick="loadLog('nginx_access',this)">Nginx Access</div>
+          <div class="tab" onclick="loadLog('nginx_error',this)">Nginx Error</div>
+          <div class="tab" onclick="loadLog('system',this)">Sistema</div>
+        </div>
+        <div class="card">
+          <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Selecciona un log para verlo...</pre>
+        </div>
+      </div>
+
+      <!-- ── PLUGINS ── -->
+      <div class="page" id="page-plugins">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-puzzle"></i> Plugins del servidor</div>
+            <button class="btn btn-sm" onclick="loadPlugins()"><i class="ti ti-refresh"></i></button>
+          </div>
+          <p style="color:var(--text-secondary);margin-bottom:1rem;font-size:13px">
+            Instala software adicional en tu VPS directamente desde el panel, sin usar la terminal.
+          </p>
+          <div id="plugins-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+            <div class="empty-state"><i class="ti ti-loader"></i> Cargando plugins...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── HELP ── -->
+      <div class="page" id="page-help">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-book"></i> Manual de uso de TecXPaneL</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.9">
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-layout-dashboard" style="color:var(--accent)"></i> Dashboard</h3>
+            <p>Muestra el estado del servidor en tiempo real: uso de CPU, RAM, disco y red. Tambi&eacute;n ves los servicios activos (Nginx, MySQL, etc.) y los procesos que m&aacute;s recursos consumen. Los datos se actualizan autom&aacute;ticamente cada pocos segundos.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Terminal</h3>
+            <p>Una terminal SSH real dentro del navegador. Puedes ejecutar cualquier comando como si estuvieras conectado por SSH. Pulsa <strong>Conectar</strong> para abrir la sesi&oacute;n. Soporta colores, autocompletado y todo lo que har&iacute;as en una terminal normal.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios web</h3>
+            <p>Crea y gestiona sitios web alojados en tu VPS. Puedes crear sitios de tipo:</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>HTML est&aacute;tico</strong> &mdash; p&aacute;ginas simples sin backend.</li>
+              <li><strong>PHP</strong> &mdash; WordPress, Laravel y cualquier app PHP. Puedes elegir la versi&oacute;n de PHP.</li>
+              <li><strong>Node.js / React / Python</strong> &mdash; se configura como proxy inverso hacia tu app.</li>
+            </ul>
+            <p><strong>Sin dominio:</strong> Si no tienes un dominio, marca &laquo;Acceso por IP:Puerto&raquo; y el panel asignar&aacute; un puerto autom&aacute;ticamente. Podr&aacute;s acceder al sitio desde <code>http://tu-ip:puerto</code>.</p>
+            <p><strong>Con dominio:</strong> Introduce tu dominio (ej: <code>ejemplo.com</code>). Recuerda crear un registro A apuntando a la IP de tu VPS. Luego puedes instalar SSL desde la secci&oacute;n SSL/HTTPS.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Aplicaciones</h3>
+            <p>Despliega aplicaciones Node.js, Python, TypeScript o React gestionadas por PM2. El panel se encarga de mantenerlas vivas y reiniciarlas si se caen.</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>Ruta del proyecto:</strong> la carpeta donde est&aacute; tu c&oacute;digo (ej: <code>/var/www/mi-api</code>).</li>
+              <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>).</li>
+              <li><strong>Puerto:</strong> en qu&eacute; puerto escucha tu app (informativo, para configurar el proxy).</li>
+            </ul>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-database" style="color:var(--accent)"></i> Bases de datos</h3>
+            <p>Crea bases de datos MySQL (MariaDB) o PostgreSQL con un clic. El panel genera autom&aacute;ticamente un usuario y contrase&ntilde;a seguros. Las contrase&ntilde;as se almacenan cifradas y puedes copiarlas con el bot&oacute;n de copiar.</p>
+            <p><strong>Requisito:</strong> el motor de BD debe estar instalado. Si no lo instalaste durante el setup, puedes hacerlo desde <strong>Plugins</strong>.</p>
+            <p><strong>phpMyAdmin:</strong> para gestionar tus bases de datos visualmente, instala phpMyAdmin desde Plugins. Estar&aacute; accesible en el puerto 8081.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-folders" style="color:var(--accent)"></i> Gestor de archivos</h3>
+            <p>Navega, crea, edita y elimina archivos y carpetas del sistema. Ideal para subir o editar el c&oacute;digo de tus sitios web directamente desde el navegador.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Firewall UFW</h3>
+            <p>Gestiona las reglas del firewall UFW. Por defecto se abren los puertos 22 (SSH), 80 (HTTP) y 443 (HTTPS). Puedes a&ntilde;adir reglas para abrir otros puertos que necesiten tus apps.</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-certificate" style="color:var(--accent)"></i> SSL / HTTPS</h3>
+            <p>Instala certificados SSL gratuitos de Let&rsquo;s Encrypt en tus sitios con dominio. El certificado se renueva autom&aacute;ticamente. Requisitos: tener un dominio apuntando a la IP del VPS y Certbot instalado (viene por defecto o se instala desde Plugins).</p>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-puzzle" style="color:var(--accent)"></i> Plugins</h3>
+            <p>Instala software adicional sin tocar la terminal:</p>
+            <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+              <li><strong>Docker</strong> &mdash; contenedores para aislar aplicaciones.</li>
+              <li><strong>phpMyAdmin</strong> &mdash; gestor web para MySQL/MariaDB (puerto 8081).</li>
+              <li><strong>Redis</strong> &mdash; cach&eacute; en memoria para mejorar rendimiento.</li>
+              <li><strong>Fail2Ban</strong> &mdash; protege SSH y otros servicios contra ataques de fuerza bruta.</li>
+              <li><strong>Composer</strong> &mdash; gestor de paquetes PHP (Laravel, WordPress plugins).</li>
+              <li><strong>Certbot</strong> &mdash; certificados SSL gratuitos.</li>
+            </ul>
+
+            <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes</h3>
+            <p>Cambia tu contrase&ntilde;a de acceso al panel. La contrase&ntilde;a debe tener al menos 8 caracteres.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SETTINGS ── -->
+      <div class="page" id="page-settings">
+        <div class="overview-grid">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-user"></i> Cuenta</div>
+            </div>
+            <div id="settings-account" style="display:flex;flex-direction:column;gap:0.75rem"></div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-lock"></i> Cambiar contraseña</div>
+            </div>
+            <div class="form-group"><label>Contraseña actual</label><input type="password" id="set-pass-old"></div>
+            <div class="form-group"><label>Nueva contraseña</label><input type="password" id="set-pass-new"></div>
+            <div class="form-group"><label>Repite la nueva contraseña</label><input type="password" id="set-pass-new2"></div>
+            <button class="btn btn-primary" onclick="changePassword()"><i class="ti ti-device-floppy"></i> Guardar contraseña</button>
+          </div>
+        </div>
+        <div class="card mt-2">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-info-circle"></i> Acerca de TecXPaneL</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+            Panel de control para VPS. Backend en <span class="domain-pill">127.0.0.1:8585</span> tras Nginx.
+            <br>Cierra sesión desde el botón <strong>Salir</strong> de la barra superior.
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div><!-- /app -->
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- New Website -->
+<div class="modal-overlay" id="modal-new-site">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-world" style="color:var(--accent)"></i> Nuevo sitio web</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-site')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Modo de acceso</label>
+        <select id="site-mode" onchange="toggleSiteMode()">
+          <option value="domain">Con dominio (ejemplo.com)</option>
+          <option value="port">Sin dominio &mdash; acceso por IP:Puerto</option>
+        </select>
+      </div>
+      <div id="site-domain-group" class="form-group">
+        <label id="site-domain-label">Dominio</label>
+        <input type="text" id="site-domain" placeholder="ejemplo.com">
+        <div id="site-domain-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+      </div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="site-type" onchange="togglePhpVersion()">
+          <option value="html">HTML est&aacute;tico</option>
+          <option value="php">PHP</option>
+          <option value="nodejs">Node.js (proxy)</option>
+          <option value="react">React (build)</option>
+          <option value="python">Python (proxy)</option>
+        </select>
+      </div>
+      <div class="form-group" id="site-php-version-group" style="display:none">
+        <label>Versi&oacute;n de PHP</label>
+        <select id="site-php-version">
+          <option value="">Auto-detectar</option>
+          <option value="8.3">PHP 8.3</option>
+          <option value="8.2">PHP 8.2</option>
+          <option value="8.1">PHP 8.1</option>
+          <option value="8.0">PHP 8.0</option>
+          <option value="7.4">PHP 7.4</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><input type="checkbox" id="site-php"> Habilitar PHP</label>
+        </div>
+        <div class="form-group" id="site-ssl-group">
+          <label><input type="checkbox" id="site-ssl"> SSL autom&aacute;tico</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-site')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createWebsite()"><i class="ti ti-plus"></i> Crear sitio</button>
+    </div>
+  </div>
+</div>
+
+<!-- New App -->
+<div class="modal-overlay" id="modal-new-app">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Nueva aplicación</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-app')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre de la app</label><input type="text" id="app-name" placeholder="mi-api"></div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="app-type">
+          <option value="nodejs">Node.js</option>
+          <option value="typescript">TypeScript</option>
+          <option value="react">React</option>
+          <option value="python">Python</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Ruta del proyecto</label>
+        <input type="text" id="app-path" placeholder="/var/www/mi-api">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Carpeta donde est&aacute; el c&oacute;digo de tu app</div>
+      </div>
+      <div class="form-group">
+        <label>Comando de inicio</label>
+        <input type="text" id="app-cmd" placeholder="npm start">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ejemplos: <code>npm start</code>, <code>npm run dev</code>, <code>server.js</code>, <code>app.py</code></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Puerto</label>
+          <input type="number" id="app-port" placeholder="3000">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Puerto en el que escucha tu app</div>
+        </div>
+        <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain" placeholder="api.ejemplo.com"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-app')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createApp()"><i class="ti ti-player-play"></i> Iniciar app</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Database -->
+<div class="modal-overlay" id="modal-new-db">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-database" style="color:var(--accent)"></i> Nueva base de datos</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-db')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Motor</label>
+        <select id="db-type">
+          <option value="mysql">MySQL</option>
+          <option value="postgresql">PostgreSQL</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Nombre de la BD</label><input type="text" id="db-name" placeholder="mi_base_datos"></div>
+      <div class="form-row">
+        <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="db-user" placeholder="Auto-generado"></div>
+        <div class="form-group"><label>Contraseña (opcional)</label><input type="password" id="db-pass" placeholder="Auto-generada"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-db')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createDatabase()"><i class="ti ti-plus"></i> Crear BD</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Firewall Rule -->
+<div class="modal-overlay" id="modal-new-rule">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Nueva regla de firewall</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-rule')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label>Acción</label>
+          <select id="rule-action"><option value="allow">ALLOW (permitir)</option><option value="deny">DENY (bloquear)</option></select>
+        </div>
+        <div class="form-group"><label>Puerto</label><input type="text" id="rule-port" placeholder="80, 443, 3000..."></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Protocolo</label>
+          <select id="rule-proto"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="">Ambos</option></select>
+        </div>
+        <div class="form-group"><label>Desde IP (vacío = any)</label><input type="text" id="rule-from" placeholder="0.0.0.0/0"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-rule')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createRule()"><i class="ti ti-shield-check"></i> Añadir regla</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Folder -->
+<div class="modal-overlay" id="modal-new-folder">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-folder-plus" style="color:var(--accent)"></i> Nueva carpeta</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-folder')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre de la carpeta</label><input type="text" id="folder-name" placeholder="mi_carpeta"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-folder')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createFolder()"><i class="ti ti-folder-plus"></i> Crear carpeta</button>
+    </div>
+  </div>
+</div>
+
+<!-- New File -->
+<div class="modal-overlay" id="modal-new-file">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-plus" style="color:var(--accent)"></i> Nuevo archivo</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-new-file')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Nombre del archivo</label><input type="text" id="file-name" placeholder="index.html"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-new-file')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createFile()"><i class="ti ti-file-plus"></i> Crear archivo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
