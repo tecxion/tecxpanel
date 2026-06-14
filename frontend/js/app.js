@@ -370,6 +370,8 @@ async function loadApps() {
             ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop')" title="Parar"><i class="ti ti-player-stop"></i></button>
                <button class="btn btn-sm" onclick="appAction(${a.id},'restart')" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
             : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i></button>`}
+          <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}')" title="Instalar dependencias"><i class="ti ti-package"></i></button>
+          <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola en la carpeta"><i class="ti ti-terminal-2"></i></button>
           <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i></button>
           <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i></button>
         </div>
@@ -409,8 +411,10 @@ async function createApp() {
 }
 
 async function appAction(id, action) {
+  if (action === 'delete' && !confirm('¿Eliminar esta aplicación?')) return;
+  const labels = { start: 'iniciada', stop: 'detenida', restart: 'reiniciada', delete: 'eliminada' };
   const r = await req('POST', `/apps/${id}/${action}`);
-  if (r?.success) { toast(`Acción ${action} completada`, 'success'); loadApps(); }
+  if (r?.success) { toast(`App ${labels[action] || action}`, 'success'); loadApps(); }
   else toast(r?.error || 'Error', 'error');
 }
 
@@ -418,6 +422,60 @@ async function viewAppLogs(id, name) {
   const r = await req('GET', `/apps/${id}/logs`);
   document.getElementById('log-output').textContent = r?.logs || 'Sin logs';
   navigate(document.querySelector('[data-page=logs]'));
+}
+
+// ── Consola de la app ─────────────────────────────────────────
+let consoleAppId = null;
+
+function openAppConsole(id, name) {
+  consoleAppId = id;
+  document.getElementById('console-app-name').textContent = name;
+  document.getElementById('console-output').textContent = 'Listo. Escribe un comando (ej: npm install, ls -la, npm run build) y pulsa Ejecutar.\n';
+  document.getElementById('console-cmd').value = '';
+  openModal('modal-app-console');
+  setTimeout(() => document.getElementById('console-cmd').focus(), 100);
+}
+
+async function runAppCommand() {
+  if (!consoleAppId) return;
+  const input = document.getElementById('console-cmd');
+  const command = input.value.trim();
+  if (!command) return;
+  const out = document.getElementById('console-output');
+  out.textContent += `\n$ ${command}\n`;
+  out.scrollTop = out.scrollHeight;
+  input.value = '';
+  input.disabled = true;
+
+  const r = await req('POST', `/apps/${consoleAppId}/exec`, { command });
+  if (r?.success) {
+    out.textContent += (r.output || '') + '\n';
+  } else {
+    out.textContent += `Error: ${r?.error || 'fallo al ejecutar'}\n`;
+  }
+  out.scrollTop = out.scrollHeight;
+  input.disabled = false;
+  input.focus();
+}
+
+function consoleKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runAppCommand(); }
+}
+
+async function installApp(id, name) {
+  toast(`Instalando dependencias de "${name}"...`, 'info');
+  const r = await req('POST', `/apps/${id}/install`);
+  if (r?.success) {
+    consoleAppId = id;
+    document.getElementById('console-app-name').textContent = name;
+    document.getElementById('console-output').textContent = `$ ${r.command || 'install'}\n${r.output || ''}\n`;
+    document.getElementById('console-cmd').value = '';
+    openModal('modal-app-console');
+    document.getElementById('console-output').scrollTop = document.getElementById('console-output').scrollHeight;
+    toast(r.ok ? 'Dependencias instaladas' : 'Instalación terminó con errores (revisa la consola)', r.ok ? 'success' : 'error');
+  } else {
+    toast(r?.error || 'Error al instalar', 'error');
+  }
 }
 
 // ── Databases ─────────────────────────────────────────────────
