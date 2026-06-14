@@ -470,8 +470,10 @@ async function startDeploy() {
     if (!success && createdId) {
       // Rollback: el servidor borra la carpeta y todos los archivos subidos
       deployLog('\n↩ Despliegue fallido. Limpiando: se elimina la carpeta y los archivos creados...');
-      await req('DELETE', `/apps/${createdId}`);
-      deployLog('✓ Limpieza completada. No quedó nada en el servidor.');
+      const del = await req('POST', `/apps/${createdId}/delete`);
+      if (del?.success) deployLog('✓ Limpieza completada. No quedó nada en el servidor.');
+      else deployLog('⚠ No se pudo limpiar automáticamente: ' + (del?.error || 'error') + '. Borra la app manualmente desde la lista.');
+      createdId = null;
     }
     document.getElementById('deploy-done-btn').style.display = 'inline-flex';
     if (!success) return;
@@ -1169,7 +1171,7 @@ async function loadPlugins() {
           <div style="font-weight:600;font-size:14px">${esc(p.name)}</div>
           <div style="font-size:11px;color:var(--text-muted)">${esc(p.category)}</div>
         </div>
-        <span class="badge ${p.installed ? 'badge-green' : ''}" style="margin-left:auto">${p.installed ? 'Instalado' : 'No instalado'}</span>
+        <span class="badge ${p.installed ? 'badge-green' : 'badge-red'}" style="margin-left:auto">${p.installed ? '● Instalado' : '○ No instalado'}</span>
       </div>
       <div style="font-size:12px;color:var(--text-secondary)">${esc(p.desc)}</div>
       <div style="margin-top:auto;display:flex;gap:6px">
