@@ -52,9 +52,13 @@ El proyecto está estructurado de forma limpia y desacoplada:
 
 ---
 
-## 💿 Instalación en un VPS limpio (Recomendada)
+## 💿 Instalación en un VPS limpio
 
 En un VPS limpio con **Ubuntu** o **Debian**, todo el proceso de aprovisionamiento se realiza mediante un script interactivo. Este instala Node.js, Nginx, PM2, UFW y Certbot, configura un `.env` seguro y arranca el panel.
+
+> [!WARNING]
+> **Instalación en servidor en producción:**
+> El script de instalación configura el firewall UFW, crea bloques en Nginx y realiza modificaciones globales en los paquetes del sistema. Se recomienda **encarecidamente** ejecutarlo únicamente en un VPS limpio recién creado para evitar conflictos de puertos o configuraciones previas.
 
 Ejecuta el siguiente comando como `root` o usando `sudo`:
 
@@ -99,6 +103,10 @@ Puedes clonar el repositorio y arrancar la aplicación de pruebas en tu máquina
     ```
 3.  Accede desde el navegador a: `http://localhost:8585`
 
+> [!NOTE]
+> **Limitaciones en Windows:**
+> Al probar el panel de control localmente en Windows, las funciones específicas de Linux (como el Firewall UFW, la terminal SSH con `node-pty` y la gestión de servicios con `systemctl`) lanzarán excepciones controladas. Sin embargo, toda la interfaz, base de datos SQLite y gestor de archivos locales funcionarán al 100% para realizar pruebas de desarrollo.
+
 ---
 
 ## 💻 Comandos del CLI `txpl`
@@ -122,7 +130,33 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 ## 🛡️ Seguridad Aplicada
 
+> [!IMPORTANT]
+> La seguridad es un pilar fundamental en TecXPaneL. El backend y los scripts están protegidos con políticas estrictas de control y aislamiento.
+
 *   **Zero Shell Interpolation**: Toda ejecución externa se hace con `execFile` pasando argumentos en arrays, imposibilitando los ataques de Command Injection.
 *   **Cifrado Robusto**: Contraseñas del administrador hasheadas con `bcrypt` (12 rondas). Secretos de bases de datos guardados en la base de datos local con cifrado simétrico AES-256-GCM.
 *   **Jaula de Rutas (Path Jail)**: Rutas del gestor de archivos validadas y resueltas para bloquear ataques de Path Traversal fuera del directorio base.
 *   **Protección contra Ataques**: Cabeceras de seguridad configuradas mediante `helmet`, rate limiting de solicitudes por IP y protección contra fuerza bruta integrada.
+
+---
+
+## 🤝 Colaboración
+
+¡Las contribuciones son lo que hacen a la comunidad de código abierto un lugar increíble para aprender, inspirar y crear! Cualquier colaboración que hagas será **muy apreciada**.
+
+1.  Haz un **Fork** del proyecto.
+2.  Crea una rama para tu característica (`git checkout -b feature/NuevaMejora`).
+3.  Realiza tus cambios y haz un commit (`git commit -m 'Añade nueva funcionalidad'`).
+4.  Sube la rama a tu fork (`git push origin feature/NuevaMejora`).
+5.  Abre un **Pull Request**.
+
+---
+
+## 💰 ¿Puedes ayudarme a crecer?
+
+<h1 align="center">
+   <a href="https://paypal.me/jfmpkiko">
+<img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Paypal" />  </a><a href="https://coff.ee/tecxart"><img src="https://github.com/tecxion/TecXion/blob/main/Media/cafe1.png" alt="Cafe">   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/tecxion/tecxion">    <img alt="GitHub User's stars" src="https://img.shields.io/github/stars/tecxion">
+
+</a>
+</h1>
