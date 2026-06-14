@@ -133,7 +133,7 @@ function detectProject(cwd) {
     det.manager = mgr;
     // IMPORTANTE: forzar la instalación de devDependencies (necesarias para el build,
     // ej. tailwindcss). Si no, con NODE_ENV=production npm/yarn/pnpm las omiten.
-    det.installCmd = mgr === 'npm' ? 'npm install --include=dev'
+    det.installCmd = mgr === 'npm' ? 'npm install --include=dev --also=dev'
       : mgr === 'yarn' ? 'yarn install --production=false'
       : 'pnpm install --prod=false';
 
