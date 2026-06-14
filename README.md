@@ -8,6 +8,10 @@
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs Welcome" />
 </p>
 
+### Último commit
+
+![GitHub last commit](https://img.shields.io/github/last-commit/tecxion/tecxpanel)
+
 **TecXPaneL** es un panel de control autohospedado, moderno y extremadamente ligero diseñado para gestionar servidores VPS basados en **Ubuntu/Debian**. Ofrece una alternativa de alto rendimiento y bajo consumo a paneles pesados como cPanel o Plesk, consumiendo menos de **30 MB de RAM**.
 
 Está desarrollado como una **SPA (Single Page Application)** modular en el frontend y un backend rápido en **Node.js** con base de datos **SQLite**.
@@ -151,13 +155,15 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 4.  Sube la rama a tu fork (`git push origin feature/NuevaMejora`).
 5.  Abre un **Pull Request**.
 
+![GitHub contributors](https://img.shields.io/github/contributors/tecxion/tecxpanel)
+
 ---
 
 ## 💰 ¿Puedes ayudarme a crecer?
 
 <h1 align="center">
    <a href="https://paypal.me/jfmpkiko">
-<img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Paypal" />  </a><a href="https://coff.ee/tecxart"><img src="https://github.com/tecxion/TecXion/blob/main/Media/cafe1.png" alt="Cafe">   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/tecxion/tecxion/tecxpanel">    <img alt="GitHub User's stars" src="https://img.shields.io/github/stars/tecxion/tecxpanel">
+<img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Paypal" />  </a><a href="https://coff.ee/tecxart"><img src="https://github.com/tecxion/TecXion/blob/main/Media/cafe1.png" alt="Cafe">   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/tecxion/tecxpanel">    <img alt="GitHub User's stars" src="https://img.shields.io/github/stars/tecxion/tecxpanel">
 
 </a>
 </h1>
