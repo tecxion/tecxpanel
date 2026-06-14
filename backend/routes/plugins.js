@@ -1,10 +1,32 @@
 'use strict';
 
 const express = require('express');
+const { spawn } = require('child_process');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { audit } = require('../database');
 
 const router = express.Router();
+
+// Ejecuta un comando y transmite su salida en vivo al cliente (streaming).
+function streamCommand(res, cmd, args, intro) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no'); // nginx: no almacenar en buffer
+  res.flushHeaders?.();
+  if (intro) res.write(intro);
+
+  let child;
+  try {
+    child = spawn(cmd, args, { env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+  } catch (e) {
+    res.write('\n[error] No se pudo iniciar: ' + e.message + '\n');
+    return res.end('__TXPL_DONE__1');
+  }
+  child.stdout.on('data', (d) => res.write(d));
+  child.stderr.on('data', (d) => res.write(d));
+  child.on('error', (e) => { res.write('\n[error] ' + e.message + '\n'); res.end('__TXPL_DONE__1'); });
+  child.on('close', (code) => res.end('\n__TXPL_DONE__' + (code === null ? 1 : code)));
+}
 
 const PLUGINS = {
   docker: {
@@ -54,22 +76,18 @@ router.get('/', wrap(async (req, res) => {
   ok(res, result);
 }));
 
-router.post('/:id/install', wrap(async (req, res) => {
+router.post('/:id/install', (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin desconocido');
-  const r = await runSafe(p.install[0], p.install[1]);
-  if (!r.ok) return fail(res, 500, r.stderr.split('\n').slice(-2).join(' ') || 'Error instalando');
   audit(req.user.username, clientIp(req), 'plugin.install', req.params.id);
-  ok(res);
-}));
+  streamCommand(res, p.install[0], p.install[1], `▶ Instalando ${p.name}...\n\n`);
+});
 
-router.post('/:id/uninstall', wrap(async (req, res) => {
+router.post('/:id/uninstall', (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin desconocido');
-  const r = await runSafe(p.uninstall[0], p.uninstall[1]);
-  if (!r.ok) return fail(res, 500, r.stderr.split('\n').slice(-2).join(' ') || 'Error desinstalando');
   audit(req.user.username, clientIp(req), 'plugin.uninstall', req.params.id);
-  ok(res);
-}));
+  streamCommand(res, p.uninstall[0], p.uninstall[1], `▶ Desinstalando ${p.name}...\n\n`);
+});
 
 module.exports = router;

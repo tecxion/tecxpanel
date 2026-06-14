@@ -1183,20 +1183,63 @@ async function loadPlugins() {
   `).join('');
 }
 
-async function installPlugin(id, name) {
+function installPlugin(id, name) {
   if (!confirm(`¿Instalar ${name}? Esto puede tardar unos minutos.`)) return;
-  toast(`Instalando ${name}... esto puede tardar unos minutos`, 'info');
-  const r = await req('POST', `/plugins/${id}/install`);
-  if (r?.success) { toast(r.message || `${name} instalado`, 'success'); loadPlugins(); }
-  else toast(r?.error || `Error instalando ${name}`, 'error');
+  streamPlugin(id, 'install', name);
 }
 
-async function uninstallPlugin(id, name) {
+function uninstallPlugin(id, name) {
   if (!confirm(`¿Desinstalar ${name}?`)) return;
-  toast(`Desinstalando ${name}...`, 'info');
-  const r = await req('POST', `/plugins/${id}/uninstall`);
-  if (r?.success) { toast(r.message || `${name} desinstalado`, 'success'); loadPlugins(); }
-  else toast(r?.error || `Error desinstalando ${name}`, 'error');
+  streamPlugin(id, 'uninstall', name);
+}
+
+// Ejecuta install/uninstall mostrando la salida en vivo en la consola de plugins.
+async function streamPlugin(id, action, name) {
+  const wrap = document.getElementById('plugin-console');
+  const out = document.getElementById('plugin-console-output');
+  const titleEl = document.getElementById('plugin-console-title');
+  const spinner = document.getElementById('plugin-console-spinner');
+  const DONE = '__TXPL_DONE__';
+
+  wrap.style.display = 'block';
+  titleEl.textContent = (action === 'install' ? 'Instalando ' : 'Desinstalando ') + name;
+  spinner.style.display = 'inline';
+  out.textContent = '';
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  let exitCode = 1;
+  try {
+    const r = await fetch(API + `/api/plugins/${id}/${action}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}` },
+    });
+    if (r.status === 401) { doLogout(); return; }
+    if (!r.body) { out.textContent = 'El navegador no soporta streaming.'; return; }
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += dec.decode(value, { stream: true });
+      let display = buffer;
+      const idx = buffer.indexOf(DONE);
+      if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
+      out.textContent = display;
+      out.scrollTop = out.scrollHeight;
+    }
+  } catch (e) {
+    out.textContent += '\n✖ Error de conexión: ' + (e?.message || e);
+  }
+
+  spinner.style.display = 'none';
+  const success = exitCode === 0;
+  out.textContent += success ? `\n✅ ${action === 'install' ? 'Instalado' : 'Desinstalado'} correctamente.\n`
+    : `\n✖ Terminó con errores (código ${exitCode}).\n`;
+  out.scrollTop = out.scrollHeight;
+  toast(success ? `${name} ${action === 'install' ? 'instalado' : 'desinstalado'}` : `${name}: terminó con errores`, success ? 'success' : 'error');
+  loadPlugins();
 }
 
 // ── Utils ─────────────────────────────────────────────────────

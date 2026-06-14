@@ -18,7 +18,7 @@ router.get('/', (req, res) => {
 router.post('/', wrap(async (req, res) => {
   const { name, type = 'mysql' } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido');
-  if (!['mysql', 'postgres'].includes(type)) return fail(res, 400, 'Tipo inválido');
+  if (!['mysql', 'postgresql'].includes(type)) return fail(res, 400, 'Tipo inválido');
   if (queries.getDatabaseByName.get(name)) return fail(res, 409, 'Ya existe');
 
   const dbUser = `txpl_${name}`;
@@ -32,8 +32,9 @@ router.post('/', wrap(async (req, res) => {
       'FLUSH PRIVILEGES;',
     ];
     for (const sql of cmds) {
-      const r = await runSafe('mysql', ['-e', sql]);
-      if (!r.ok) return fail(res, 500, 'Error MySQL: ' + r.stderr.split('\n')[0]);
+      // sudo mysql → conexión por socket como root (auth_socket en Ubuntu/Debian)
+      const r = await runSafe('sudo', ['mysql', '-e', sql]);
+      if (!r.ok) return fail(res, 500, 'Error MySQL: ' + (r.stderr.split('\n').find((l) => /error/i.test(l)) || r.stderr.split('\n')[0]));
     }
   } else {
     let r = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `CREATE USER ${dbUser} WITH PASSWORD '${dbPass}';`]);
@@ -53,8 +54,8 @@ router.delete('/:id', wrap(async (req, res) => {
   if (!db) return fail(res, 404, 'DB no encontrada');
 
   if (db.type === 'mysql') {
-    await runSafe('mysql', ['-e', `DROP DATABASE IF EXISTS \`${db.name}\`;`]);
-    await runSafe('mysql', ['-e', `DROP USER IF EXISTS '${db.db_user}'@'localhost';`]);
+    await runSafe('sudo', ['mysql', '-e', `DROP DATABASE IF EXISTS \`${db.name}\`;`]);
+    await runSafe('sudo', ['mysql', '-e', `DROP USER IF EXISTS '${db.db_user}'@'localhost';`]);
   } else {
     await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP DATABASE IF EXISTS ${db.name};`]);
     await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP USER IF EXISTS ${db.db_user};`]);
