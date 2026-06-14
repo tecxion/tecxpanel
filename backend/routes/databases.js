@@ -3,7 +3,7 @@
 const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
-const { RE_APP_NAME } = require('../lib/validators');
+const { RE_APP_NAME, RE_DB_USER } = require('../lib/validators');
 const { encryptSecret, decryptSecret, genPassword } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 
@@ -39,18 +39,30 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', wrap(async (req, res) => {
-  const { name, type = 'mysql' } = req.body || {};
+  const { name, type = 'mysql', user, password } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido');
   if (!['mysql', 'postgresql'].includes(type)) return fail(res, 400, 'Tipo inválido');
   if (queries.getDatabaseByName.get(name)) return fail(res, 409, 'Ya existe');
 
-  const dbUser = `txpl_${name}`;
-  const dbPass = genPassword();
+  // Usuario: el que indique el usuario, o uno automático
+  const dbUser = (user && user.trim()) ? user.trim() : `txpl_${name}`;
+  if (!RE_DB_USER.test(dbUser)) return fail(res, 400, 'Usuario inválido (solo letras, números y _, máx 32)');
+
+  // Contraseña: la que indique el usuario, o una generada. Sin caracteres que rompan el SQL.
+  let dbPass;
+  if (password && String(password).length) {
+    if (!/^[^'"\\]{4,128}$/.test(String(password))) return fail(res, 400, 'Contraseña inválida (mín 4 caracteres, sin comillas ni \\)');
+    dbPass = String(password);
+  } else {
+    dbPass = genPassword();
+  }
 
   if (type === 'mysql') {
     const cmds = [
       `CREATE DATABASE IF NOT EXISTS \`${name}\`;`,
       `CREATE USER IF NOT EXISTS '${dbUser}'@'localhost' IDENTIFIED BY '${dbPass}';`,
+      // ALTER garantiza que la contraseña coincida aunque el usuario ya existiera
+      `ALTER USER '${dbUser}'@'localhost' IDENTIFIED BY '${dbPass}';`,
       `GRANT ALL PRIVILEGES ON \`${name}\`.* TO '${dbUser}'@'localhost';`,
       'FLUSH PRIVILEGES;',
     ];
@@ -138,6 +150,59 @@ router.post('/phpmyadmin/setup', wrap(async (req, res) => {
 
   audit(req.user.username, clientIp(req), 'phpmyadmin.setup', `puerto ${PMA_PORT}`);
   ok(res, { success: true, port: PMA_PORT });
+}));
+
+// ── Adminer: gestor ligero para MySQL Y PostgreSQL ───────────
+const ADMINER_DIR = '/usr/share/adminer';
+const ADMINER_FILE = ADMINER_DIR + '/index.php';
+const ADMINER_PORT = 8082;
+const ADMINER_CONF = '/etc/nginx/sites-available/txpl-adminer';
+const ADMINER_LINK = '/etc/nginx/sites-enabled/txpl-adminer';
+
+function buildAdminerNginx(sock) {
+  return `server {
+    listen ${ADMINER_PORT};
+    server_name _;
+    root ${ADMINER_DIR};
+    index index.php;
+    location / { try_files $uri /index.php?$query_string; }
+    location ~ \\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:${sock};
+    }
+}
+`;
+}
+
+router.get('/adminer/status', (req, res) => {
+  ok(res, { installed: fs.existsSync(ADMINER_FILE), configured: fs.existsSync(ADMINER_LINK), port: ADMINER_PORT });
+});
+
+router.post('/adminer/setup', wrap(async (req, res) => {
+  // 1. PHP-FPM + drivers para MySQL y PostgreSQL
+  let sock = detectPhpFpmSock();
+  if (!sock) { await runSafe('apt-get', ['install', '-y', 'php-fpm'], { timeout: 300_000 }); sock = detectPhpFpmSock(); }
+  await runSafe('apt-get', ['install', '-y', 'php-pgsql', 'php-mysql'], { timeout: 300_000 });
+  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo.');
+
+  // 2. Descargar Adminer
+  fs.mkdirSync(ADMINER_DIR, { recursive: true });
+  const dl = await runSafe('curl', ['-fsSL', 'https://www.adminer.org/latest.php', '-o', ADMINER_FILE], { timeout: 120_000 });
+  if (!dl.ok || !fs.existsSync(ADMINER_FILE)) return fail(res, 500, 'No se pudo descargar Adminer: ' + (dl.stderr.split('\n')[0] || ''));
+
+  // 3. nginx
+  fs.writeFileSync(ADMINER_CONF, buildAdminerNginx(sock));
+  try { fs.symlinkSync(ADMINER_CONF, ADMINER_LINK); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  const test = await runSafe('nginx', ['-t']);
+  if (!test.ok) {
+    fs.rmSync(ADMINER_LINK, { force: true });
+    return fail(res, 500, 'Config nginx inválida: ' + (test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0]));
+  }
+  await runSafe('systemctl', ['reload', 'nginx']);
+  await runSafe('ufw', ['allow', `${ADMINER_PORT}/tcp`]);
+
+  audit(req.user.username, clientIp(req), 'adminer.setup', `puerto ${ADMINER_PORT}`);
+  ok(res, { success: true, port: ADMINER_PORT });
 }));
 
 router.delete('/:id', wrap(async (req, res) => {

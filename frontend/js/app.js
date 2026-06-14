@@ -628,18 +628,13 @@ async function installApp(id, name) {
 }
 
 // ── Databases ─────────────────────────────────────────────────
-let dbPassCache = {};
-
 async function loadDatabases() {
   loadPmaAction();
   const data = await req('GET', '/databases');
   if (!data) return;
-  dbPassCache = {};
   const tb = document.getElementById('databases-table');
   if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
-  tb.innerHTML = data.map(d => {
-    dbPassCache[d.id] = d.db_password;
-    return `
+  tb.innerHTML = data.map(d => `
     <tr>
       <td style="font-weight:600;font-family:var(--mono)">${esc(d.name)}</td>
       <td><span class="badge ${d.type==='mysql'?'badge-blue':'badge-purple'}">${esc(d.type)}</span></td>
@@ -647,16 +642,26 @@ async function loadDatabases() {
       <td><span class="badge badge-green">${esc(d.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(d.created_at)}</td>
       <td>
-        <button class="btn btn-sm" onclick="copyDbPass(${d.id})" title="Copiar contraseña"><i class="ti ti-copy"></i></button>
+        <div style="display:flex;gap:5px;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="copyDbPass(${d.id})" title="Copiar contraseña"><i class="ti ti-copy"></i> Contraseña</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDatabase(${d.id},'${esc(d.name)}')" title="Eliminar base de datos"><i class="ti ti-trash"></i> Eliminar</button>
+        </div>
       </td>
     </tr>
-  `;}).join('');
+  `).join('');
 }
 
-function copyDbPass(id) {
-  const pass = dbPassCache[id];
-  if (pass) copyText(pass);
-  else toast('Contraseña no disponible', 'error');
+async function copyDbPass(id) {
+  const r = await req('GET', `/databases/${id}/password`);
+  if (r?.password) copyText(r.password);
+  else toast('No se pudo obtener la contraseña', 'error');
+}
+
+async function deleteDatabase(id, name) {
+  if (!confirm(`⚠ Se eliminará la base de datos "${name}" Y su usuario de forma permanente. Todos los datos que contenga se perderán y no se pueden recuperar.\n\n¿Continuar?`)) return;
+  const r = await req('DELETE', `/databases/${id}`);
+  if (r?.success) { toast(`Base de datos "${name}" eliminada`, 'success'); loadDatabases(); }
+  else toast(r?.error || 'Error al eliminar', 'error');
 }
 
 async function createDatabase() {
@@ -674,20 +679,22 @@ async function createDatabase() {
   } else toast(r?.error || 'Error', 'error');
 }
 
-// ── phpMyAdmin ────────────────────────────────────────────────
+// ── Gestores web de BD (phpMyAdmin / Adminer) ─────────────────
 async function loadPmaAction() {
   const el = document.getElementById('pma-action');
   if (!el) return;
-  const st = await req('GET', '/databases/phpmyadmin/status');
-  if (!st) { el.innerHTML = ''; return; }
-  if (st.configured) {
-    const host = serverIp || location.hostname;
-    el.innerHTML = `<a class="btn" href="http://${host}:${st.port}" target="_blank" title="Abrir phpMyAdmin"><i class="ti ti-external-link"></i> Abrir phpMyAdmin</a>`;
-  } else if (st.installed) {
-    el.innerHTML = `<button class="btn" onclick="setupPma()" title="Configurar acceso web a phpMyAdmin"><i class="ti ti-settings"></i> Configurar phpMyAdmin</button>`;
-  } else {
-    el.innerHTML = '';
-  }
+  const host = serverIp || location.hostname;
+  let html = '';
+
+  const pma = await req('GET', '/databases/phpmyadmin/status');
+  if (pma?.configured) html += `<a class="btn" href="http://${host}:${pma.port}" target="_blank" title="phpMyAdmin (MySQL)"><i class="ti ti-external-link"></i> phpMyAdmin</a>`;
+  else if (pma?.installed) html += `<button class="btn" onclick="setupPma()" title="Configurar phpMyAdmin (MySQL)"><i class="ti ti-settings"></i> Configurar phpMyAdmin</button>`;
+
+  const adm = await req('GET', '/databases/adminer/status');
+  if (adm?.configured) html += `<a class="btn" href="http://${host}:${adm.port}" target="_blank" title="Adminer (MySQL y PostgreSQL)"><i class="ti ti-external-link"></i> Adminer</a>`;
+  else html += `<button class="btn" onclick="setupAdminer()" title="Instalar Adminer (MySQL y PostgreSQL)"><i class="ti ti-download"></i> Instalar Adminer</button>`;
+
+  el.innerHTML = html;
 }
 
 async function setupPma() {
@@ -695,6 +702,13 @@ async function setupPma() {
   const r = await req('POST', '/databases/phpmyadmin/setup');
   if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadPmaAction(); }
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
+}
+
+async function setupAdminer() {
+  toast('Instalando Adminer (descarga + PHP-FPM, puede tardar)...', 'info');
+  const r = await req('POST', '/databases/adminer/setup');
+  if (r?.success) { toast('Adminer listo en el puerto ' + r.port, 'success'); loadPmaAction(); }
+  else toast(r?.error || 'Error instalando Adminer', 'error');
 }
 
 // ── Files ─────────────────────────────────────────────────────
