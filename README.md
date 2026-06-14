@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo1.png" alt="TecXPaneL Logo" width="150" />
+</p>
+
 # ⚡ TecXPaneL
 
 <p align="center">
@@ -167,3 +171,9 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 </a>
 </h1>
+
+<br />
+
+<p align="center">
+  <img src="public/logo2.png" alt="TecXPaneL Logo 2" width="150" />
+</p>
