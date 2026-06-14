@@ -273,8 +273,8 @@ async function loadWebsites() {
       <td style="color:var(--text-muted)">${fmtDate(s.created_at)}</td>
       <td>
         <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" onclick="window.open('${accessUrl}','_blank')"><i class="ti ti-external-link"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm" onclick="window.open('${accessUrl}','_blank')" title="Abrir sitio"><i class="ti ti-external-link"></i> Abrir</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})" title="Eliminar sitio"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
       </td>
     </tr>`;
@@ -365,15 +365,15 @@ async function loadApps() {
       <td><span class="badge ${a.status==='running'?'badge-green':'badge-red'}">${esc(a.status)}</span></td>
       <td>${a.domain ? `<span class="domain-pill">${esc(a.domain)}</span>` : '—'}</td>
       <td>
-        <div style="display:flex;gap:5px">
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
           ${a.status==='running'
-            ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop')" title="Parar"><i class="ti ti-player-stop"></i></button>
-               <button class="btn btn-sm" onclick="appAction(${a.id},'restart')" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
-            : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i></button>`}
-          <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}')" title="Instalar dependencias"><i class="ti ti-package"></i></button>
-          <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola en la carpeta"><i class="ti ti-terminal-2"></i></button>
-          <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i></button>
-          <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i></button>
+            ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop')" title="Parar"><i class="ti ti-player-stop"></i> Parar</button>
+               <button class="btn btn-sm" onclick="appAction(${a.id},'restart')" title="Reiniciar"><i class="ti ti-refresh"></i> Reiniciar</button>`
+            : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i> Iniciar</button>`}
+          <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}')" title="Instalar dependencias"><i class="ti ti-package"></i> Instalar</button>
+          <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola en la carpeta"><i class="ti ti-terminal-2"></i> Consola</button>
+          <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i> Logs</button>
+          <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
       </td>
     </tr>
@@ -464,7 +464,15 @@ async function startDeploy() {
   ];
   renderDeploySteps(steps);
   const setStep = (key, state) => { steps.find((s) => s.key === key).state = state; renderDeploySteps(steps); };
-  const finish = (success) => {
+
+  let createdId = null;
+  const finish = async (success) => {
+    if (!success && createdId) {
+      // Rollback: el servidor borra la carpeta y todos los archivos subidos
+      deployLog('\n↩ Despliegue fallido. Limpiando: se elimina la carpeta y los archivos creados...');
+      await req('DELETE', `/apps/${createdId}`);
+      deployLog('✓ Limpieza completada. No quedó nada en el servidor.');
+    }
     document.getElementById('deploy-done-btn').style.display = 'inline-flex';
     if (!success) return;
     const host = serverIp || location.hostname;
@@ -479,6 +487,7 @@ async function startDeploy() {
     const created = await req('POST', '/apps', { name, path: basePath, port, domain });
     if (!created?.success) { setStep('create', 'err'); deployLog('✖ ' + (created?.error || 'Error')); return finish(false); }
     const id = created.id;
+    createdId = id;
     setStep('create', 'ok'); deployLog('✓ Carpeta: ' + created.path);
 
     // 2. Subir
@@ -517,17 +526,17 @@ async function startDeploy() {
     if (!st?.success) { setStep('start', 'err'); deployLog('✖ ' + (st?.error || 'No arrancó')); return finish(false); }
     setStep('start', 'ok'); deployLog('✓ Aplicación en marcha');
 
-    // 7. Configurar acceso (puerto + proxy de dominio)
+    // 7. Configurar acceso (puerto + proxy de dominio) — no crítico
     setStep('proxy', 'active'); deployLog('\n▶ Configurando acceso...');
     const px = await req('POST', `/apps/${id}/proxy`);
     if (px?.success) { setStep('proxy', 'ok'); deployLog(px.output || ''); }
     else { setStep('proxy', 'err'); deployLog('✖ ' + (px?.error || 'No se pudo configurar el acceso')); }
 
     toast(`App "${name}" desplegada`, 'success');
-    finish(true);
+    await finish(true);
   } catch (e) {
     deployLog('✖ Error inesperado: ' + (e?.message || e));
-    finish(false);
+    await finish(false);
   }
 }
 
@@ -549,7 +558,7 @@ function resetDeployModal() {
 }
 
 async function appAction(id, action) {
-  if (action === 'delete' && !confirm('¿Eliminar esta aplicación?')) return;
+  if (action === 'delete' && !confirm('⚠ Se eliminará la aplicación Y TODOS sus archivos de forma permanente (carpeta, código, proxy y puerto). Esta acción no se puede deshacer.\n\n¿Continuar?')) return;
   const labels = { start: 'iniciada', stop: 'detenida', restart: 'reiniciada', delete: 'eliminada' };
   const r = await req('POST', `/apps/${id}/${action}`);
   if (r?.success) { toast(`App ${labels[action] || action}`, 'success'); loadApps(); }
@@ -693,8 +702,8 @@ async function loadFiles() {
         <td>
           <div style="display:flex;gap:5px;justify-content:flex-end">
             ${isArchive ? `<button class="btn btn-sm btn-success" onclick="extractFile('${esc(f.path)}')" title="Extraer aquí"><i class="ti ti-file-zip"></i></button>` : ''}
-            ${f.type === 'file' && !isArchive ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')"><i class="ti ti-edit"></i></button>` : ''}
-            <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.path)}')"><i class="ti ti-trash"></i></button>
+            ${f.type === 'file' && !isArchive ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')" title="Editar"><i class="ti ti-edit"></i></button>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.path)}')" title="Eliminar"><i class="ti ti-trash"></i></button>
           </div>
         </td>
       </tr>

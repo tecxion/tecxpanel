@@ -12,6 +12,17 @@ const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 
 const router = express.Router();
 
+// Borra recursivamente la carpeta de una app, con guardas de seguridad
+// para no eliminar nunca rutas raíz o demasiado superficiales.
+function removeAppDir(dir) {
+  if (!dir || typeof dir !== 'string') return;
+  const resolved = path.resolve(dir);
+  const depth = resolved.split(/[\\/]+/).filter(Boolean).length;
+  const forbidden = ['/', '/root', '/etc', '/var', '/var/www', '/home', '/usr', '/opt', '/bin', '/boot'];
+  if (depth < 2 || forbidden.includes(resolved)) return; // demasiado peligroso, no tocar
+  try { fs.rmSync(resolved, { recursive: true, force: true }); } catch (_) {}
+}
+
 // Config nginx que enruta un dominio hacia el puerto local de la app.
 function buildAppProxy(domain, port) {
   return `server {
@@ -334,6 +345,8 @@ router.post('/:id/:action', wrap(async (req, res) => {
     try { fs.rmSync(path.join(NGINX_AVAILABLE, confName), { force: true }); } catch (_) {}
     if (removedProxy) await runSafe('systemctl', ['reload', 'nginx']);
     if (appRow.port) await runSafe('ufw', ['delete', 'allow', `${appRow.port}/tcp`]);
+    // Borrado recursivo de la carpeta de la app (no deja nada)
+    removeAppDir(appRow.path);
     queries.deleteApp.run(appRow.id);
   } else if (action === 'start') {
     if (!fs.existsSync(appRow.path)) return fail(res, 400, 'La carpeta de la app ya no existe');
