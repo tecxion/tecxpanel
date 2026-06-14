@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const { ok, fail, wrap } = require('../lib/helpers');
+const { ok, fail, wrap, runSafe } = require('../lib/helpers');
 
 const router = express.Router();
 
@@ -85,5 +85,32 @@ router.post('/rename', (req, res) => {
   fs.renameSync(from, to);
   ok(res);
 });
+
+// Extrae un archivo comprimido (.zip, .tar.gz, .tgz, .tar) en su carpeta contenedora
+router.post('/extract', wrap(async (req, res) => {
+  const target = safePath(req.body?.path);
+  if (!target) return fail(res, 400, 'Ruta inválida');
+  if (!fs.existsSync(target)) return fail(res, 404, 'No existe el archivo');
+  if (fs.statSync(target).isDirectory()) return fail(res, 400, 'Es una carpeta, no un archivo');
+
+  const destDir = path.dirname(target);
+  const lower = target.toLowerCase();
+  let r;
+
+  if (lower.endsWith('.zip')) {
+    let probe = await runSafe('unzip', ['-v']);
+    if (!probe.ok) await runSafe('apt-get', ['install', '-y', 'unzip'], { timeout: 120_000 });
+    r = await runSafe('unzip', ['-o', target, '-d', destDir], { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+  } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    r = await runSafe('tar', ['-xzf', target, '-C', destDir], { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+  } else if (lower.endsWith('.tar')) {
+    r = await runSafe('tar', ['-xf', target, '-C', destDir], { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+  } else {
+    return fail(res, 400, 'Formato no soportado (usa .zip, .tar.gz o .tar)');
+  }
+
+  if (!r.ok) return fail(res, 500, r.stderr.split('\n').filter(Boolean).slice(-2).join(' ') || 'Error al extraer');
+  ok(res, { success: true, extractedTo: destDir });
+}));
 
 module.exports = router;

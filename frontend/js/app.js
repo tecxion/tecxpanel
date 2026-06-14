@@ -545,6 +545,7 @@ async function loadFiles() {
     const icon = f.type === 'directory' ? 'ti-folder' : getFileIcon(f.name);
     const onClick = f.type === 'directory' ? `onclick="browseDir('${esc(f.path)}')"` : '';
     const style = f.type === 'directory' ? 'cursor:pointer;color:var(--accent)' : '';
+    const isArchive = /\.(zip|tar\.gz|tgz|tar)$/i.test(f.name);
     return `
       <tr>
         <td style="width:40px"><i class="ti ${icon}" style="font-size:16px;opacity:0.7"></i></td>
@@ -553,7 +554,8 @@ async function loadFiles() {
         <td style="color:var(--text-muted)">${fmtDate(f.modified)}</td>
         <td>
           <div style="display:flex;gap:5px;justify-content:flex-end">
-            ${f.type === 'file' ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')"><i class="ti ti-edit"></i></button>` : ''}
+            ${isArchive ? `<button class="btn btn-sm btn-success" onclick="extractFile('${esc(f.path)}')" title="Extraer aquí"><i class="ti ti-file-zip"></i></button>` : ''}
+            ${f.type === 'file' && !isArchive ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')"><i class="ti ti-edit"></i></button>` : ''}
             <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.path)}')"><i class="ti ti-trash"></i></button>
           </div>
         </td>
@@ -831,6 +833,15 @@ async function deleteFile(path) {
   const r = await req('DELETE', '/files', { path });
   if (r?.success) { toast('Eliminado', 'success'); loadFiles(); }
   else toast(r?.error || 'Error', 'error');
+}
+
+async function extractFile(path) {
+  const name = path.split('/').pop();
+  if (!confirm(`¿Extraer "${name}" en esta carpeta?`)) return;
+  toast(`Extrayendo ${name}...`, 'info');
+  const r = await req('POST', '/files/extract', { path });
+  if (r?.success) { toast('Archivo extraído', 'success'); loadFiles(); }
+  else toast(r?.error || 'Error al extraer', 'error');
 }
 
 async function editFile(path) {
