@@ -378,18 +378,32 @@ async function loadApps() {
   `).join('');
 }
 
+function updateAppPathPreview() {
+  const name = document.getElementById('app-name').value.trim() || 'nombre-app';
+  const base = document.getElementById('app-path').value.trim() || '/var/www';
+  const preview = document.getElementById('app-path-preview');
+  if (preview) preview.textContent = base.replace(/\/+$/, '') + '/' + name;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nameEl = document.getElementById('app-name');
+  const pathEl = document.getElementById('app-path');
+  if (nameEl) nameEl.addEventListener('input', updateAppPathPreview);
+  if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
+});
+
 async function createApp() {
   const name = document.getElementById('app-name').value.trim();
   if (!name) { toast('Nombre requerido', 'error'); return; }
-  toast('Iniciando aplicación...', 'info');
+  toast('Creando proyecto y iniciando app...', 'info');
   const r = await req('POST', '/apps', {
     name, type: document.getElementById('app-type').value,
-    path: document.getElementById('app-path').value,
+    path: document.getElementById('app-path').value || '/var/www',
     startCmd: document.getElementById('app-cmd').value,
     port: document.getElementById('app-port').value,
     domain: document.getElementById('app-domain').value
   });
-  if (r?.success) { toast(`App ${name} iniciada`, 'success'); closeModal('modal-new-app'); loadApps(); }
+  if (r?.success) { toast(`App "${name}" creada en ${r.path || 'la ruta indicada'}`, 'success'); closeModal('modal-new-app'); loadApps(); }
   else toast(r?.error || 'Error', 'error');
 }
 

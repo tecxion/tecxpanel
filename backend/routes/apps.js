@@ -28,8 +28,15 @@ router.get('/', wrap(async (req, res) => {
   ok(res, enriched);
 }));
 
+const STARTER_FILES = {
+  nodejs: { file: 'index.js', content: (port) => `const http = require('http');\nconst PORT = process.env.PORT || ${port || 3000};\nhttp.createServer((req, res) => {\n  res.writeHead(200, { 'Content-Type': 'text/plain' });\n  res.end('App running on port ' + PORT);\n}).listen(PORT, () => console.log('Listening on port ' + PORT));\n` },
+  typescript: { file: 'index.ts', content: (port) => `import http from 'http';\nconst PORT = process.env.PORT || ${port || 3000};\nhttp.createServer((req, res) => {\n  res.writeHead(200, { 'Content-Type': 'text/plain' });\n  res.end('App running on port ' + PORT);\n}).listen(PORT, () => console.log('Listening on port ' + PORT));\n` },
+  react: { file: 'package.json', content: () => JSON.stringify({ name: 'react-app', version: '1.0.0', scripts: { start: 'react-scripts start', build: 'react-scripts build' } }, null, 2) + '\n' },
+  python: { file: 'app.py', content: (port) => `from http.server import HTTPServer, SimpleHTTPRequestHandler\n\nPORT = ${port || 8000}\nprint(f"Listening on port {PORT}")\nHTTPServer(("", PORT), SimpleHTTPRequestHandler).serve_forever()\n` },
+};
+
 router.post('/', wrap(async (req, res) => {
-  const { name, type = 'nodejs', path: appPath, startCmd, port, domain } = req.body || {};
+  const { name, type = 'nodejs', path: basePath, startCmd, port, domain } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre de app inválido (solo letras, números, - y _)');
   if (!ALLOWED_APP_TYPES.includes(type)) return fail(res, 400, 'Tipo de app inválido');
   if (queries.getAppByName.get(name)) return fail(res, 409, 'Ya existe una app con ese nombre');
@@ -38,11 +45,22 @@ router.post('/', wrap(async (req, res) => {
   if (port && !isPort(portNum)) return fail(res, 400, 'Puerto inválido');
   if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido');
 
-  const cwd = path.resolve(appPath || '');
-  if (!appPath || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return fail(res, 400, 'La ruta del proyecto no existe');
+  const base = path.resolve(basePath || '/var/www');
+  if (!fs.existsSync(base)) return fail(res, 400, 'La ruta base no existe');
+
+  const cwd = path.join(base, name);
+  if (fs.existsSync(cwd)) return fail(res, 409, `La carpeta "${cwd}" ya existe`);
+
+  fs.mkdirSync(cwd, { recursive: true });
+
+  const starter = STARTER_FILES[type] || STARTER_FILES.nodejs;
+  const cmd = (startCmd || '').trim();
+
+  if (!cmd) {
+    fs.writeFileSync(path.join(cwd, starter.file), starter.content(portNum));
+  }
 
   const pm2Name = `txpl-app-${name}`;
-  const cmd = (startCmd || '').trim();
   let pm2Args, script;
 
   if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
@@ -56,9 +74,7 @@ router.post('/', wrap(async (req, res) => {
     pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
     if (interp.startsWith('python')) pm2Args.push('--interpreter', interp);
   } else {
-    script = cmd || (type === 'python' ? 'app.py' : 'index.js');
-    const fullPath = path.join(cwd, script);
-    if (!fs.existsSync(fullPath)) return fail(res, 400, `No se encontró "${script}" en ${cwd}. Escribe el archivo a ejecutar (ej: server.js) o un comando npm (ej: npm start).`);
+    script = cmd || starter.file;
     pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
     if (type === 'python') pm2Args.push('--interpreter', 'python3');
   }
@@ -69,7 +85,7 @@ router.post('/', wrap(async (req, res) => {
 
   const info = queries.insertApp.run({ name, type, path: cwd, start_cmd: script, port: portNum, domain: domain || null, pm2_name: pm2Name, status: 'running' });
   audit(req.user.username, clientIp(req), 'app.create', name);
-  ok(res, { success: true, id: info.lastInsertRowid });
+  ok(res, { success: true, id: info.lastInsertRowid, path: cwd });
 }));
 
 router.post('/:id/:action', wrap(async (req, res) => {
