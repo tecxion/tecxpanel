@@ -40,7 +40,36 @@ function buildPm2Launch(appRow) {
     pm2Args = ['start', script, '--name', pm2Name, '--cwd', cwd];
     if (appRow.type === 'python') pm2Args.push('--interpreter', 'python3');
   }
+  // Evita bucles de reinicio infinitos cuando la app crashea al arrancar
+  pm2Args.push('--max-restarts', '5', '--restart-delay', '3000');
   return pm2Args;
+}
+
+// Comprueba requisitos previos según el tipo de proyecto antes de arrancar.
+function checkBuildRequirements(appRow) {
+  const cwd = appRow.path;
+  const cmd = (appRow.start_cmd || '').trim();
+  try {
+    const pkgPath = path.join(cwd, 'package.json');
+    if (!fs.existsSync(pkgPath)) return null;
+
+    // node_modules ausente con comando npm/yarn/pnpm
+    if (/^(npm|yarn|pnpm)\b/.test(cmd) && !fs.existsSync(path.join(cwd, 'node_modules'))) {
+      return 'Faltan las dependencias. Pulsa el botón de instalar (📦) o ejecuta "npm install" en la consola antes de iniciar.';
+    }
+
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    const startScript = (pkg.scripts && pkg.scripts.start) || '';
+
+    // Next.js: "next start" necesita un build previo (.next)
+    if ((deps.next || /\bnext start\b/.test(startScript)) && /next start/.test(startScript)) {
+      if (!fs.existsSync(path.join(cwd, '.next'))) {
+        return 'Es una app Next.js sin compilar. Abre la consola y ejecuta "npm run build" antes de iniciar.';
+      }
+    }
+  } catch (_) { /* si falla la comprobación, dejamos que PM2 lo intente */ }
+  return null;
 }
 
 router.get('/', wrap(async (req, res) => {
@@ -169,6 +198,8 @@ router.post('/:id/:action', wrap(async (req, res) => {
     queries.deleteApp.run(appRow.id);
   } else if (action === 'start') {
     if (!fs.existsSync(appRow.path)) return fail(res, 400, 'La carpeta de la app ya no existe');
+    const prereq = checkBuildRequirements(appRow);
+    if (prereq) return fail(res, 400, prereq);
     // Re-lanza desde cero para evitar fallos si PM2 ya no conoce el proceso
     await runSafe('pm2', ['delete', appRow.pm2_name]);
     const r = await runSafe('pm2', buildPm2Launch(appRow), { cwd: appRow.path });
