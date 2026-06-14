@@ -16,14 +16,14 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 ## 🚀 Características Principales
 
-*   🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
-*   📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python o React a través de PM2. Soporta carga de archivos en `.zip`/`.tar.gz` y gestión de archivos `.env`.
-*   🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
-*   🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
-*   🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
-*   📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
-*   📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
-*   ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
+- 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
+- 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python o React a través de PM2. Soporta carga de archivos en `.zip`/`.tar.gz` y gestión de archivos `.env`.
+- 🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
+- 🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
+- 🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
+- 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
+- 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
+- ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 
 ---
 
@@ -69,6 +69,7 @@ git clone https://github.com/TU_USUARIO/tecxpanel.git && cd tecxpanel && sudo ba
 Al terminar, la consola imprimirá la dirección de acceso y las credenciales de administrador autogeneradas.
 
 ### ⚙️ Instalación Personalizada
+
 Puedes predefinir variables de entorno antes de lanzar el instalador:
 
 ```bash
@@ -113,18 +114,18 @@ Puedes clonar el repositorio y arrancar la aplicación de pruebas en tu máquina
 
 El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bin/txpl` para administrar el panel desde la terminal de tu VPS:
 
-| Comando | Descripción |
-| :--- | :--- |
-| `txpl status` | Muestra el estado del panel, servicios de red y consumo |
-| `txpl restart` | Reinicia el panel sin pérdida de servicio (PM2 reload) |
-| `txpl logs` | Muestra en vivo los registros de actividad del panel |
-| `txpl panel:ssl <dominio>` | Configura el dominio e instala HTTPS mediante Certbot |
-| `txpl sites` | Lista los sitios web Nginx gestionados |
-| `txpl apps` | Muestra las aplicaciones en ejecución de PM2 |
-| `txpl dbs` | Lista las bases de datos SQLite, MySQL y Postgres |
-| `txpl backup` | Crea una copia de seguridad empaquetada en `/opt/txpl/backups` |
-| `txpl backup:cron` | Instala un cron job diario para backups a las 03:00 AM |
-| `txpl backup:list` | Lista todas las copias de seguridad disponibles |
+| Comando                    | Descripción                                                    |
+| :------------------------- | :------------------------------------------------------------- |
+| `txpl status`              | Muestra el estado del panel, servicios de red y consumo        |
+| `txpl restart`             | Reinicia el panel sin pérdida de servicio (PM2 reload)         |
+| `txpl logs`                | Muestra en vivo los registros de actividad del panel           |
+| `txpl panel:ssl <dominio>` | Configura el dominio e instala HTTPS mediante Certbot          |
+| `txpl sites`               | Lista los sitios web Nginx gestionados                         |
+| `txpl apps`                | Muestra las aplicaciones en ejecución de PM2                   |
+| `txpl dbs`                 | Lista las bases de datos SQLite, MySQL y Postgres              |
+| `txpl backup`              | Crea una copia de seguridad empaquetada en `/opt/txpl/backups` |
+| `txpl backup:cron`         | Instala un cron job diario para backups a las 03:00 AM         |
+| `txpl backup:list`         | Lista todas las copias de seguridad disponibles                |
 
 ---
 
@@ -133,10 +134,10 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 > [!IMPORTANT]
 > La seguridad es un pilar fundamental en TecXPaneL. El backend y los scripts están protegidos con políticas estrictas de control y aislamiento.
 
-*   **Zero Shell Interpolation**: Toda ejecución externa se hace con `execFile` pasando argumentos en arrays, imposibilitando los ataques de Command Injection.
-*   **Cifrado Robusto**: Contraseñas del administrador hasheadas con `bcrypt` (12 rondas). Secretos de bases de datos guardados en la base de datos local con cifrado simétrico AES-256-GCM.
-*   **Jaula de Rutas (Path Jail)**: Rutas del gestor de archivos validadas y resueltas para bloquear ataques de Path Traversal fuera del directorio base.
-*   **Protección contra Ataques**: Cabeceras de seguridad configuradas mediante `helmet`, rate limiting de solicitudes por IP y protección contra fuerza bruta integrada.
+- **Zero Shell Interpolation**: Toda ejecución externa se hace con `execFile` pasando argumentos en arrays, imposibilitando los ataques de Command Injection.
+- **Cifrado Robusto**: Contraseñas del administrador hasheadas con `bcrypt` (12 rondas). Secretos de bases de datos guardados en la base de datos local con cifrado simétrico AES-256-GCM.
+- **Jaula de Rutas (Path Jail)**: Rutas del gestor de archivos validadas y resueltas para bloquear ataques de Path Traversal fuera del directorio base.
+- **Protección contra Ataques**: Cabeceras de seguridad configuradas mediante `helmet`, rate limiting de solicitudes por IP y protección contra fuerza bruta integrada.
 
 ---
 
@@ -156,7 +157,7 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 <h1 align="center">
    <a href="https://paypal.me/jfmpkiko">
-<img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Paypal" />  </a><a href="https://coff.ee/tecxart"><img src="https://github.com/tecxion/TecXion/blob/main/Media/cafe1.png" alt="Cafe">   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/tecxion/tecxion">    <img alt="GitHub User's stars" src="https://img.shields.io/github/stars/tecxion">
+<img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Paypal" />  </a><a href="https://coff.ee/tecxart"><img src="https://github.com/tecxion/TecXion/blob/main/Media/cafe1.png" alt="Cafe">   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/tecxion/tecxion/tecxpanel">    <img alt="GitHub User's stars" src="https://img.shields.io/github/stars/tecxion/tecxpanel">
 
 </a>
 </h1>
