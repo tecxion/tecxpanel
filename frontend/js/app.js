@@ -552,143 +552,168 @@ function setupDragDrop() {
 }
 
 function handleDrop(e) {
-  const items = e.dataTransfer.items;
-  if (!items || items.length === 0) return;
+  const dt = e.dataTransfer;
+  if (!dt) return;
   const entries = [];
-  for (const item of items) {
-    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : (item.getAsEntry ? item.getAsEntry() : null);
-    if (entry) entries.push(entry);
+  if (dt.items) {
+    for (let i = 0; i < dt.items.length; i++) {
+      const item = dt.items[i];
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) entries.push(entry);
+    }
   }
-  if (entries.length === 0) {
-    uploadFiles(e.dataTransfer.files);
-    return;
+  if (entries.length > 0) {
+    processEntries(entries);
+  } else if (dt.files && dt.files.length > 0) {
+    uploadFlatFiles(dt.files);
   }
-  uploadEntries(entries, currentFilePath);
 }
 
 function handleFileUpload(e) {
-  uploadFiles(e.target.files);
+  uploadFlatFiles(e.target.files);
+  e.target.value = '';
 }
 
-function readEntryFile(entry) {
+function showProgress(done, total, currentName) {
+  const wrap = document.getElementById('upload-progress');
+  const bar = document.getElementById('upload-bar');
+  const pct = document.getElementById('upload-percent');
+  const status = document.getElementById('upload-status');
+  const detail = document.getElementById('upload-detail');
+  if (!wrap) return;
+  wrap.style.display = 'block';
+  const p = total > 0 ? Math.round((done / total) * 100) : 0;
+  bar.style.width = p + '%';
+  pct.textContent = p + '%';
+  status.textContent = done < total ? `Subiendo: ${currentName}` : 'Completado';
+  detail.textContent = `${done} / ${total} archivos`;
+}
+
+function hideProgress() {
+  const wrap = document.getElementById('upload-progress');
+  if (wrap) setTimeout(() => { wrap.style.display = 'none'; }, 3000);
+}
+
+function readEntryAsFile(entry) {
   return new Promise((resolve, reject) => entry.file(resolve, reject));
 }
 
-function readDirectoryEntries(reader) {
+function readDirEntries(reader) {
   return new Promise((resolve, reject) => {
     const all = [];
-    (function read() {
-      reader.readEntries(entries => {
-        if (entries.length === 0) return resolve(all);
-        all.push(...entries);
-        read();
+    (function batch() {
+      reader.readEntries(results => {
+        if (!results.length) return resolve(all);
+        all.push(...results);
+        batch();
       }, reject);
     })();
   });
 }
 
-async function collectEntries(entry, basePath) {
-  const items = [];
+async function flattenEntry(entry, basePath) {
+  const list = [];
   if (entry.isFile) {
-    items.push({ entry, path: basePath + '/' + entry.name });
+    list.push({ entry, destPath: basePath + '/' + entry.name, isDir: false });
   } else if (entry.isDirectory) {
     const dirPath = basePath + '/' + entry.name;
-    items.push({ dir: true, path: dirPath });
+    list.push({ destPath: dirPath, isDir: true });
     const reader = entry.createReader();
-    const children = await readDirectoryEntries(reader);
+    const children = await readDirEntries(reader);
     for (const child of children) {
-      items.push(...await collectEntries(child, dirPath));
+      const sub = await flattenEntry(child, dirPath);
+      list.push(...sub);
     }
   }
-  return items;
+  return list;
 }
 
-async function uploadEntries(entries, basePath) {
-  let total = 0, done = 0, errors = 0;
+function readFileToPayload(file, destPath) {
+  return new Promise((resolve, reject) => {
+    const isText = file.type.startsWith('text/')
+      || file.type === 'application/json'
+      || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log|map|lock|csv)$/i.test(file.name);
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    if (isText) {
+      reader.onload = () => resolve({ path: destPath, content: reader.result });
+      reader.readAsText(file);
+    } else {
+      reader.onload = () => {
+        const b64 = reader.result.split(',')[1] || '';
+        resolve({ path: destPath, content: b64, encoding: 'base64' });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+async function processEntries(entries) {
   const allItems = [];
   for (const entry of entries) {
-    allItems.push(...await collectEntries(entry, basePath));
+    allItems.push(...await flattenEntry(entry, currentFilePath));
   }
-  const files = allItems.filter(i => !i.dir);
-  total = files.length;
-  if (total === 0) { toast('No se encontraron archivos', 'error'); return; }
-  toast(`Subiendo ${total} archivo${total > 1 ? 's' : ''}...`, 'info');
+  const fileItems = allItems.filter(i => !i.isDir);
+  const total = fileItems.length;
+  if (total === 0) { toast('La carpeta está vacía', 'error'); return; }
+
+  let done = 0, errors = 0;
+  showProgress(0, total, '');
 
   for (const item of allItems) {
-    if (item.dir) {
-      await req('POST', '/files/mkdir', { path: item.path });
+    if (item.isDir) {
+      await req('POST', '/files/mkdir', { path: item.destPath });
       continue;
     }
     try {
-      const file = await readEntryFile(item.entry);
-      const payload = await readFileContent(file, item.path);
+      const file = await readEntryAsFile(item.entry);
+      showProgress(done, total, file.name);
+      const payload = await readFileToPayload(file, item.destPath);
       const r = await req('POST', '/files/write', payload);
       if (r?.success) done++;
       else errors++;
     } catch (_) { errors++; }
+    showProgress(done, total, '');
   }
+
+  showProgress(total, total, '');
+  hideProgress();
   if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
   else toast(`${done} subidos, ${errors} fallidos`, 'error');
   loadFiles();
 }
 
-function readFileContent(file, destPath) {
-  return new Promise((resolve) => {
-    const isText = file.type.startsWith('text/') || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log)$/i.test(file.name);
-    const reader = new FileReader();
-    if (isText) {
-      reader.onload = (ev) => resolve({ path: destPath, content: ev.target.result });
-      reader.readAsText(file);
-    } else {
-      reader.onload = (ev) => {
-        const base64 = ev.target.result.split(',')[1] || '';
-        resolve({ path: destPath, content: base64, encoding: 'base64' });
-      };
-      reader.readAsDataURL(file);
-    }
-  });
-}
-
-async function uploadFiles(files) {
+async function uploadFlatFiles(fileList) {
+  const files = Array.from(fileList);
   const total = files.length;
+  if (total === 0) return;
+
   let done = 0, errors = 0;
-  if (total > 1) toast(`Subiendo ${total} archivos...`, 'info');
+  showProgress(0, total, '');
 
   for (const file of files) {
     try {
-      const payload = await readFileAsPayload(file);
+      showProgress(done, total, file.name);
+      const payload = await readFileToPayload(file, currentFilePath + '/' + file.name);
       const r = await req('POST', '/files/write', payload);
       if (r?.success) done++;
       else errors++;
     } catch (_) { errors++; }
+    showProgress(done, total, '');
   }
+
+  showProgress(total, total, '');
+  hideProgress();
   if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
   else toast(`${done} subidos, ${errors} fallidos`, 'error');
   loadFiles();
-}
-
-function readFileAsPayload(file) {
-  return new Promise((resolve) => {
-    const isText = file.type.startsWith('text/') || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log)$/i.test(file.name);
-    const reader = new FileReader();
-    if (isText) {
-      reader.onload = (ev) => resolve({ path: currentFilePath + '/' + file.name, content: ev.target.result });
-      reader.readAsText(file);
-    } else {
-      reader.onload = (ev) => {
-        const base64 = ev.target.result.split(',')[1] || '';
-        resolve({ path: currentFilePath + '/' + file.name, content: base64, encoding: 'base64' });
-      };
-      reader.readAsDataURL(file);
-    }
-  });
 }
 
 async function createFolder() {
   const name = document.getElementById('folder-name').value.trim();
   if (!name) { toast('Nombre requerido', 'error'); return; }
   const path = currentFilePath + '/' + name;
-  const r = await req('POST', '/files/write', { path: path + '/.gitkeep', content: '' });
+  const r = await req('POST', '/files/mkdir', { path });
   if (r?.success) { toast('Carpeta creada', 'success'); closeModal('modal-new-folder'); loadFiles(); }
   else toast(r?.error || 'Error', 'error');
 }
