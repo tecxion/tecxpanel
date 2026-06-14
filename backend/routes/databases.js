@@ -159,51 +159,9 @@ const ADMINER_PORT = 8082;
 const ADMINER_CONF = '/etc/nginx/sites-available/txpl-adminer';
 const ADMINER_LINK = '/etc/nginx/sites-enabled/txpl-adminer';
 
-function buildAdminerNginx(sock) {
-  return `server {
-    listen ${ADMINER_PORT};
-    server_name _;
-    root ${ADMINER_DIR};
-    index index.php;
-    location / { try_files $uri /index.php?$query_string; }
-    location ~ \\.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:${sock};
-    }
-}
-`;
-}
-
 router.get('/adminer/status', (req, res) => {
   ok(res, { installed: fs.existsSync(ADMINER_FILE), configured: fs.existsSync(ADMINER_LINK), port: ADMINER_PORT });
 });
-
-router.post('/adminer/setup', wrap(async (req, res) => {
-  // 1. PHP-FPM + drivers para MySQL y PostgreSQL
-  let sock = detectPhpFpmSock();
-  if (!sock) { await runSafe('apt-get', ['install', '-y', 'php-fpm'], { timeout: 300_000 }); sock = detectPhpFpmSock(); }
-  await runSafe('apt-get', ['install', '-y', 'php-pgsql', 'php-mysql'], { timeout: 300_000 });
-  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo.');
-
-  // 2. Descargar Adminer
-  fs.mkdirSync(ADMINER_DIR, { recursive: true });
-  const dl = await runSafe('curl', ['-fsSL', 'https://www.adminer.org/latest.php', '-o', ADMINER_FILE], { timeout: 120_000 });
-  if (!dl.ok || !fs.existsSync(ADMINER_FILE)) return fail(res, 500, 'No se pudo descargar Adminer: ' + (dl.stderr.split('\n')[0] || ''));
-
-  // 3. nginx
-  fs.writeFileSync(ADMINER_CONF, buildAdminerNginx(sock));
-  try { fs.symlinkSync(ADMINER_CONF, ADMINER_LINK); } catch (e) { if (e.code !== 'EEXIST') throw e; }
-  const test = await runSafe('nginx', ['-t']);
-  if (!test.ok) {
-    fs.rmSync(ADMINER_LINK, { force: true });
-    return fail(res, 500, 'Config nginx inválida: ' + (test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0]));
-  }
-  await runSafe('systemctl', ['reload', 'nginx']);
-  await runSafe('ufw', ['allow', `${ADMINER_PORT}/tcp`]);
-
-  audit(req.user.username, clientIp(req), 'adminer.setup', `puerto ${ADMINER_PORT}`);
-  ok(res, { success: true, port: ADMINER_PORT });
-}));
 
 router.delete('/:id', wrap(async (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);

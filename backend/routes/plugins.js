@@ -1,9 +1,12 @@
 'use strict';
 
+const path = require('path');
 const express = require('express');
 const { spawn } = require('child_process');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { audit } = require('../database');
+
+const SCRIPTS = path.join(__dirname, '..', 'scripts');
 
 const router = express.Router();
 
@@ -40,6 +43,12 @@ const PLUGINS = {
     check: ['dpkg', ['-s', 'phpmyadmin']],
     install: ['bash', ['-c', 'DEBIAN_FRONTEND=noninteractive apt-get install -y phpmyadmin']],
     uninstall: ['apt-get', ['remove', '-y', 'phpmyadmin']],
+  },
+  adminer: {
+    name: 'Adminer', category: 'Base de datos', icon: 'database', desc: 'Gestor web ligero para MySQL y PostgreSQL (puerto 8082)',
+    check: ['test', ['-f', '/usr/share/adminer/index.php']],
+    install: ['bash', [path.join(SCRIPTS, 'install-adminer.sh')]],
+    uninstall: ['bash', [path.join(SCRIPTS, 'uninstall-adminer.sh')]],
   },
   redis: {
     name: 'Redis', category: 'Caché', icon: 'database-heart', desc: 'Almacén clave-valor en memoria',

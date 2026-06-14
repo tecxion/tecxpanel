@@ -628,33 +628,76 @@ async function installApp(id, name) {
 }
 
 // ── Databases ─────────────────────────────────────────────────
+let dbTools = { pma: {}, adminer: {} };
+const dbPassShown = {};
+
 async function loadDatabases() {
-  loadPmaAction();
+  // Estado de las herramientas web (para los botones por fila)
+  dbTools.pma = (await req('GET', '/databases/phpmyadmin/status')) || {};
+  dbTools.adminer = (await req('GET', '/databases/adminer/status')) || {};
+
   const data = await req('GET', '/databases');
   if (!data) return;
   const tb = document.getElementById('databases-table');
-  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
-  tb.innerHTML = data.map(d => `
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
+  tb.innerHTML = data.map(d => {
+    const toolBtn = d.type === 'mysql'
+      ? `<button class="btn btn-sm" onclick="openTool('pma')" title="Abrir phpMyAdmin"><i class="ti ti-table"></i> phpMyAdmin</button>`
+      : `<button class="btn btn-sm" onclick="openTool('adminer')" title="Abrir Adminer"><i class="ti ti-table"></i> Adminer</button>`;
+    return `
     <tr>
       <td style="font-weight:600;font-family:var(--mono)">${esc(d.name)}</td>
       <td><span class="badge ${d.type==='mysql'?'badge-blue':'badge-purple'}">${esc(d.type)}</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${esc(d.name)}</td>
       <td style="font-family:var(--mono);font-size:12px">${esc(d.db_user)}</td>
+      <td>
+        <span id="pass-${d.id}" style="font-family:var(--mono);font-size:12px">••••••••</span>
+        <button class="btn btn-sm" onclick="toggleDbPass(${d.id})" title="Mostrar/ocultar contraseña"><i class="ti ti-eye" id="passicon-${d.id}"></i></button>
+      </td>
       <td><span class="badge badge-green">${esc(d.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(d.created_at)}</td>
       <td>
         <div style="display:flex;gap:5px;justify-content:flex-end">
-          <button class="btn btn-sm" onclick="copyDbPass(${d.id})" title="Copiar contraseña"><i class="ti ti-copy"></i> Contraseña</button>
+          ${toolBtn}
           <button class="btn btn-sm btn-danger" onclick="deleteDatabase(${d.id},'${esc(d.name)}')" title="Eliminar base de datos"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
       </td>
     </tr>
-  `).join('');
+  `;}).join('');
 }
 
-async function copyDbPass(id) {
+async function toggleDbPass(id) {
+  const span = document.getElementById('pass-' + id);
+  const icon = document.getElementById('passicon-' + id);
+  if (dbPassShown[id]) {
+    span.textContent = '••••••••';
+    icon.className = 'ti ti-eye';
+    dbPassShown[id] = false;
+    return;
+  }
   const r = await req('GET', `/databases/${id}/password`);
-  if (r?.password) copyText(r.password);
-  else toast('No se pudo obtener la contraseña', 'error');
+  if (r?.password) {
+    span.textContent = r.password;
+    icon.className = 'ti ti-eye-off';
+    dbPassShown[id] = true;
+  } else {
+    toast('No se pudo obtener la contraseña', 'error');
+  }
+}
+
+function openTool(tool) {
+  const host = serverIp || location.hostname;
+  if (tool === 'pma') {
+    if (dbTools.pma.configured) return window.open(`http://${host}:${dbTools.pma.port}`, '_blank');
+    if (dbTools.pma.installed) {
+      if (confirm('phpMyAdmin aún no está configurado para acceso web. ¿Configurarlo ahora?')) setupPma();
+      return;
+    }
+    return toast('Instala el plugin phpMyAdmin desde la página Plugins primero.', 'error');
+  }
+  // adminer
+  if (dbTools.adminer.configured) return window.open(`http://${host}:${dbTools.adminer.port}`, '_blank');
+  toast('Instala el plugin Adminer desde la página Plugins primero.', 'error');
 }
 
 async function deleteDatabase(id, name) {
@@ -679,36 +722,12 @@ async function createDatabase() {
   } else toast(r?.error || 'Error', 'error');
 }
 
-// ── Gestores web de BD (phpMyAdmin / Adminer) ─────────────────
-async function loadPmaAction() {
-  const el = document.getElementById('pma-action');
-  if (!el) return;
-  const host = serverIp || location.hostname;
-  let html = '';
-
-  const pma = await req('GET', '/databases/phpmyadmin/status');
-  if (pma?.configured) html += `<a class="btn" href="http://${host}:${pma.port}" target="_blank" title="phpMyAdmin (MySQL)"><i class="ti ti-external-link"></i> phpMyAdmin</a>`;
-  else if (pma?.installed) html += `<button class="btn" onclick="setupPma()" title="Configurar phpMyAdmin (MySQL)"><i class="ti ti-settings"></i> Configurar phpMyAdmin</button>`;
-
-  const adm = await req('GET', '/databases/adminer/status');
-  if (adm?.configured) html += `<a class="btn" href="http://${host}:${adm.port}" target="_blank" title="Adminer (MySQL y PostgreSQL)"><i class="ti ti-external-link"></i> Adminer</a>`;
-  else html += `<button class="btn" onclick="setupAdminer()" title="Instalar Adminer (MySQL y PostgreSQL)"><i class="ti ti-download"></i> Instalar Adminer</button>`;
-
-  el.innerHTML = html;
-}
-
+// phpMyAdmin: configurar acceso web (instala PHP-FPM y crea el vhost)
 async function setupPma() {
   toast('Configurando phpMyAdmin (puede instalar PHP-FPM)...', 'info');
   const r = await req('POST', '/databases/phpmyadmin/setup');
-  if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadPmaAction(); }
+  if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadDatabases(); }
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
-}
-
-async function setupAdminer() {
-  toast('Instalando Adminer (descarga + PHP-FPM, puede tardar)...', 'info');
-  const r = await req('POST', '/databases/adminer/setup');
-  if (r?.success) { toast('Adminer listo en el puerto ' + r.port, 'success'); loadPmaAction(); }
-  else toast(r?.error || 'Error instalando Adminer', 'error');
 }
 
 // ── Files ─────────────────────────────────────────────────────
@@ -1282,7 +1301,29 @@ async function streamPlugin(id, action, name) {
 
 // ── Utils ─────────────────────────────────────────────────────
 function copyText(text) {
-  navigator.clipboard.writeText(text).then(() => toast('Copiado al portapapeles', 'success'));
+  // navigator.clipboard solo existe en contextos seguros (HTTPS/localhost).
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => toast('Copiado al portapapeles', 'success'))
+      .catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast(ok ? 'Copiado al portapapeles' : 'No se pudo copiar', ok ? 'success' : 'error');
+  } catch (_) {
+    toast('No se pudo copiar', 'error');
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────
