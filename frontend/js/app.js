@@ -552,27 +552,136 @@ function setupDragDrop() {
 }
 
 function handleDrop(e) {
-  const files = e.dataTransfer.files;
-  if (files.length === 0) return;
-  uploadFiles(files);
+  const items = e.dataTransfer.items;
+  if (!items || items.length === 0) return;
+  const entries = [];
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : (item.getAsEntry ? item.getAsEntry() : null);
+    if (entry) entries.push(entry);
+  }
+  if (entries.length === 0) {
+    uploadFiles(e.dataTransfer.files);
+    return;
+  }
+  uploadEntries(entries, currentFilePath);
 }
 
 function handleFileUpload(e) {
   uploadFiles(e.target.files);
 }
 
-async function uploadFiles(files) {
-  for (const file of files) {
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const path = currentFilePath + '/' + file.name;
-      const r = await req('POST', '/files/write', { path, content: ev.target.result });
-      if (r?.success) toast(`${file.name} subido`, 'success');
-      else toast(r?.error || 'Error al subir', 'error');
-    };
-    reader.readAsText(file);
+function readEntryFile(entry) {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+function readDirectoryEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    (function read() {
+      reader.readEntries(entries => {
+        if (entries.length === 0) return resolve(all);
+        all.push(...entries);
+        read();
+      }, reject);
+    })();
+  });
+}
+
+async function collectEntries(entry, basePath) {
+  const items = [];
+  if (entry.isFile) {
+    items.push({ entry, path: basePath + '/' + entry.name });
+  } else if (entry.isDirectory) {
+    const dirPath = basePath + '/' + entry.name;
+    items.push({ dir: true, path: dirPath });
+    const reader = entry.createReader();
+    const children = await readDirectoryEntries(reader);
+    for (const child of children) {
+      items.push(...await collectEntries(child, dirPath));
+    }
   }
+  return items;
+}
+
+async function uploadEntries(entries, basePath) {
+  let total = 0, done = 0, errors = 0;
+  const allItems = [];
+  for (const entry of entries) {
+    allItems.push(...await collectEntries(entry, basePath));
+  }
+  const files = allItems.filter(i => !i.dir);
+  total = files.length;
+  if (total === 0) { toast('No se encontraron archivos', 'error'); return; }
+  toast(`Subiendo ${total} archivo${total > 1 ? 's' : ''}...`, 'info');
+
+  for (const item of allItems) {
+    if (item.dir) {
+      await req('POST', '/files/mkdir', { path: item.path });
+      continue;
+    }
+    try {
+      const file = await readEntryFile(item.entry);
+      const payload = await readFileContent(file, item.path);
+      const r = await req('POST', '/files/write', payload);
+      if (r?.success) done++;
+      else errors++;
+    } catch (_) { errors++; }
+  }
+  if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
+  else toast(`${done} subidos, ${errors} fallidos`, 'error');
   loadFiles();
+}
+
+function readFileContent(file, destPath) {
+  return new Promise((resolve) => {
+    const isText = file.type.startsWith('text/') || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log)$/i.test(file.name);
+    const reader = new FileReader();
+    if (isText) {
+      reader.onload = (ev) => resolve({ path: destPath, content: ev.target.result });
+      reader.readAsText(file);
+    } else {
+      reader.onload = (ev) => {
+        const base64 = ev.target.result.split(',')[1] || '';
+        resolve({ path: destPath, content: base64, encoding: 'base64' });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+async function uploadFiles(files) {
+  const total = files.length;
+  let done = 0, errors = 0;
+  if (total > 1) toast(`Subiendo ${total} archivos...`, 'info');
+
+  for (const file of files) {
+    try {
+      const payload = await readFileAsPayload(file);
+      const r = await req('POST', '/files/write', payload);
+      if (r?.success) done++;
+      else errors++;
+    } catch (_) { errors++; }
+  }
+  if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
+  else toast(`${done} subidos, ${errors} fallidos`, 'error');
+  loadFiles();
+}
+
+function readFileAsPayload(file) {
+  return new Promise((resolve) => {
+    const isText = file.type.startsWith('text/') || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log)$/i.test(file.name);
+    const reader = new FileReader();
+    if (isText) {
+      reader.onload = (ev) => resolve({ path: currentFilePath + '/' + file.name, content: ev.target.result });
+      reader.readAsText(file);
+    } else {
+      reader.onload = (ev) => {
+        const base64 = ev.target.result.split(',')[1] || '';
+        resolve({ path: currentFilePath + '/' + file.name, content: base64, encoding: 'base64' });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
 }
 
 async function createFolder() {

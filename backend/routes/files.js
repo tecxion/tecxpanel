@@ -43,7 +43,11 @@ router.post('/write', (req, res) => {
   if (!target) return fail(res, 400, 'Ruta inválida');
   if (typeof req.body.content !== 'string') return fail(res, 400, 'Contenido requerido');
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, req.body.content);
+  if (req.body.encoding === 'base64') {
+    fs.writeFileSync(target, Buffer.from(req.body.content, 'base64'));
+  } else {
+    fs.writeFileSync(target, req.body.content);
+  }
   ok(res);
 });
 
