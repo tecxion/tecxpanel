@@ -230,6 +230,17 @@ tr:last-child td{border-bottom:none}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
 .form-group select option{background:var(--bg-card)}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.deploy-drop{border:2px dashed var(--border);border-radius:var(--radius);padding:1.1rem;text-align:center;
+  color:var(--text-muted);background:var(--bg-app);cursor:pointer;transition:all var(--transition);font-size:13px}
+.deploy-drop:hover{border-color:var(--accent);color:var(--text-secondary)}
+.deploy-drop.dragover{border-color:var(--accent);background:var(--accent-glow);color:var(--text-primary)}
+.deploy-drop.has-file{border-color:var(--green);border-style:solid;color:var(--green)}
+.deploy-step{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;color:var(--text-secondary)}
+.deploy-step .ti{font-size:16px}
+.deploy-step.pending{opacity:0.5}
+.deploy-step.active{color:var(--accent)}
+.deploy-step.ok{color:var(--green)}
+.deploy-step.err{color:var(--red)}
 
 /* ── Terminal ── */
 #terminal-container{

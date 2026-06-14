@@ -387,27 +387,165 @@ function updateAppPathPreview() {
   if (preview) preview.textContent = base.replace(/\/+$/, '') + '/' + name;
 }
 
+// ── Deploy por ZIP (estilo Hostinger) ─────────────────────────
+let deployZipFile = null;
+let deployEnvFile = null;
+
 document.addEventListener('DOMContentLoaded', () => {
   const nameEl = document.getElementById('app-name');
   const pathEl = document.getElementById('app-path');
   if (nameEl) nameEl.addEventListener('input', updateAppPathPreview);
   if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
   setupDragDrop();
+  setupDeployDrops();
 });
 
-async function createApp() {
-  const name = document.getElementById('app-name').value.trim();
-  if (!name) { toast('Nombre requerido', 'error'); return; }
-  toast('Creando proyecto y iniciando app...', 'info');
-  const r = await req('POST', '/apps', {
-    name, type: document.getElementById('app-type').value,
-    path: document.getElementById('app-path').value || '/var/www',
-    startCmd: document.getElementById('app-cmd').value,
-    port: document.getElementById('app-port').value,
-    domain: document.getElementById('app-domain').value
+function setupDeployDrops() {
+  bindDeployDrop('deploy-zip-drop', 'deploy-zip', 'deploy-zip-label', (f) => { deployZipFile = f; });
+  bindDeployDrop('deploy-env-drop', 'deploy-env', 'deploy-env-label', (f) => { deployEnvFile = f; });
+}
+
+function bindDeployDrop(zoneId, inputId, labelId, setFile) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  if (!zone || !input) return;
+  const label = document.getElementById(labelId);
+  const accept = (f) => { setFile(f); label.textContent = f.name; zone.classList.add('has-file'); };
+
+  zone.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if (input.files[0]) accept(input.files[0]); });
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) accept(f);
   });
-  if (r?.success) { toast(`App "${name}" creada en ${r.path || 'la ruta indicada'}`, 'success'); closeModal('modal-new-app'); loadApps(); }
-  else toast(r?.error || 'Error', 'error');
+}
+
+function deployLog(msg) {
+  const el = document.getElementById('deploy-log');
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderDeploySteps(steps) {
+  document.getElementById('deploy-steps').innerHTML = steps.map((s) => {
+    const icon = s.state === 'ok' ? 'ti-circle-check' : s.state === 'err' ? 'ti-circle-x'
+      : s.state === 'active' ? 'ti-loader-2' : 'ti-circle';
+    return `<div class="deploy-step ${s.state}"><i class="ti ${icon}"></i> ${esc(s.label)}</div>`;
+  }).join('');
+}
+
+async function startDeploy() {
+  const name = document.getElementById('app-name').value.trim();
+  const basePath = document.getElementById('app-path').value.trim() || '/var/www';
+  const port = document.getElementById('app-port').value.trim();
+  const domain = document.getElementById('app-domain').value.trim();
+
+  if (!name) { toast('El nombre es obligatorio', 'error'); return; }
+  if (!deployZipFile) { toast('Sube el .zip de tu proyecto', 'error'); return; }
+
+  // Cambia a la vista de progreso
+  document.getElementById('deploy-form').style.display = 'none';
+  document.getElementById('deploy-progress').style.display = 'block';
+  document.getElementById('deploy-start-btn').style.display = 'none';
+  document.getElementById('deploy-cancel-btn').style.display = 'none';
+  document.getElementById('deploy-log').textContent = '';
+
+  const steps = [
+    { key: 'create',  label: 'Crear aplicación',       state: 'pending' },
+    { key: 'upload',  label: 'Subir archivos',          state: 'pending' },
+    { key: 'extract', label: 'Extraer y detectar',      state: 'pending' },
+    { key: 'install', label: 'Instalar dependencias',   state: 'pending' },
+    { key: 'build',   label: 'Compilar (build)',        state: 'pending' },
+    { key: 'start',   label: 'Arrancar aplicación',     state: 'pending' },
+    { key: 'proxy',   label: 'Configurar acceso',       state: 'pending' },
+  ];
+  renderDeploySteps(steps);
+  const setStep = (key, state) => { steps.find((s) => s.key === key).state = state; renderDeploySteps(steps); };
+  const finish = (success) => {
+    document.getElementById('deploy-done-btn').style.display = 'inline-flex';
+    if (!success) return;
+    const host = serverIp || location.hostname;
+    deployLog('\n✅ Deploy completado. Accede a tu app desde:');
+    if (port) deployLog(`   • IP:    http://${host}:${port}`);
+    if (domain) deployLog(`   • Dominio: http://${domain}  (apunta el DNS del dominio a ${host})`);
+  };
+
+  try {
+    // 1. Crear
+    setStep('create', 'active'); deployLog('▶ Creando aplicación...');
+    const created = await req('POST', '/apps', { name, path: basePath, port, domain });
+    if (!created?.success) { setStep('create', 'err'); deployLog('✖ ' + (created?.error || 'Error')); return finish(false); }
+    const id = created.id;
+    setStep('create', 'ok'); deployLog('✓ Carpeta: ' + created.path);
+
+    // 2. Subir
+    setStep('upload', 'active'); deployLog('\n▶ Subiendo ' + deployZipFile.name + '...');
+    const up = await uploadBinary(deployZipFile, created.path + '/' + deployZipFile.name);
+    if (!up?.success) { setStep('upload', 'err'); deployLog('✖ Falló la subida del zip'); return finish(false); }
+    if (deployEnvFile) {
+      deployLog('▶ Subiendo .env...');
+      await uploadBinary(deployEnvFile, created.path + '/.env');
+    }
+    setStep('upload', 'ok'); deployLog('✓ Archivos subidos');
+
+    // 3. Extraer + detectar
+    setStep('extract', 'active'); deployLog('\n▶ Extrayendo...');
+    const ext = await req('POST', `/apps/${id}/extract`);
+    if (!ext?.success) { setStep('extract', 'err'); deployLog('✖ ' + (ext?.error || 'Error al extraer')); return finish(false); }
+    setStep('extract', 'ok'); deployLog(ext.output || '');
+
+    // 4. Instalar
+    setStep('install', 'active'); deployLog('\n▶ Instalando dependencias...');
+    const ins = await req('POST', `/apps/${id}/install`);
+    deployLog(ins?.output || '');
+    if (!ins?.ok && !ins?.skipped) { setStep('install', 'err'); deployLog('✖ Falló la instalación'); return finish(false); }
+    setStep('install', 'ok');
+
+    // 5. Build
+    setStep('build', 'active'); deployLog('\n▶ Compilando...');
+    const bld = await req('POST', `/apps/${id}/build`);
+    deployLog(bld?.output || '');
+    if (!bld?.ok && !bld?.skipped) { setStep('build', 'err'); deployLog('✖ Falló el build'); return finish(false); }
+    setStep('build', 'ok');
+
+    // 6. Arrancar
+    setStep('start', 'active'); deployLog('\n▶ Arrancando...');
+    const st = await req('POST', `/apps/${id}/start`);
+    if (!st?.success) { setStep('start', 'err'); deployLog('✖ ' + (st?.error || 'No arrancó')); return finish(false); }
+    setStep('start', 'ok'); deployLog('✓ Aplicación en marcha');
+
+    // 7. Configurar acceso (puerto + proxy de dominio)
+    setStep('proxy', 'active'); deployLog('\n▶ Configurando acceso...');
+    const px = await req('POST', `/apps/${id}/proxy`);
+    if (px?.success) { setStep('proxy', 'ok'); deployLog(px.output || ''); }
+    else { setStep('proxy', 'err'); deployLog('✖ ' + (px?.error || 'No se pudo configurar el acceso')); }
+
+    toast(`App "${name}" desplegada`, 'success');
+    finish(true);
+  } catch (e) {
+    deployLog('✖ Error inesperado: ' + (e?.message || e));
+    finish(false);
+  }
+}
+
+function resetDeployModal() {
+  deployZipFile = null;
+  deployEnvFile = null;
+  document.getElementById('deploy-form').style.display = 'block';
+  document.getElementById('deploy-progress').style.display = 'none';
+  document.getElementById('deploy-start-btn').style.display = 'inline-flex';
+  document.getElementById('deploy-cancel-btn').style.display = 'inline-flex';
+  document.getElementById('deploy-done-btn').style.display = 'none';
+  ['app-name', 'app-port', 'app-domain'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('app-path').value = '/var/www';
+  ['deploy-zip', 'deploy-env'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('deploy-zip-label').textContent = 'Arrastra el .zip o haz clic';
+  document.getElementById('deploy-env-label').textContent = 'Arrastra tu .env o haz clic';
+  document.getElementById('deploy-zip-drop').classList.remove('has-file');
+  document.getElementById('deploy-env-drop').classList.remove('has-file');
 }
 
 async function appAction(id, action) {

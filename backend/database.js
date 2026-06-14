@@ -137,6 +137,7 @@ const queries = {
   getAppByName: db.prepare('SELECT * FROM apps WHERE name = ?'),
   insertApp:  db.prepare('INSERT INTO apps (name, type, path, start_cmd, port, domain, pm2_name, status) VALUES (@name, @type, @path, @start_cmd, @port, @domain, @pm2_name, @status)'),
   setAppStatus: db.prepare('UPDATE apps SET status = ? WHERE id = ?'),
+  setAppConfig: db.prepare('UPDATE apps SET type = ?, start_cmd = ? WHERE id = ?'),
   deleteApp:  db.prepare('DELETE FROM apps WHERE id = ?'),
 
   // databases
