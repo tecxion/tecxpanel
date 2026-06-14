@@ -129,12 +129,14 @@
             <div class="stat-label"><i class="ti ti-cpu"></i> CPU</div>
             <div class="stat-value"><span id="cpu-val">—</span><span>%</span></div>
             <div class="stat-bar"><div class="stat-bar-fill cpu" id="cpu-bar" style="width:0%"></div></div>
+            <div style="margin-top:10px;height:40px;"><canvas id="cpu-chart" style="width:100%;height:40px;display:block;"></canvas></div>
           </div>
           <div class="stat-card mem">
             <div class="stat-label"><i class="ti ti-cpu-2"></i> Memoria RAM</div>
             <div class="stat-value"><span id="mem-val">—</span><span>%</span></div>
             <div class="stat-bar"><div class="stat-bar-fill mem" id="mem-bar" style="width:0%;background:var(--cyan)"></div></div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="mem-detail">— / —</div>
+            <div style="margin-top:10px;height:40px;"><canvas id="mem-chart" style="width:100%;height:40px;display:block;"></canvas></div>
           </div>
           <div class="stat-card disk">
             <div class="stat-label"><i class="ti ti-database"></i> Disco</div>
@@ -154,6 +156,7 @@
                 <div style="font-size:1.1rem;font-weight:700" id="net-tx">—</div>
               </div>
             </div>
+            <div style="margin-top:10px;height:40px;"><canvas id="net-chart" style="width:100%;height:40px;display:block;"></canvas></div>
           </div>
         </div>
 

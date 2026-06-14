@@ -2,10 +2,10 @@
   "name": "tecxpanel-backend",
   "version": "1.0.0",
   "description": "TecXPaneL — backend del panel de control para VPS (API REST + WebSockets)",
-  "main": "server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node backend/server.js",
+    "dev": "node --watch backend/server.js"
   },
   "engines": {
     "node": ">=18"

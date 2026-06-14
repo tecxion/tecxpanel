@@ -1,8 +1,11 @@
 'use strict';
 
-require('dotenv').config({ path: process.env.TXPL_ENV || '/opt/txpl/.env' });
-
+const fs = require('fs');
 const path = require('path');
+
+const localEnv = path.resolve(__dirname, '../.env');
+const envPath = process.env.TXPL_ENV || (fs.existsSync(localEnv) ? localEnv : '/opt/txpl/.env');
+require('dotenv').config({ path: envPath });
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');

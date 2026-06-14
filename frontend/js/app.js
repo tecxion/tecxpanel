@@ -149,6 +149,64 @@ function initApp() {
   req('GET', '/system/ip').then(d => { if (d?.ip) serverIp = d.ip; });
 }
 
+// ── Sparkline Charts (Dashboard) ──────────────────────────────
+const maxSamples = 30;
+const cpuHistory = [];
+const memHistory = [];
+const netRxHistory = [];
+const netTxHistory = [];
+
+function drawSparkline(canvasId, data, color, isNet = false, data2 = null) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  
+  ctx.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+  
+  let maxVal = 100;
+  if (isNet) {
+    maxVal = Math.max(...data, ...(data2 || []), 1024 * 1024); // Mínimo 1MB/s (auto-escala dinámicamente)
+  }
+  
+  const drawLine = (values, lineColor, fillColor) => {
+    ctx.beginPath();
+    const getX = (i) => (i / (maxSamples - 1)) * w;
+    const getY = (val) => h - (val / maxVal) * (h - 4) - 2;
+    
+    ctx.moveTo(getX(0), getY(values[0]));
+    for (let i = 1; i < values.length; i++) {
+      ctx.lineTo(getX(i), getY(values[i]));
+    }
+    
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    
+    ctx.lineTo(getX(values.length - 1), h);
+    ctx.lineTo(getX(0), h);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  };
+  
+  if (isNet && data2) {
+    drawLine(data, 'rgba(100, 172, 255, 1)', 'rgba(100, 172, 255, 0.1)'); // RX (blue)
+    drawLine(data2, 'rgba(232, 160, 32, 1)', 'rgba(232, 160, 32, 0.05)'); // TX (orange)
+  } else {
+    drawLine(data, color, color.replace(', 1)', ', 0.15)'));
+  }
+}
+
 // ── Stats WebSocket ───────────────────────────────────────────
 function connectStatsWS() {
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -159,16 +217,33 @@ function connectStatsWS() {
     const d = JSON.parse(e.data);
     if (d.type !== 'stats') return;
 
+    // CPU
     document.getElementById('cpu-val').textContent = d.cpu;
     document.getElementById('cpu-bar').style.width = d.cpu + '%';
     document.getElementById('cpu-bar').style.background = d.cpu > 80 ? 'var(--red)' : d.cpu > 60 ? 'var(--yellow)' : 'var(--accent)';
+    
+    cpuHistory.push(d.cpu);
+    if (cpuHistory.length > maxSamples) cpuHistory.shift();
+    drawSparkline('cpu-chart', cpuHistory, 'rgba(232, 160, 32, 1)');
 
+    // MEM
     document.getElementById('mem-val').textContent = d.memory.percent;
     document.getElementById('mem-bar').style.width = d.memory.percent + '%';
     document.getElementById('mem-detail').textContent = `${fmtBytes(d.memory.used)} / ${fmtBytes(d.memory.total)}`;
+    
+    memHistory.push(d.memory.percent);
+    if (memHistory.length > maxSamples) memHistory.shift();
+    drawSparkline('mem-chart', memHistory, 'rgba(90, 200, 250, 1)');
 
+    // NET
     document.getElementById('net-rx').textContent = fmtBytes(d.network.rx) + '/s';
     document.getElementById('net-tx').textContent = fmtBytes(d.network.tx) + '/s';
+    
+    netRxHistory.push(d.network.rx);
+    netTxHistory.push(d.network.tx);
+    if (netRxHistory.length > maxSamples) netRxHistory.shift();
+    if (netTxHistory.length > maxSamples) netTxHistory.shift();
+    drawSparkline('net-chart', netRxHistory, '', true, netTxHistory);
   };
 
   statsWS.onclose = () => setTimeout(connectStatsWS, 5000);
