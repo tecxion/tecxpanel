@@ -120,7 +120,11 @@ function detectProject(cwd) {
     if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) mgr = 'pnpm';
     else if (fs.existsSync(path.join(cwd, 'yarn.lock'))) mgr = 'yarn';
     det.manager = mgr;
-    det.installCmd = mgr === 'npm' ? 'npm install' : `${mgr} install`;
+    // IMPORTANTE: forzar la instalación de devDependencies (necesarias para el build,
+    // ej. tailwindcss). Si no, con NODE_ENV=production npm/yarn/pnpm las omiten.
+    det.installCmd = mgr === 'npm' ? 'npm install --include=dev'
+      : mgr === 'yarn' ? 'yarn install --production=false'
+      : 'pnpm install --prod=false';
 
     if (scripts.build) det.buildCmd = mgr === 'npm' ? 'npm run build' : `${mgr} run build`;
 
@@ -238,7 +242,9 @@ router.post('/:id/install', wrap(async (req, res) => {
   const det = detectProject(appRow.path);
   if (!det.installCmd) return ok(res, { success: true, ok: true, skipped: true, output: 'No hay dependencias que instalar.' });
 
-  const r = await runSafe('bash', ['-lc', det.installCmd], { cwd: appRow.path, ...APP_TIMEOUT });
+  // NODE_ENV=development garantiza que se instalen las devDependencies
+  const env = { ...process.env, NODE_ENV: 'development' };
+  const r = await runSafe('bash', ['-lc', det.installCmd], { cwd: appRow.path, env, ...APP_TIMEOUT });
   audit(req.user.username, clientIp(req), 'app.install', appRow.name);
   const output = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
   ok(res, { success: true, ok: r.ok, command: det.installCmd, output: output || 'Sin salida' });
