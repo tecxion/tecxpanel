@@ -86,6 +86,31 @@ router.post('/rename', (req, res) => {
   ok(res);
 });
 
+// Subida binaria por streaming (sin base64). El cuerpo de la petición se
+// escribe directamente al disco — sin límite de tamaño de JSON.
+router.post('/upload', (req, res) => {
+  const target = safePath(req.query.path);
+  if (!target) return fail(res, 400, 'Ruta inválida');
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+  } catch (e) {
+    return fail(res, 500, 'No se pudo crear la carpeta destino');
+  }
+  const ws = fs.createWriteStream(target);
+  let failed = false;
+  const abort = (code, msg) => {
+    if (failed) return;
+    failed = true;
+    try { ws.destroy(); } catch (_) {}
+    try { fs.unlinkSync(target); } catch (_) {}
+    if (!res.headersSent) fail(res, code, msg);
+  };
+  ws.on('error', () => abort(500, 'Error al escribir el archivo'));
+  req.on('error', () => abort(400, 'Error en la transferencia'));
+  ws.on('finish', () => { if (!failed && !res.headersSent) ok(res); });
+  req.pipe(ws);
+});
+
 // Extrae un archivo comprimido (.zip, .tar.gz, .tgz, .tar) en su carpeta contenedora
 router.post('/extract', wrap(async (req, res) => {
   const target = safePath(req.body?.path);

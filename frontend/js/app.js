@@ -723,24 +723,15 @@ async function flattenEntry(entry, basePath) {
   return list;
 }
 
-function readFileToPayload(file, destPath) {
-  return new Promise((resolve, reject) => {
-    const isText = file.type.startsWith('text/')
-      || file.type === 'application/json'
-      || /\.(js|ts|jsx|tsx|json|css|html|xml|svg|md|txt|yml|yaml|sh|py|rb|php|env|conf|cfg|ini|toml|sql|gitignore|htaccess|log|map|lock|csv)$/i.test(file.name);
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    if (isText) {
-      reader.onload = () => resolve({ path: destPath, content: reader.result });
-      reader.readAsText(file);
-    } else {
-      reader.onload = () => {
-        const b64 = reader.result.split(',')[1] || '';
-        resolve({ path: destPath, content: b64, encoding: 'base64' });
-      };
-      reader.readAsDataURL(file);
-    }
+// Sube un archivo por streaming binario (sin base64, sin límite de JSON)
+async function uploadBinary(file, destPath) {
+  const r = await fetch(API + '/api/files/upload?path=' + encodeURIComponent(destPath), {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/octet-stream' },
+    body: file,
   });
+  if (r.status === 401) { doLogout(); return { success: false }; }
+  try { return await r.json(); } catch (_) { return { success: r.ok }; }
 }
 
 async function processEntries(entries) {
@@ -763,8 +754,7 @@ async function processEntries(entries) {
     try {
       const file = await readEntryAsFile(item.entry);
       showProgress(done, total, file.name);
-      const payload = await readFileToPayload(file, item.destPath);
-      const r = await req('POST', '/files/write', payload);
+      const r = await uploadBinary(file, item.destPath);
       if (r?.success) done++;
       else errors++;
     } catch (_) { errors++; }
@@ -789,8 +779,7 @@ async function uploadFlatFiles(fileList) {
   for (const file of files) {
     try {
       showProgress(done, total, file.name);
-      const payload = await readFileToPayload(file, currentFilePath + '/' + file.name);
-      const r = await req('POST', '/files/write', payload);
+      const r = await uploadBinary(file, currentFilePath + '/' + file.name);
       if (r?.success) done++;
       else errors++;
     } catch (_) { errors++; }
