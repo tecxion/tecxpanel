@@ -2,8 +2,9 @@
 
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
 const express = require('express');
-const { ok, fail, clientIp, wrap } = require('../lib/helpers');
+const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { audit } = require('../database');
 
 const router = express.Router();
@@ -178,24 +179,49 @@ router.get('/containers/:id/logs', wrap(async (req, res) => {
   }
 }));
 
-// POST /api/docker/containers/create - pull, create, and start a container
+// POST /api/docker/containers/create - pull or build Dockerfile, create, and start a container
 router.post('/containers/create', wrap(async (req, res) => {
-  const { name, image, hostPort, containerPort, envs } = req.body || {};
-  if (!image) {
-    return fail(res, 400, 'La imagen de Docker es obligatoria.');
+  const { name, image, hostPort, containerPort, envs, dockerfile } = req.body || {};
+
+  if (!image && !dockerfile) {
+    return fail(res, 400, 'Se requiere una imagen o un contenido Dockerfile.');
   }
 
+  let targetImage = image;
+  let buildDir = null;
+
   try {
-    // 1. Pull the image
-    console.log(`[docker] Descargando imagen: ${image}...`);
-    const pullResult = await dockerRequest('POST', `/images/create?fromImage=${encodeURIComponent(image)}`);
-    if (pullResult.statusCode >= 400) {
-      return fail(res, pullResult.statusCode, `Error al descargar la imagen: ${pullResult.body.toString()}`);
+    // 1. If dockerfile is provided, build it first
+    if (dockerfile && dockerfile.trim()) {
+      targetImage = `txpl-img-${Date.now()}`;
+      buildDir = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data', 'builds', `build-${Date.now()}`);
+
+      console.log(`[docker] Creando directorio temporal de build: ${buildDir}`);
+      fs.mkdirSync(buildDir, { recursive: true });
+      fs.writeFileSync(path.join(buildDir, 'Dockerfile'), dockerfile);
+
+      console.log(`[docker] Compilando Dockerfile para la imagen: ${targetImage}...`);
+      const buildRes = await runSafe('docker', ['build', '-t', targetImage, '.'], { cwd: buildDir, timeout: 300_000 });
+
+      if (!buildRes.ok) {
+        // Return full compilation output so the user can debug the Dockerfile
+        const errMsg = buildRes.stderr || buildRes.stdout || 'Fallo desconocido al compilar Dockerfile';
+        console.error(`[docker] Falló docker build:\n`, errMsg);
+        return fail(res, 400, `Error de compilación del Dockerfile:\n${errMsg}`);
+      }
+      console.log(`[docker] Imagen compilada con éxito: ${targetImage}`);
+    } else {
+      // Pull image if using existing registry image
+      console.log(`[docker] Descargando imagen: ${targetImage}...`);
+      const pullResult = await dockerRequest('POST', `/images/create?fromImage=${encodeURIComponent(targetImage)}`);
+      if (pullResult.statusCode >= 400) {
+        return fail(res, pullResult.statusCode, `Error al descargar la imagen: ${pullResult.body.toString()}`);
+      }
     }
 
     // 2. Build configuration
     const config = {
-      Image: image,
+      Image: targetImage,
       Env: []
     };
 
@@ -237,11 +263,19 @@ router.post('/containers/create', wrap(async (req, res) => {
       return fail(res, startResult.statusCode, `Contenedor creado pero falló al iniciar: ${startResult.body.toString()}`);
     }
 
-    audit(req.user.username, clientIp(req), 'docker.create', name || image);
+    audit(req.user.username, clientIp(req), 'docker.create', name || targetImage);
     ok(res, { success: true, id: containerId });
   } catch (err) {
     console.error('[docker] Error al crear contenedor:', err.message);
     fail(res, 500, err.message || 'No se pudo crear el contenedor');
+  } finally {
+    // Clean up temporary build files
+    if (buildDir) {
+      try {
+        fs.rmSync(buildDir, { recursive: true, force: true });
+        console.log(`[docker] Directorio temporal eliminado: ${buildDir}`);
+      } catch (_) {}
+    }
   }
 }));
 

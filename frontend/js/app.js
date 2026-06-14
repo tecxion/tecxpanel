@@ -1473,9 +1473,9 @@ async function loadDockerContainers() {
     const stateColor = state === 'running' ? 'badge-green' : 'badge-red';
 
     const controlBtn = state === 'running'
-      ? `<button class="btn btn-sm btn-danger" onclick="dockerAction('${c.Id}','stop')" title="Detener"><i class="ti ti-player-stop"></i></button>
-         <button class="btn btn-sm" onclick="dockerAction('${c.Id}','restart')" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
-      : `<button class="btn btn-sm btn-success" onclick="dockerAction('${c.Id}','start')" title="Iniciar"><i class="ti ti-player-play"></i></button>`;
+      ? `<button class="btn btn-sm btn-danger" onclick="dockerAction('${c.Id}','stop')" title="Detener"><i class="ti ti-player-stop"></i> Detener</button>
+         <button class="btn btn-sm" onclick="dockerAction('${c.Id}','restart')" title="Reiniciar"><i class="ti ti-refresh"></i> Reiniciar</button>`
+      : `<button class="btn btn-sm btn-success" onclick="dockerAction('${c.Id}','start')" title="Iniciar"><i class="ti ti-player-play"></i> Iniciar</button>`;
 
     return `
     <tr>
@@ -1488,10 +1488,10 @@ async function loadDockerContainers() {
       </td>
       <td style="font-family:var(--mono);font-size:11px;line-height:1.3">${portsStr}</td>
       <td>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
           ${controlBtn}
           <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteDockerContainer('${c.Id}','${esc(name)}')" title="Eliminar contenedor"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDockerContainer('${c.Id}','${esc(name)}')" title="Eliminar contenedor"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
       </td>
     </tr>
@@ -1519,23 +1519,41 @@ async function viewDockerLogs(id, name) {
   document.getElementById('docker-logs-output').textContent = r?.logs || 'Sin logs en las últimas 200 líneas.';
 }
 
+let currentDockerTab = 'image';
+
+function switchDockerTab(tab) {
+  currentDockerTab = tab;
+  document.getElementById('tab-docker-image').classList.toggle('active', tab === 'image');
+  document.getElementById('tab-docker-file').classList.toggle('active', tab === 'file');
+  document.getElementById('docker-image-section').style.display = tab === 'image' ? 'block' : 'none';
+  document.getElementById('docker-file-section').style.display = tab === 'file' ? 'block' : 'none';
+}
+
 async function createDockerContainer() {
   const name = document.getElementById('docker-create-name').value.trim();
-  const image = document.getElementById('docker-create-image').value.trim();
   const hostPort = document.getElementById('docker-create-hostport').value.trim();
   const containerPort = document.getElementById('docker-create-contport').value.trim();
   const envs = document.getElementById('docker-create-envs').value;
 
-  if (!image) {
+  const isFile = currentDockerTab === 'file';
+  const image = isFile ? '' : document.getElementById('docker-create-image').value.trim();
+  const dockerfile = isFile ? document.getElementById('docker-create-file').value : '';
+
+  if (!isFile && !image) {
     toast('La imagen de Docker es obligatoria', 'error');
     return;
   }
+  if (isFile && !dockerfile.trim()) {
+    toast('El contenido del Dockerfile es obligatorio', 'error');
+    return;
+  }
 
-  toast('Creando y arrancando contenedor (puede tardar en descargar la imagen)...', 'info');
+  toast(isFile ? 'Compilando y arrancando contenedor (puede tardar unos minutos)...' : 'Creando y arrancando contenedor (puede tardar en descargar la imagen)...', 'info');
 
   const r = await req('POST', '/docker/containers/create', {
     name: name || undefined,
-    image,
+    image: isFile ? undefined : image,
+    dockerfile: isFile ? dockerfile : undefined,
     hostPort: hostPort ? parseInt(hostPort, 10) : undefined,
     containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
     envs: envs || undefined
@@ -1547,12 +1565,17 @@ async function createDockerContainer() {
     loadDockerContainers();
 
     // Reset inputs
-    ['docker-create-name', 'docker-create-image', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs'].forEach(id => {
+    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+    switchDockerTab('image');
   } else {
-    toast(r?.error || 'Error al crear el contenedor', 'error');
+    if (r?.error && r.error.includes('Error de compilación del Dockerfile')) {
+      alert(r.error);
+    } else {
+      toast(r?.error || 'Error al crear el contenedor', 'error');
+    }
   }
 }
 

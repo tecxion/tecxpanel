@@ -838,15 +838,34 @@
       <button class="btn btn-sm" onclick="closeModal('modal-new-container')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
+      <div class="tabs" style="margin-bottom:1.25rem">
+        <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i class="ti ti-brand-docker"></i> Usar Imagen</div>
+        <div class="tab" id="tab-docker-file" onclick="switchDockerTab('file')"><i class="ti ti-file-code"></i> Escribir Dockerfile</div>
+      </div>
+
       <div class="form-group">
         <label>Nombre del contenedor (opcional)</label>
         <input type="text" id="docker-create-name" placeholder="mi-nginx">
       </div>
-      <div class="form-group">
-        <label>Imagen de Docker</label>
-        <input type="text" id="docker-create-image" placeholder="nginx:alpine">
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si no existe localmente, se descargará automáticamente desde Docker Hub.</div>
+
+      <!-- Image section -->
+      <div id="docker-image-section">
+        <div class="form-group">
+          <label>Imagen de Docker</label>
+          <input type="text" id="docker-create-image" placeholder="nginx:alpine">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si no existe localmente, se descargará automáticamente desde Docker Hub.</div>
+        </div>
       </div>
+
+      <!-- Dockerfile section -->
+      <div id="docker-file-section" style="display:none">
+        <div class="form-group">
+          <label>Contenido del Dockerfile</label>
+          <textarea id="docker-create-file" placeholder="FROM nginx:alpine&#10;COPY index.html /usr/share/nginx/html/&#10;EXPOSE 80" style="width:100%;height:180px;font-family:var(--mono);font-size:12.5px;padding:8px"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se compilará una nueva imagen local en tu VPS al vuelo.</div>
+        </div>
+      </div>
+
       <div class="form-row">
         <div class="form-group">
           <label>Puerto Host</label>
