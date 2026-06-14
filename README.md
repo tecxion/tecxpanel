@@ -1,111 +1,128 @@
-# TecXPaneL
+# ⚡ TecXPaneL
 
-Panel de control ligero para VPS (Ubuntu/Debian): sitios web, aplicaciones PM2,
-bases de datos, firewall UFW, SSL Let's Encrypt, gestor de archivos, terminal SSH
-y estadísticas en tiempo real. Frontend SPA de un solo fichero + backend Node.js.
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D18-green?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js Version" />
+  <img src="https://img.shields.io/badge/Database-SQLite-blue?style=for-the-badge&logo=sqlite&logoColor=white" alt="Database SQLite" />
+  <img src="https://img.shields.io/badge/Security-JWT%20%26%20bcrypt-red?style=for-the-badge&logo=json-web-tokens&logoColor=white" alt="Security JWT" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License MIT" />
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs Welcome" />
+</p>
 
-## Arquitectura
+**TecXPaneL** es un panel de control autohospedado, moderno y extremadamente ligero diseñado para gestionar servidores VPS basados en **Ubuntu/Debian**. Ofrece una alternativa de alto rendimiento y bajo consumo a paneles pesados como cPanel o Plesk, consumiendo menos de **30 MB de RAM**.
 
-```
+Está desarrollado como una **SPA (Single Page Application)** modular en el frontend y un backend rápido en **Node.js** con base de datos **SQLite**.
+
+---
+
+## 🚀 Características Principales
+
+*   🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
+*   📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python o React a través de PM2. Soporta carga de archivos en `.zip`/`.tar.gz` y gestión de archivos `.env`.
+*   🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
+*   🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
+*   🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
+*   📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
+*   📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
+*   ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
+
+---
+
+## 🏗️ Arquitectura del Proyecto
+
+El proyecto está estructurado de forma limpia y desacoplada:
+
+```text
 /opt/txpl/
 ├── backend/
-│   ├── server.js          # API REST + WebSockets (este repo: server.js)
-│   ├── database.js        # capa SQLite (este repo: database.js)
-│   ├── package.json
-│   └── .env               # secretos (NO en git) — ver .env.example
+│   ├── server.js          # Punto de entrada de la API REST + WebSockets
+│   ├── database.js        # Capa de datos con SQLite (better-sqlite3)
+│   ├── routes/            # Enrutadores divididos por módulos (apps, webs, system, etc.)
+│   ├── lib/               # Librerías de websocket, criptografía y utilidades
+│   └── package.json       # Dependencias del backend
 ├── frontend/
-│   └── index.html         # SPA (este repo: index.html)
-├── data/txpl.db           # base de datos del panel
-└── ecosystem.config.js    # configuración PM2
+│   ├── index.html         # SPA (Single Page Application) modularizada
+│   ├── css/
+│   │   └── styles.css     # Estilos CSS modernos
+│   └── js/
+│       └── app.js         # Lógica vanilla JS del lado del cliente
+├── data/
+│   └── txpl.db            # Base de datos SQLite del panel (se crea en el arranque)
+└── ecosystem.config.js    # Configuración de ejecución continua en PM2
 ```
 
-Nginx hace de proxy inverso hacia `127.0.0.1:8585` (el backend solo escucha en
-localhost). La CLI `txpl` consume la misma API.
+---
 
-## Requisitos
+## 💿 Instalación en un VPS limpio (Recomendada)
 
-- Node.js ≥ 18, npm
-- nginx, PM2 (`npm i -g pm2`)
-- Opcional: MySQL/MariaDB, PostgreSQL, certbot, ufw
-- Para la terminal interactiva: `node-pty` (dependencia opcional)
+En un VPS limpio con **Ubuntu** o **Debian**, todo el proceso de aprovisionamiento se realiza mediante un script interactivo. Este instala Node.js, Nginx, PM2, UFW y Certbot, configura un `.env` seguro y arranca el panel.
 
-## Instalación en un VPS limpio (recomendada)
-
-En un VPS Ubuntu/Debian recién creado, todo el aprovisionamiento se hace con
-`txpl-setup.sh`: instala Node, nginx, PM2, UFW y certbot (y opcionalmente
-MariaDB/PostgreSQL), genera el `.env` con secretos aleatorios, instala
-dependencias y arranca el panel.
+Ejecuta el siguiente comando como `root` o usando `sudo`:
 
 ```bash
-# En el VPS (como root o con sudo):
 git clone https://github.com/TU_USUARIO/tecxpanel.git && cd tecxpanel && sudo bash txpl-setup.sh
 ```
 
-Al terminar imprime la URL del panel y las credenciales generadas (usuario,
-contraseña y root de MySQL). El instalador es **idempotente**: puedes volver a
-ejecutarlo y conservará el `.env` existente.
+Al terminar, la consola imprimirá la dirección de acceso y las credenciales de administrador autogeneradas.
 
-Variables opcionales que puedes exportar antes de ejecutarlo:
+### ⚙️ Instalación Personalizada
+Puedes predefinir variables de entorno antes de lanzar el instalador:
 
 ```bash
-export ADMIN_USER=admin
-export ADMIN_PASS="tu-contraseña"
-export PANEL_DOMAIN=panel.tudominio.com
-export INSTALL_MYSQL=1 INSTALL_PG=0
+export ADMIN_USER="admin"
+export ADMIN_PASS="tu-contraseña-segura"
+export PANEL_DOMAIN="panel.tudominio.com"
+export INSTALL_MYSQL=1
+export INSTALL_PG=0
+
 sudo -E bash txpl-setup.sh
 ```
 
-### Actualizaciones posteriores
+---
 
-```bash
-cd tecxpanel && git pull
-sudo bash txpl-update.sh        # reload sin downtime con PM2
-```
+## 🛠️ Desarrollo y Pruebas Locales (Sin Servidor VPS)
 
-### Instalación manual (alternativa)
+Puedes clonar el repositorio y arrancar la aplicación de pruebas en tu máquina local (**Windows / macOS / Linux**):
 
-```bash
-sudo mkdir -p /opt/txpl/backend /opt/txpl/frontend /opt/txpl/data
-sudo cp server.js database.js package.json /opt/txpl/backend/
-sudo cp index.html /opt/txpl/frontend/
-sudo cp ecosystem.config.js /opt/txpl/
-sudo cp .env.example /opt/txpl/.env   # rellena JWT_SECRET (openssl rand -hex 32) y ADMIN_PASS
-sudo chmod 600 /opt/txpl/.env
-cd /opt/txpl/backend && npm install --production
-sudo cp txpl-nginx.conf /etc/nginx/sites-available/txpl-panel
-sudo ln -sf /etc/nginx/sites-available/txpl-panel /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-pm2 start /opt/txpl/ecosystem.config.js --env production && pm2 save
-```
+1.  Crea un archivo `.env` en la raíz del proyecto:
+    ```env
+    TXPL_PORT=8585
+    JWT_SECRET=un_secreto_muy_largo_de_mas_de_32_caracteres_de_prueba
+    ADMIN_USER=admin
+    ADMIN_PASS=contraseñadeprueba
+    TXPL_DIR=./
+    FRONTEND_DIR=./frontend
+    ```
+2.  Instala las dependencias y arranca el servidor local:
+    ```bash
+    npm install
+    npm run dev
+    ```
+3.  Accede desde el navegador a: `http://localhost:8585`
 
-## Seguridad
+---
 
-El backend está construido con la seguridad como requisito de diseño:
+## 💻 Comandos del CLI `txpl`
 
-- **Autenticación JWT** con expiración (`TXPL_TOKEN_TTL`), verificada también en
-  los WebSockets antes de abrir la sesión.
-- **Contraseña admin con hash bcrypt** (coste 12). Nunca se guarda en claro.
-  Comparación en tiempo constante incluso para usuarios inexistentes.
-- **Sin inyección de comandos**: toda llamada al sistema usa `execFile(cmd, [args])`,
-  jamás se interpola entrada de usuario en una shell.
-- **Listas blancas** para servicios, acciones, tipos y rutas de logs.
-- **Jaula de rutas** en el gestor de archivos: toda ruta se resuelve y debe quedar
-  dentro de `SITES_DIR`; se bloquea path traversal.
-- **Validación por regex** de dominios, nombres de app/BD, puertos e IPs.
-- **Rate limiting** (login y API) + cabeceras de seguridad (helmet).
-- **Auditoría** de acciones sensibles en la tabla `audit_log`.
-- El backend escucha **solo en `127.0.0.1`**: la exposición pública es vía nginx
-  con HTTPS (descomenta el bloque SSL en `txpl-nginx.conf` tras instalar certbot).
+El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bin/txpl` para administrar el panel desde la terminal de tu VPS:
 
-### Próximos pasos de seguridad recomendados
+| Comando | Descripción |
+| :--- | :--- |
+| `txpl status` | Muestra el estado del panel, servicios de red y consumo |
+| `txpl restart` | Reinicia el panel sin pérdida de servicio (PM2 reload) |
+| `txpl logs` | Muestra en vivo los registros de actividad del panel |
+| `txpl panel:ssl <dominio>` | Configura el dominio e instala HTTPS mediante Certbot |
+| `txpl sites` | Lista los sitios web Nginx gestionados |
+| `txpl apps` | Muestra las aplicaciones en ejecución de PM2 |
+| `txpl dbs` | Lista las bases de datos SQLite, MySQL y Postgres |
+| `txpl backup` | Crea una copia de seguridad empaquetada en `/opt/txpl/backups` |
+| `txpl backup:cron` | Instala un cron job diario para backups a las 03:00 AM |
+| `txpl backup:list` | Lista todas las copias de seguridad disponibles |
 
-- Forzar HTTPS + HSTS en nginx (bloque comentado en `txpl-nginx.conf`).
-- 2FA (TOTP) en el login — la tabla `users` ya reserva `totp_secret`.
-- Cifrar en reposo las contraseñas de BD almacenadas (hoy se guardan para poder
-  mostrarlas; valora un secreto maestro o KMS).
-- Escapado de HTML en el frontend (los datos se insertan con `innerHTML`).
+---
 
-## Variables de entorno
+## 🛡️ Seguridad Aplicada
 
-Ver [`.env.example`](.env.example). Las imprescindibles: `JWT_SECRET` (≥32 chars),
-`ADMIN_PASS`, y `MYSQL_ROOT_PASSWORD` si vas a crear bases de datos MySQL.
+*   **Zero Shell Interpolation**: Toda ejecución externa se hace con `execFile` pasando argumentos en arrays, imposibilitando los ataques de Command Injection.
+*   **Cifrado Robusto**: Contraseñas del administrador hasheadas con `bcrypt` (12 rondas). Secretos de bases de datos guardados en la base de datos local con cifrado simétrico AES-256-GCM.
+*   **Jaula de Rutas (Path Jail)**: Rutas del gestor de archivos validadas y resueltas para bloquear ataques de Path Traversal fuera del directorio base.
+*   **Protección contra Ataques**: Cabeceras de seguridad configuradas mediante `helmet`, rate limiting de solicitudes por IP y protección contra fuerza bruta integrada.
