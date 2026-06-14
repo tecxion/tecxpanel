@@ -390,6 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const pathEl = document.getElementById('app-path');
   if (nameEl) nameEl.addEventListener('input', updateAppPathPreview);
   if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
+  setupDragDrop();
 });
 
 async function createApp() {
@@ -541,31 +542,65 @@ function getFileIcon(filename) {
   return iconMap[ext] || 'ti-file';
 }
 
+let dragDropBound = false;
 function setupDragDrop() {
   const zone = document.getElementById('drop-zone');
-  if (!zone) return;
+  if (!zone || dragDropBound) return;
+  dragDropBound = true;
 
-  zone.ondragover = (e) => { e.preventDefault(); zone.style.background = 'var(--accent-glow)'; };
-  zone.ondragleave = () => { zone.style.background = 'var(--bg-card2)'; };
-  zone.ondrop = (e) => { e.preventDefault(); zone.style.background = 'var(--bg-card2)'; handleDrop(e); };
-  zone.onclick = () => document.getElementById('file-upload').click();
+  // Evita que el navegador abra el archivo al soltarlo fuera de la zona exacta
+  ['dragover', 'drop'].forEach(ev => {
+    window.addEventListener(ev, (e) => { e.preventDefault(); }, false);
+  });
+
+  zone.addEventListener('dragenter', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    zone.style.background = 'var(--accent-glow)';
+    zone.style.borderColor = 'var(--accent)';
+  });
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    zone.style.background = 'var(--accent-glow)';
+    zone.style.borderColor = 'var(--accent)';
+  });
+  zone.addEventListener('dragleave', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    zone.style.background = 'var(--bg-card2)';
+    zone.style.borderColor = 'var(--border)';
+  });
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    zone.style.background = 'var(--bg-card2)';
+    zone.style.borderColor = 'var(--border)';
+    handleDrop(e);
+  });
+  zone.addEventListener('click', () => document.getElementById('file-upload').click());
 }
 
 function handleDrop(e) {
   const dt = e.dataTransfer;
   if (!dt) return;
+
+  // IMPORTANTE: las entries deben leerse de forma síncrona dentro del handler
   const entries = [];
-  if (dt.items) {
+  if (dt.items && dt.items.length) {
     for (let i = 0; i < dt.items.length; i++) {
       const item = dt.items[i];
-      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (item.kind && item.kind !== 'file') continue;
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry()
+                  : (item.getAsEntry ? item.getAsEntry() : null);
       if (entry) entries.push(entry);
     }
   }
+
   if (entries.length > 0) {
     processEntries(entries);
   } else if (dt.files && dt.files.length > 0) {
+    // Fallback: el navegador no soporta entries de directorio
     uploadFlatFiles(dt.files);
+  } else {
+    toast('No se detectaron archivos. Prueba con otro navegador (Chrome/Edge).', 'error');
   }
 }
 
