@@ -46,6 +46,9 @@ const createAuthRouter = require('./routes/auth');
 const { router: authRouter, auth, verifyToken } = createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter);
 app.use('/api/auth', authRouter);
 
+// Webhooks público (no requiere token JWT)
+app.use('/api/webhooks', require('./routes/webhooks'));
+
 // A partir de aquí, todo /api requiere token.
 app.use('/api', auth);
 
@@ -58,6 +61,7 @@ app.use('/api/files', require('./routes/files'));
 app.use('/api/firewall', require('./routes/firewall'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/plugins', require('./routes/plugins'));
+app.use('/api/docker', require('./routes/docker'));
 
 // ── Frontend estático ─────────────────────────────────────────
 app.use(express.static(FRONTEND_DIR, { maxAge: 0, index: 'index.html', etag: true }));

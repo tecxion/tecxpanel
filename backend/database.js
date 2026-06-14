@@ -47,16 +47,19 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS apps (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL UNIQUE,
-    type       TEXT NOT NULL DEFAULT 'nodejs',
-    path       TEXT,
-    start_cmd  TEXT,
-    port       INTEGER,
-    domain     TEXT,
-    pm2_name   TEXT NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'stopped',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT NOT NULL UNIQUE,
+    type           TEXT NOT NULL DEFAULT 'nodejs',
+    path           TEXT,
+    start_cmd      TEXT,
+    port           INTEGER,
+    domain         TEXT,
+    pm2_name       TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'stopped',
+    git_repo       TEXT,
+    git_branch     TEXT,
+    webhook_secret TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS databases (
@@ -84,6 +87,9 @@ db.exec(`
 try { db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0"); } catch (_) { /* ya existe */ }
 try { db.exec("ALTER TABLE websites ADD COLUMN listen_port INTEGER"); } catch (_) {}
 try { db.exec("ALTER TABLE websites ADD COLUMN php_version TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE apps ADD COLUMN git_repo TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE apps ADD COLUMN git_branch TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE apps ADD COLUMN webhook_secret TEXT"); } catch (_) {}
 
 // ── Seed del usuario admin desde el .env ──────────────────────
 // La contraseña NUNCA se guarda en claro: se almacena el hash bcrypt.
@@ -135,9 +141,11 @@ const queries = {
   listApps:   db.prepare('SELECT * FROM apps ORDER BY created_at DESC'),
   getApp:     db.prepare('SELECT * FROM apps WHERE id = ?'),
   getAppByName: db.prepare('SELECT * FROM apps WHERE name = ?'),
-  insertApp:  db.prepare('INSERT INTO apps (name, type, path, start_cmd, port, domain, pm2_name, status) VALUES (@name, @type, @path, @start_cmd, @port, @domain, @pm2_name, @status)'),
+  getAppByWebhookSecret: db.prepare('SELECT * FROM apps WHERE webhook_secret = ?'),
+  insertApp:  db.prepare('INSERT INTO apps (name, type, path, start_cmd, port, domain, pm2_name, status, git_repo, git_branch, webhook_secret) VALUES (@name, @type, @path, @start_cmd, @port, @domain, @pm2_name, @status, @git_repo, @git_branch, @webhook_secret)'),
   setAppStatus: db.prepare('UPDATE apps SET status = ? WHERE id = ?'),
   setAppConfig: db.prepare('UPDATE apps SET type = ?, start_cmd = ? WHERE id = ?'),
+  setAppGitConfig: db.prepare('UPDATE apps SET git_repo = ?, git_branch = ? WHERE id = ?'),
   deleteApp:  db.prepare('DELETE FROM apps WHERE id = ?'),
 
   // databases

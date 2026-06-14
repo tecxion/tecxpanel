@@ -70,6 +70,9 @@
     <div class="nav-item" data-page="databases" onclick="navigate(this)">
       <i class="ti ti-database"></i> Bases de datos
     </div>
+    <div class="nav-item" data-page="docker" onclick="navigate(this)">
+      <i class="ti ti-brand-docker"></i> Docker
+    </div>
 
     <div class="sidebar-section">Sistema</div>
     <div class="nav-item" data-page="files" onclick="navigate(this)">
@@ -275,6 +278,29 @@
               <thead><tr><th>Nombre</th><th>Tipo</th><th>Nombre de la BD</th><th>Usuario</th><th>Contraseña</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
               <tbody id="databases-table">
                 <tr><td colspan="8" class="empty-state">Sin bases de datos aún</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DOCKER ── -->
+      <div class="page" id="page-docker">
+        <div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+          <div style="font-size:1.2rem;font-weight:600;color:var(--text-main);display:flex;align-items:center;gap:8px">
+            <i class="ti ti-brand-docker" style="font-size:24px;color:var(--cyan)"></i> Contenedores Docker
+          </div>
+          <button class="btn btn-sm" onclick="loadDockerContainers()" style="margin-left:auto"><i class="ti ti-refresh"></i> Actualizar</button>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-brand-docker"></i> Lista de contenedores en el sistema</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Imagen</th><th>ID</th><th>Estado</th><th>Puertos</th><th>Acciones</th></tr></thead>
+              <tbody id="docker-table">
+                <tr><td colspan="6" class="empty-state">No se encontraron contenedores o Docker no está activo.</td></tr>
               </tbody>
             </table>
           </div>
@@ -559,6 +585,11 @@
 
     <!-- Paso 1: formulario -->
     <div class="modal-body" id="deploy-form">
+      <div class="tabs" style="margin-bottom:1.25rem">
+        <div class="tab active" id="tab-deploy-zip" onclick="switchDeployTab('zip')"><i class="ti ti-file-zip"></i> Subir archivo ZIP</div>
+        <div class="tab" id="tab-deploy-git" onclick="switchDeployTab('git')"><i class="ti ti-git-fork"></i> Clonar desde Git</div>
+      </div>
+
       <div class="form-row">
         <div class="form-group"><label>Nombre de la app</label><input type="text" id="app-name" placeholder="mi-api"></div>
         <div class="form-group">
@@ -573,22 +604,39 @@
       </div>
       <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain" placeholder="api.ejemplo.com"></div>
 
-      <div class="form-group">
-        <label>Archivo del proyecto (.zip / .tar.gz)</label>
-        <div id="deploy-zip-drop" class="deploy-drop">
-          <i class="ti ti-file-zip" style="font-size:22px;display:block;margin-bottom:4px"></i>
-          <span id="deploy-zip-label">Arrastra el .zip o haz clic</span>
-          <input type="file" id="deploy-zip" accept=".zip,.tar.gz,.tgz,.tar" style="display:none">
+      <!-- ZIP section -->
+      <div id="deploy-zip-section">
+        <div class="form-group">
+          <label>Archivo del proyecto (.zip / .tar.gz)</label>
+          <div id="deploy-zip-drop" class="deploy-drop">
+            <i class="ti ti-file-zip" style="font-size:22px;display:block;margin-bottom:4px"></i>
+            <span id="deploy-zip-label">Arrastra el .zip o haz clic</span>
+            <input type="file" id="deploy-zip" accept=".zip,.tar.gz,.tgz,.tar" style="display:none">
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Comprime tu proyecto <strong>sin</strong> <code>node_modules</code> ni <code>.next</code>.</div>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Comprime tu proyecto <strong>sin</strong> <code>node_modules</code> ni <code>.next</code>.</div>
+
+        <div class="form-group">
+          <label>Variables de entorno (.env, opcional)</label>
+          <div id="deploy-env-drop" class="deploy-drop">
+            <i class="ti ti-settings" style="font-size:22px;display:block;margin-bottom:4px"></i>
+            <span id="deploy-env-label">Arrastra tu .env o haz clic</span>
+            <input type="file" id="deploy-env" style="display:none">
+          </div>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label>Variables de entorno (.env, opcional)</label>
-        <div id="deploy-env-drop" class="deploy-drop">
-          <i class="ti ti-settings" style="font-size:22px;display:block;margin-bottom:4px"></i>
-          <span id="deploy-env-label">Arrastra tu .env o haz clic</span>
-          <input type="file" id="deploy-env" style="display:none">
+      <!-- Git section -->
+      <div id="deploy-git-section" style="display:none">
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>Repositorio Git (URL pública)</label>
+            <input type="text" id="app-git-repo" placeholder="https://github.com/usuario/repositorio.git">
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Rama</label>
+            <input type="text" id="app-git-branch" value="main" placeholder="main">
+          </div>
         </div>
       </div>
     </div>
@@ -713,6 +761,71 @@
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-file')">Cancelar</button>
       <button class="btn btn-primary" onclick="createFile()"><i class="ti ti-file-plus"></i> Crear archivo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Git Info & Sync -->
+<div class="modal-overlay" id="modal-git-info">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-git-fork" style="color:var(--accent)"></i> Configuración Git y Despliegue</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-git-info')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Repositorio Git</label>
+        <div class="form-control-static" id="git-info-repo" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-family:var(--mono);font-size:12.5px;border:1px solid var(--border)">—</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Rama</label>
+          <div class="form-control-static" id="git-info-branch" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">—</div>
+        </div>
+        <div class="form-group">
+          <label>Última actualización</label>
+          <div class="form-control-static" id="git-info-updated" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">—</div>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label>Webhook URL (Auto-despliegue automático en push)</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="git-info-webhook" readonly style="flex:1;font-family:var(--mono);font-size:12px;background:var(--bg-card2)">
+          <button class="btn" onclick="copyWebhookUrl()"><i class="ti ti-copy"></i> Copiar</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Configura este Webhook en GitHub/GitLab (Content type: application/json) para desplegar al hacer push.</div>
+      </div>
+
+      <div class="form-group mt-2">
+        <button class="btn btn-primary" style="width:100%" onclick="triggerGitPull()"><i class="ti ti-refresh"></i> Sincronizar y Desplegar Ahora (Manual Git Pull)</button>
+      </div>
+
+      <div id="git-pull-progress" style="display:none;margin-top:1rem">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-loader-2 ti-spin" style="color:var(--accent)"></i> Procesando despliegue manual...
+        </div>
+        <pre id="git-pull-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-git-info')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Docker Logs -->
+<div class="modal-overlay" id="modal-docker-logs">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-file-text" style="color:var(--cyan)"></i> Logs del Contenedor &mdash; <span id="docker-logs-title"></span></div>
+      <button class="btn btn-sm" onclick="closeModal('modal-docker-logs')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <pre id="docker-logs-output" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:450px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-docker-logs')">Cerrar</button>
     </div>
   </div>
 </div>

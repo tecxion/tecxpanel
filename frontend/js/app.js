@@ -124,7 +124,7 @@ function navigate(el) {
     dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
     websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
     files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
-    plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes'
+    plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
@@ -138,6 +138,7 @@ function navigate(el) {
   if (page === 'ssl') loadSSL();
   if (page === 'plugins') loadPlugins();
   if (page === 'settings') loadSettings();
+  if (page === 'docker') loadDockerContainers();
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -447,6 +448,7 @@ async function loadApps() {
             : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i> Iniciar</button>`}
           <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}')" title="Instalar dependencias"><i class="ti ti-package"></i> Instalar</button>
           <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola en la carpeta"><i class="ti ti-terminal-2"></i> Consola</button>
+          ${a.git_repo ? `<button class="btn btn-sm" onclick="openGitInfoModal(${a.id},'${esc(a.name)}','${esc(a.git_repo)}','${esc(a.git_branch)}','${esc(a.webhook_secret)}')" title="Git / Webhook"><i class="ti ti-git-fork"></i> Git</button>` : ''}
           <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i> Logs</button>
           <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
@@ -512,14 +514,29 @@ function renderDeploySteps(steps) {
   }).join('');
 }
 
+let currentDeployTab = 'zip';
+
+function switchDeployTab(tab) {
+  currentDeployTab = tab;
+  document.getElementById('tab-deploy-zip').classList.toggle('active', tab === 'zip');
+  document.getElementById('tab-deploy-git').classList.toggle('active', tab === 'git');
+  document.getElementById('deploy-zip-section').style.display = tab === 'zip' ? 'block' : 'none';
+  document.getElementById('deploy-git-section').style.display = tab === 'git' ? 'block' : 'none';
+}
+
 async function startDeploy() {
   const name = document.getElementById('app-name').value.trim();
   const basePath = document.getElementById('app-path').value.trim() || '/var/www';
   const port = document.getElementById('app-port').value.trim();
   const domain = document.getElementById('app-domain').value.trim();
 
+  const isGit = currentDeployTab === 'git';
+  const gitRepo = isGit ? document.getElementById('app-git-repo').value.trim() : '';
+  const gitBranch = isGit ? document.getElementById('app-git-branch').value.trim() : 'main';
+
   if (!name) { toast('El nombre es obligatorio', 'error'); return; }
-  if (!deployZipFile) { toast('Sube el .zip de tu proyecto', 'error'); return; }
+  if (isGit && !gitRepo) { toast('El repositorio Git es obligatorio', 'error'); return; }
+  if (!isGit && !deployZipFile) { toast('Sube el .zip de tu proyecto', 'error'); return; }
 
   // Cambia a la vista de progreso
   document.getElementById('deploy-form').style.display = 'none';
@@ -528,22 +545,23 @@ async function startDeploy() {
   document.getElementById('deploy-cancel-btn').style.display = 'none';
   document.getElementById('deploy-log').textContent = '';
 
-  const steps = [
-    { key: 'create',  label: 'Crear aplicación',       state: 'pending' },
-    { key: 'upload',  label: 'Subir archivos',          state: 'pending' },
-    { key: 'extract', label: 'Extraer y detectar',      state: 'pending' },
-    { key: 'install', label: 'Instalar dependencias',   state: 'pending' },
-    { key: 'build',   label: 'Compilar (build)',        state: 'pending' },
-    { key: 'start',   label: 'Arrancar aplicación',     state: 'pending' },
-    { key: 'proxy',   label: 'Configurar acceso',       state: 'pending' },
-  ];
+  const steps = [];
+  steps.push({ key: 'create', label: isGit ? 'Clonar repositorio Git y crear app' : 'Crear aplicación', state: 'pending' });
+  if (!isGit) {
+    steps.push({ key: 'upload', label: 'Subir archivos', state: 'pending' });
+    steps.push({ key: 'extract', label: 'Extraer y detectar', state: 'pending' });
+  }
+  steps.push({ key: 'install', label: 'Instalar dependencias', state: 'pending' });
+  steps.push({ key: 'build', label: 'Compilar (build)', state: 'pending' });
+  steps.push({ key: 'start', label: 'Arrancar aplicación', state: 'pending' });
+  steps.push({ key: 'proxy', label: 'Configurar acceso', state: 'pending' });
+
   renderDeploySteps(steps);
   const setStep = (key, state) => { steps.find((s) => s.key === key).state = state; renderDeploySteps(steps); };
 
   let createdId = null;
   const finish = async (success) => {
     if (!success && createdId) {
-      // Rollback: el servidor borra la carpeta y todos los archivos subidos
       deployLog('\n↩ Despliegue fallido. Limpiando: se elimina la carpeta y los archivos creados...');
       const del = await req('POST', `/apps/${createdId}/delete`);
       if (del?.success) deployLog('✓ Limpieza completada. No quedó nada en el servidor.');
@@ -559,29 +577,40 @@ async function startDeploy() {
   };
 
   try {
-    // 1. Crear
-    setStep('create', 'active'); deployLog('▶ Creando aplicación...');
-    const created = await req('POST', '/apps', { name, path: basePath, port, domain });
+    // 1. Crear / Clonar
+    setStep('create', 'active'); deployLog(isGit ? '▶ Clonando repositorio Git...' : '▶ Creando aplicación...');
+    const createData = { name, path: basePath, port, domain };
+    if (isGit) {
+      createData.git_repo = gitRepo;
+      createData.git_branch = gitBranch;
+    }
+    const created = await req('POST', '/apps', createData);
     if (!created?.success) { setStep('create', 'err'); deployLog('✖ ' + (created?.error || 'Error')); return finish(false); }
     const id = created.id;
     createdId = id;
-    setStep('create', 'ok'); deployLog('✓ Carpeta: ' + created.path);
+    setStep('create', 'ok'); deployLog(isGit ? '✓ Clonado exitosamente en: ' + created.path : '✓ Carpeta: ' + created.path);
 
-    // 2. Subir
-    setStep('upload', 'active'); deployLog('\n▶ Subiendo ' + deployZipFile.name + '...');
-    const up = await uploadBinary(deployZipFile, created.path + '/' + deployZipFile.name);
-    if (!up?.success) { setStep('upload', 'err'); deployLog('✖ Falló la subida del zip'); return finish(false); }
-    if (deployEnvFile) {
-      deployLog('▶ Subiendo .env...');
-      await uploadBinary(deployEnvFile, created.path + '/.env');
+    if (isGit && created.detected) {
+      deployLog(`\nProyecto detectado: ${created.detected.type}\nInstalar: ${created.detected.installCmd || '—'}\nBuild: ${created.detected.buildCmd || '—'}\nInicio: ${created.detected.startCmd}`);
     }
-    setStep('upload', 'ok'); deployLog('✓ Archivos subidos');
 
-    // 3. Extraer + detectar
-    setStep('extract', 'active'); deployLog('\n▶ Extrayendo...');
-    const ext = await req('POST', `/apps/${id}/extract`);
-    if (!ext?.success) { setStep('extract', 'err'); deployLog('✖ ' + (ext?.error || 'Error al extraer')); return finish(false); }
-    setStep('extract', 'ok'); deployLog(ext.output || '');
+    if (!isGit) {
+      // 2. Subir
+      setStep('upload', 'active'); deployLog('\n▶ Subiendo ' + deployZipFile.name + '...');
+      const up = await uploadBinary(deployZipFile, created.path + '/' + deployZipFile.name);
+      if (!up?.success) { setStep('upload', 'err'); deployLog('✖ Falló la subida del zip'); return finish(false); }
+      if (deployEnvFile) {
+        deployLog('▶ Subiendo .env...');
+        await uploadBinary(deployEnvFile, created.path + '/.env');
+      }
+      setStep('upload', 'ok'); deployLog('✓ Archivos subidos');
+
+      // 3. Extraer + detectar
+      setStep('extract', 'active'); deployLog('\n▶ Extrayendo...');
+      const ext = await req('POST', `/apps/${id}/extract`);
+      if (!ext?.success) { setStep('extract', 'err'); deployLog('✖ ' + (ext?.error || 'Error al extraer')); return finish(false); }
+      setStep('extract', 'ok'); deployLog(ext.output || '');
+    }
 
     // 4. Instalar
     setStep('install', 'active'); deployLog('\n▶ Instalando dependencias...');
@@ -603,7 +632,7 @@ async function startDeploy() {
     if (!st?.success) { setStep('start', 'err'); deployLog('✖ ' + (st?.error || 'No arrancó')); return finish(false); }
     setStep('start', 'ok'); deployLog('✓ Aplicación en marcha');
 
-    // 7. Configurar acceso (puerto + proxy de dominio) — no crítico
+    // 7. Configurar acceso
     setStep('proxy', 'active'); deployLog('\n▶ Configurando acceso...');
     const px = await req('POST', `/apps/${id}/proxy`);
     if (px?.success) { setStep('proxy', 'ok'); deployLog(px.output || ''); }
@@ -620,12 +649,14 @@ async function startDeploy() {
 function resetDeployModal() {
   deployZipFile = null;
   deployEnvFile = null;
+  switchDeployTab('zip');
   document.getElementById('deploy-form').style.display = 'block';
   document.getElementById('deploy-progress').style.display = 'none';
   document.getElementById('deploy-start-btn').style.display = 'inline-flex';
   document.getElementById('deploy-cancel-btn').style.display = 'inline-flex';
   document.getElementById('deploy-done-btn').style.display = 'none';
-  ['app-name', 'app-port', 'app-domain'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['app-name', 'app-port', 'app-domain', 'app-git-repo'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('app-git-branch').value = 'main';
   document.getElementById('app-path').value = '/var/www';
   ['deploy-zip', 'deploy-env'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('deploy-zip-label').textContent = 'Arrastra el .zip o haz clic';
@@ -1401,9 +1432,142 @@ function fallbackCopy(text) {
   }
 }
 
+// ── Docker ────────────────────────────────────────────────────
+async function loadDockerContainers() {
+  const tb = document.getElementById('docker-table');
+  tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-loader-2 ti-spin"></i> Cargando contenedores...</td></tr>';
+
+  const data = await req('GET', '/docker/containers');
+  if (!data) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty-state">No se pudo cargar la lista de contenedores.</td></tr>';
+    return;
+  }
+
+  if (data.error) {
+    tb.innerHTML = `<tr><td colspan="6" class="empty-state"><i class="ti ti-brand-docker"></i><br>Docker no está activo o no está instalado en este sistema.</td></tr>`;
+    return;
+  }
+
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty-state">No hay contenedores creados en el sistema.</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = data.map(c => {
+    const name = c.Names ? c.Names.map(n => n.replace(/^\//, '')).join(', ') : '—';
+    const idShort = c.Id ? c.Id.substring(0, 12) : '—';
+    const image = c.Image || '—';
+    const state = c.State || '—';
+    const status = c.Status || '—';
+
+    let portsStr = '—';
+    if (c.Ports && c.Ports.length) {
+      portsStr = c.Ports.map(p => {
+        if (p.PublicPort) {
+          return `${p.IP || ''}:${p.PublicPort}->${p.PrivatePort}/${p.Type || 'tcp'}`;
+        }
+        return `${p.PrivatePort}/${p.Type || 'tcp'}`;
+      }).join('<br>');
+    }
+
+    const stateColor = state === 'running' ? 'badge-green' : 'badge-red';
+
+    const controlBtn = state === 'running'
+      ? `<button class="btn btn-sm btn-danger" onclick="dockerAction('${c.Id}','stop')" title="Detener"><i class="ti ti-player-stop"></i></button>
+         <button class="btn btn-sm" onclick="dockerAction('${c.Id}','restart')" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
+      : `<button class="btn btn-sm btn-success" onclick="dockerAction('${c.Id}','start')" title="Iniciar"><i class="ti ti-player-play"></i></button>`;
+
+    return `
+    <tr>
+      <td style="font-weight:600">${esc(name)}</td>
+      <td style="font-size:12px;color:var(--text-secondary)">${esc(image)}</td>
+      <td style="font-family:var(--mono);font-size:12px">${idShort}</td>
+      <td>
+        <span class="badge ${stateColor}">${esc(state)}</span>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${esc(status)}</div>
+      </td>
+      <td style="font-family:var(--mono);font-size:11px;line-height:1.3">${portsStr}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          ${controlBtn}
+          <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
+        </div>
+      </td>
+    </tr>
+    `;
+  }).join('');
+}
+
+async function dockerAction(id, action) {
+  toast(`${action === 'stop' ? 'Deteniendo' : action === 'start' ? 'Iniciando' : 'Reiniciando'} contenedor...`, 'info');
+  const r = await req('POST', `/docker/containers/${id}/${action}`);
+  if (r?.success) {
+    toast(`Contenedor ${action === 'stop' ? 'detenido' : action === 'start' ? 'iniciado' : 'reiniciado'}`, 'success');
+    loadDockerContainers();
+  } else {
+    toast(r?.error || 'Error al gestionar contenedor', 'error');
+  }
+}
+
+async function viewDockerLogs(id, name) {
+  document.getElementById('docker-logs-title').textContent = name;
+  document.getElementById('docker-logs-output').textContent = 'Cargando logs...';
+  openModal('modal-docker-logs');
+
+  const r = await req('GET', `/docker/containers/${id}/logs`);
+  document.getElementById('docker-logs-output').textContent = r?.logs || 'Sin logs en las últimas 200 líneas.';
+}
+
+// ── Git / Webhooks ────────────────────────────────────────────
+let gitInfoAppId = null;
+
+function openGitInfoModal(id, name, repo, branch, secret) {
+  gitInfoAppId = id;
+  document.getElementById('git-info-repo').textContent = repo || '—';
+  document.getElementById('git-info-branch').textContent = branch || '—';
+  document.getElementById('git-info-updated').textContent = 'Sincronizado al crear/actualizar';
+
+  const webhookUrl = `${window.location.origin}/api/webhooks/deploy/${secret}`;
+  document.getElementById('git-info-webhook').value = webhookUrl;
+
+  document.getElementById('git-pull-progress').style.display = 'none';
+  document.getElementById('git-pull-log').textContent = '';
+
+  openModal('modal-git-info');
+}
+
+function copyWebhookUrl() {
+  const input = document.getElementById('git-info-webhook');
+  copyText(input.value);
+}
+
+async function triggerGitPull() {
+  if (!gitInfoAppId) return;
+
+  const progress = document.getElementById('git-pull-progress');
+  const log = document.getElementById('git-pull-log');
+
+  progress.style.display = 'block';
+  log.textContent = 'Iniciando despliegue de Git Pull manual...\n';
+  log.scrollTop = log.scrollHeight;
+
+  const r = await req('POST', `/apps/${gitInfoAppId}/git-pull`);
+
+  if (r?.success) {
+    log.textContent += '\n' + (r.output || '') + '\n';
+    toast('Aplicación actualizada y redesplegada con éxito.', 'success');
+  } else {
+    log.textContent += '\n✖ Error durante el despliegue:\n' + (r?.output || r?.error || 'Error desconocido') + '\n';
+    toast('Error en el despliegue manual de Git.', 'error');
+  }
+  log.scrollTop = log.scrollHeight;
+  loadApps();
+}
+
 // ── Init ──────────────────────────────────────────────────────
 checkAuth();
 
 setInterval(() => {
   if (currentPage === 'dashboard') { loadServices(); loadProcesses(); }
+  if (currentPage === 'docker') { loadDockerContainers(); }
 }, 30000);

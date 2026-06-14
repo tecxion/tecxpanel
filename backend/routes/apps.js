@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { RE_APP_NAME, ALLOWED_APP_TYPES, ALLOWED_APP_ACTIONS, isPort, isValidDomain } = require('../lib/validators');
@@ -109,6 +110,7 @@ router.get('/', wrap(async (req, res) => {
   const apps = queries.listApps.all();
   const enriched = await Promise.all(apps.map(async (a) => ({
     id: a.id, name: a.name, type: a.type, port: a.port, domain: a.domain,
+    git_repo: a.git_repo, git_branch: a.git_branch, webhook_secret: a.webhook_secret,
     status: await pm2Status(a.pm2_name),
   })));
   ok(res, enriched);
@@ -182,9 +184,9 @@ function flattenSingleSubdir(cwd) {
 
 const APP_TIMEOUT = { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 };
 
-// Crear app: solo registra y crea la carpeta (NO arranca). El deploy va por pasos.
+// Crear app: solo registra y crea la carpeta o clona (NO arranca). El deploy va por pasos.
 router.post('/', wrap(async (req, res) => {
-  const { name, path: basePath, port, domain } = req.body || {};
+  const { name, path: basePath, port, domain, git_repo, git_branch } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre de app inválido (solo letras, números, - y _)');
   if (queries.getAppByName.get(name)) return fail(res, 409, 'Ya existe una app con ese nombre');
 
@@ -197,15 +199,67 @@ router.post('/', wrap(async (req, res) => {
 
   const cwd = path.join(base, name);
   if (fs.existsSync(cwd)) return fail(res, 409, `La carpeta "${cwd}" ya existe`);
-  fs.mkdirSync(cwd, { recursive: true });
+
+  let isGit = false;
+  let gitRepo = null;
+  let gitBranch = 'main';
+  let webhookSecret = null;
+
+  if (git_repo && git_repo.trim()) {
+    isGit = true;
+    gitRepo = git_repo.trim();
+    gitBranch = (git_branch || 'main').trim();
+    webhookSecret = crypto.randomBytes(16).toString('hex');
+  }
+
+  if (!isGit) {
+    fs.mkdirSync(cwd, { recursive: true });
+  } else {
+    // Intentar clonar el repositorio Git
+    const cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', gitBranch, gitRepo, cwd]);
+    if (!cloneRes.ok) {
+      removeAppDir(cwd);
+      return fail(res, 400, `Error al clonar el repositorio Git: ${cloneRes.stderr}`);
+    }
+  }
 
   const pm2Name = `txpl-app-${name}`;
+  let appType = 'nodejs';
+  let startCmd = '';
+  let detectedInfo = null;
+
+  if (isGit) {
+    // Detectar la configuración del proyecto clonado de inmediato
+    const det = detectProject(cwd);
+    appType = det.type;
+    startCmd = det.startCmd;
+    detectedInfo = det;
+  }
+
   const info = queries.insertApp.run({
-    name, type: 'nodejs', path: cwd, start_cmd: '', port: portNum,
-    domain: domain || null, pm2_name: pm2Name, status: 'stopped',
+    name,
+    type: appType,
+    path: cwd,
+    start_cmd: startCmd,
+    port: portNum,
+    domain: domain || null,
+    pm2_name: pm2Name,
+    status: 'stopped',
+    git_repo: gitRepo,
+    git_branch: gitBranch,
+    webhook_secret: webhookSecret
   });
-  audit(req.user.username, clientIp(req), 'app.create', name);
-  ok(res, { success: true, id: info.lastInsertRowid, path: cwd });
+
+  audit(req.user.username, clientIp(req), 'app.create', name + (isGit ? ' (Git)' : ''));
+  
+  ok(res, {
+    success: true,
+    id: info.lastInsertRowid,
+    path: cwd,
+    isGit,
+    webhook_secret: webhookSecret,
+    detected: detectedInfo
+  });
 }));
 
 // Paso de deploy: extrae el archivo subido y detecta el tipo de proyecto.
@@ -377,6 +431,75 @@ router.get('/:id/logs', wrap(async (req, res) => {
   if (!appRow) return fail(res, 404, 'App no encontrada');
   const r = await runSafe('pm2', ['logs', appRow.pm2_name, '--lines', '200', '--nostream', '--raw']);
   ok(res, { logs: r.stdout || r.stderr || 'Sin logs' });
+}));
+
+// POST /api/apps/:id/git-pull - Actualización manual de Git con re-compilación e inicio
+router.post('/:id/git-pull', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  if (!appRow.git_repo) return fail(res, 400, 'Esta aplicación no está configurada con un repositorio Git');
+  const cwd = appRow.path;
+  if (!fs.existsSync(cwd)) return fail(res, 400, 'La carpeta de la app ya no existe');
+
+  const branch = appRow.git_branch || 'main';
+  const lines = [];
+
+  // 1. git fetch && git reset --hard
+  lines.push(`$ git fetch --all && git reset --hard origin/${branch}`);
+  const gitFetch = await runSafe('git', ['fetch', '--all'], { cwd });
+  if (!gitFetch.ok) {
+    return ok(res, { success: false, output: lines.join('\n') + `\n\nError al sincronizar repositorio (fetch):\n${gitFetch.stderr}` });
+  }
+  const gitReset = await runSafe('git', ['reset', '--hard', `origin/${branch}`], { cwd });
+  if (!gitReset.ok) {
+    return ok(res, { success: false, output: lines.join('\n') + `\n\nError al reiniciar código (reset):\n${gitReset.stderr}` });
+  }
+  lines.push(gitReset.stdout || 'Código reiniciado con éxito.');
+
+  // Detectar proyecto
+  const det = detectProject(cwd);
+
+  // Actualizar comando si el tipo es nodejs/react/python etc.
+  queries.setAppConfig.run(det.type, det.startCmd, appRow.id);
+
+  // 2. Instalar dependencias con devDependencies
+  if (det.installCmd) {
+    lines.push(`\n$ ${det.installCmd}`);
+    const env = { ...process.env, NODE_ENV: 'development' };
+    const installRes = await runSafe('bash', ['-lc', det.installCmd], { cwd, env, timeout: 300_000 });
+    lines.push(installRes.stdout || installRes.stderr || 'Dependencias instaladas.');
+    if (!installRes.ok) {
+      return ok(res, { success: false, output: lines.join('\n') + `\n\nError al instalar dependencias.` });
+    }
+  }
+
+  // 3. Build si aplica
+  if (det.buildCmd) {
+    lines.push(`\n$ ${det.buildCmd}`);
+    const env = { ...process.env };
+    if (appRow.port) env.PORT = String(appRow.port);
+    const buildRes = await runSafe('bash', ['-lc', det.buildCmd], { cwd, env, timeout: 300_000 });
+    lines.push(buildRes.stdout || buildRes.stderr || 'Build completado.');
+    if (!buildRes.ok) {
+      return ok(res, { success: false, output: lines.join('\n') + `\n\nError al compilar el proyecto.` });
+    }
+  }
+
+  // 4. PM2 Reload o restart
+  lines.push(`\n$ pm2 reload ${appRow.pm2_name}`);
+  const reloadRes = await runSafe('pm2', ['reload', appRow.pm2_name]);
+  if (!reloadRes.ok) {
+    // Si falla o no está iniciado en PM2, iniciamos/reiniciamos directamente
+    const restartRes = await runSafe('pm2', ['restart', appRow.pm2_name]);
+    lines.push(restartRes.stdout || restartRes.stderr || 'Aplicación reiniciada en PM2.');
+  } else {
+    lines.push(reloadRes.stdout || 'Aplicación recargada con éxito (Zero-Downtime).');
+  }
+
+  queries.setAppStatus.run('running', appRow.id);
+  audit(req.user.username, clientIp(req), 'app.git-pull', appRow.name);
+
+  ok(res, { success: true, output: lines.join('\n') });
 }));
 
 module.exports = router;
