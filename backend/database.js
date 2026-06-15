@@ -27,13 +27,16 @@ db.pragma('foreign_keys = ON');
 // ── Esquema ───────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role          TEXT NOT NULL DEFAULT 'admin',
-    totp_secret   TEXT,
-    totp_enabled  INTEGER NOT NULL DEFAULT 0,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    username             TEXT NOT NULL UNIQUE,
+    password_hash        TEXT NOT NULL,
+    role                 TEXT NOT NULL DEFAULT 'admin',
+    totp_secret          TEXT,
+    totp_enabled         INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    email                TEXT,
+    security_question    TEXT,
+    security_answer_hash TEXT
   );
 
   CREATE TABLE IF NOT EXISTS websites (
@@ -90,6 +93,9 @@ try { db.exec("ALTER TABLE websites ADD COLUMN php_version TEXT"); } catch (_) {
 try { db.exec("ALTER TABLE apps ADD COLUMN git_repo TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE apps ADD COLUMN git_branch TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE apps ADD COLUMN webhook_secret TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE users ADD COLUMN security_question TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE users ADD COLUMN security_answer_hash TEXT"); } catch (_) {}
 
 // ── Seed del usuario admin desde el .env ──────────────────────
 // La contraseña NUNCA se guarda en claro: se almacena el hash bcrypt.
@@ -97,6 +103,11 @@ function seedAdmin() {
   const username = process.env.ADMIN_USER || 'admin';
   const plain = process.env.ADMIN_PASS;
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+
+  const email = process.env.ADMIN_EMAIL || 'admin@localhost.local';
+  const securityQuestion = process.env.SECURITY_QUESTION || '¿Nombre de tu primera mascota?';
+  const securityAnswer = process.env.SECURITY_ANSWER || 'admin';
+  const securityAnswerHash = bcrypt.hashSync(securityAnswer.toLowerCase().trim(), 12);
 
   if (!existing) {
     if (!plain) {
@@ -106,14 +117,31 @@ function seedAdmin() {
       );
     }
     const hash = bcrypt.hashSync(plain, 12);
-    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-      .run(username, hash, 'admin');
-    console.log(`[db] Usuario admin "${username}" creado.`);
-  } else if (plain && process.env.TXPL_RESET_ADMIN_PASS === '1') {
-    // Permite rotar la contraseña poniendo TXPL_RESET_ADMIN_PASS=1 una vez.
-    const hash = bcrypt.hashSync(plain, 12);
-    db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, username);
-    console.log(`[db] Contraseña del admin "${username}" actualizada.`);
+    db.prepare('INSERT INTO users (username, password_hash, role, email, security_question, security_answer_hash) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(username, hash, 'admin', email, securityQuestion, securityAnswerHash);
+    console.log(`[db] Usuario admin "${username}" creado con datos de recuperación.`);
+  } else {
+    // Si ya existe pero no tiene datos de recuperación (ej: tras actualización), rellenarlos
+    const user = db.prepare('SELECT email, security_question, security_answer_hash FROM users WHERE username = ?').get(username);
+    if (user && (!user.email || !user.security_question || !user.security_answer_hash)) {
+      db.prepare('UPDATE users SET email = COALESCE(email, ?), security_question = COALESCE(security_question, ?), security_answer_hash = COALESCE(security_answer_hash, ?) WHERE username = ?')
+        .run(email, securityQuestion, securityAnswerHash, username);
+      console.log(`[db] Datos de recuperación asignados al admin "${username}" existente.`);
+    }
+
+    if (plain && process.env.TXPL_RESET_ADMIN_PASS === '1') {
+      // Permite rotar la contraseña poniendo TXPL_RESET_ADMIN_PASS=1 una vez.
+      const hash = bcrypt.hashSync(plain, 12);
+      db.prepare('UPDATE users SET password_hash = ? WHERE username = ?').run(hash, username);
+      console.log(`[db] Contraseña del admin "${username}" actualizada.`);
+
+      // También actualizamos los datos de recuperación si el administrador realiza un reset de credenciales
+      if (process.env.ADMIN_EMAIL || process.env.SECURITY_QUESTION || process.env.SECURITY_ANSWER) {
+        db.prepare('UPDATE users SET email = ?, security_question = ?, security_answer_hash = ? WHERE username = ?')
+          .run(email, securityQuestion, securityAnswerHash, username);
+        console.log(`[db] Datos de recuperación del admin "${username}" actualizados (reset).`);
+      }
+    }
   }
 }
 

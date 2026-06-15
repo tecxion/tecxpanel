@@ -156,6 +156,29 @@ fi
 INSTALL_MYSQL="${INSTALL_MYSQL:-0}"
 INSTALL_PG="${INSTALL_PG:-0}"
 
+# Recuperación de contraseña (email y pregunta de seguridad)
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+SECURITY_QUESTION="${SECURITY_QUESTION:-}"
+SECURITY_ANSWER="${SECURITY_ANSWER:-}"
+
+if [[ ! -f "/opt/txpl/.env" && -t 0 ]]; then
+    echo -e "  ${BOLD}Configuración de recuperación de contraseña${RESET}"
+    while [[ -z "$ADMIN_EMAIL" ]]; do
+        read -rp "    Email del administrador: " ADMIN_EMAIL
+    done
+    while [[ -z "$SECURITY_QUESTION" ]]; do
+        read -rp "    Pregunta de seguridad: " SECURITY_QUESTION
+    done
+    while [[ -z "$SECURITY_ANSWER" ]]; do
+        read -rp "    Respuesta de seguridad: " SECURITY_ANSWER
+    done
+    echo ""
+fi
+
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost.local}"
+SECURITY_QUESTION="${SECURITY_QUESTION:-¿Nombre de tu primera mascota?}"
+SECURITY_ANSWER="${SECURITY_ANSWER:-admin}"
+
 echo ""
 echo -e "  ${CYAN}Instalando TecXPaneL...${RESET}  (detalle en $LOGFILE)"
 echo ""
@@ -220,6 +243,9 @@ JWT_SECRET=$JWT_SECRET
 TXPL_TOKEN_TTL=8h
 ADMIN_USER=$ADMIN_USER
 ADMIN_PASS=$ADMIN_PASS
+ADMIN_EMAIL="$ADMIN_EMAIL"
+SECURITY_QUESTION="$SECURITY_QUESTION"
+SECURITY_ANSWER="$SECURITY_ANSWER"
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 PG_PASSWORD=
 SSL_EMAIL=

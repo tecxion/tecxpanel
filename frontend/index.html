@@ -17,7 +17,7 @@
 
 <!-- ═══════════════════ LOGIN ═══════════════════ -->
 <div id="login-screen">
-  <div class="login-box">
+  <div class="login-box" id="login-box">
     <div class="login-logo">
       <div class="txpl-mark">TXPL</div>
       <p>TecXPaneL — Panel de Control VPS</p>
@@ -35,7 +35,56 @@
       <input type="text" id="login-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
     </div>
     <button class="login-btn" onclick="doLogin()">Iniciar sesión</button>
+    <div style="margin-top:14px;text-align:right">
+      <a href="#" onclick="showForgotPasswordForm(event)" style="font-size:12px;color:var(--accent);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--accent)'">¿Olvidaste tu contraseña?</a>
+    </div>
     <p class="login-error" id="login-error">Credenciales incorrectas</p>
+  </div>
+
+  <div class="login-box" id="reset-box" style="display:none">
+    <div class="login-logo">
+      <div class="txpl-mark">TXPL</div>
+      <p>Recuperar Contraseña</p>
+    </div>
+    
+    <!-- Paso 1: Solicitar pregunta -->
+    <div id="reset-step-1">
+      <div class="login-field">
+        <label>Usuario</label>
+        <input type="text" id="reset-username" placeholder="admin">
+      </div>
+      <button class="login-btn" onclick="fetchSecurityQuestion()">Obtener pregunta de seguridad</button>
+      <div style="margin-top:14px;text-align:center">
+        <a href="#" onclick="showLoginForm(event)" style="font-size:12px;color:var(--text-secondary);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">Volver a iniciar sesión</a>
+      </div>
+    </div>
+
+    <!-- Paso 2: Responder y cambiar contraseña -->
+    <div id="reset-step-2" style="display:none">
+      <div class="login-field">
+        <label>Pregunta de seguridad</label>
+        <div id="reset-question-text" style="font-size:13px;color:var(--text-primary);background:var(--bg-app);padding:10px;border-radius:var(--radius-sm);border:1px solid var(--border2);margin-bottom:10px;word-break:break-all;font-weight:500"></div>
+      </div>
+      <div class="login-field">
+        <label>Respuesta</label>
+        <input type="text" id="reset-answer" placeholder="Tu respuesta">
+      </div>
+      <div class="login-field">
+        <label>Email de recuperación</label>
+        <input type="email" id="reset-email" placeholder="admin@ejemplo.com">
+      </div>
+      <div class="login-field">
+        <label>Nueva contraseña</label>
+        <input type="password" id="reset-new-pass" placeholder="Mínimo 8 caracteres">
+      </div>
+      <button class="login-btn" onclick="submitResetPassword()">Restablecer contraseña</button>
+      <div style="margin-top:14px;text-align:center">
+        <a href="#" onclick="showLoginForm(event)" style="font-size:12px;color:var(--text-secondary);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">Volver a iniciar sesión</a>
+      </div>
+    </div>
+    
+    <p class="login-error" id="reset-error" style="color:var(--red);font-size:12px;text-align:center;margin-top:0.75rem;display:none"></p>
+    <p class="login-success" id="reset-success" style="color:var(--green);font-size:12px;text-align:center;margin-top:0.75rem;display:none"></p>
   </div>
 </div>
 

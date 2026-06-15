@@ -87,6 +87,123 @@ document.getElementById('login-pass').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
 
+document.getElementById('reset-username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchSecurityQuestion();
+});
+['reset-answer', 'reset-email', 'reset-new-pass'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitResetPassword();
+  });
+});
+
+function showForgotPasswordForm(e) {
+  if (e) e.preventDefault();
+  document.getElementById('login-box').style.display = 'none';
+  document.getElementById('reset-box').style.display = 'block';
+  document.getElementById('reset-step-1').style.display = 'block';
+  document.getElementById('reset-step-2').style.display = 'none';
+  
+  // Clear inputs
+  document.getElementById('reset-username').value = '';
+  document.getElementById('reset-answer').value = '';
+  document.getElementById('reset-email').value = '';
+  document.getElementById('reset-new-pass').value = '';
+  
+  // Clear errors/success
+  const errEl = document.getElementById('reset-error');
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+  const succEl = document.getElementById('reset-success');
+  succEl.style.display = 'none';
+  succEl.textContent = '';
+}
+
+function showLoginForm(e) {
+  if (e) e.preventDefault();
+  document.getElementById('login-box').style.display = 'block';
+  document.getElementById('reset-box').style.display = 'none';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+async function fetchSecurityQuestion() {
+  const username = document.getElementById('reset-username').value.trim();
+  const errEl = document.getElementById('reset-error');
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+
+  if (!username) {
+    errEl.textContent = 'Introduce el nombre de usuario';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const data = await fetch(`${API}/api/auth/reset-question?username=${encodeURIComponent(username)}`)
+      .then(r => r.json());
+
+    if (data.question) {
+      document.getElementById('reset-question-text').textContent = data.question;
+      document.getElementById('reset-step-1').style.display = 'none';
+      document.getElementById('reset-step-2').style.display = 'block';
+    } else {
+      errEl.textContent = data.error || 'Usuario no encontrado o pregunta no configurada';
+      errEl.style.display = 'block';
+    }
+  } catch (err) {
+    errEl.textContent = 'Error de conexión con el servidor';
+    errEl.style.display = 'block';
+  }
+}
+
+async function submitResetPassword() {
+  const username = document.getElementById('reset-username').value.trim();
+  const answer = document.getElementById('reset-answer').value.trim();
+  const email = document.getElementById('reset-email').value.trim();
+  const newPassword = document.getElementById('reset-new-pass').value;
+  const errEl = document.getElementById('reset-error');
+  const succEl = document.getElementById('reset-success');
+
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+  succEl.style.display = 'none';
+  succEl.textContent = '';
+
+  if (!answer || !email || !newPassword) {
+    errEl.textContent = 'Todos los campos son obligatorios';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    errEl.textContent = 'La nueva contraseña debe tener al menos 8 caracteres';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const data = await fetch(`${API}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, answer, email, newPassword })
+    }).then(r => r.json());
+
+    if (data.success) {
+      succEl.textContent = 'Contraseña restablecida con éxito. Volviendo al login...';
+      succEl.style.display = 'block';
+      document.getElementById('reset-step-2').style.display = 'none';
+      setTimeout(() => {
+        showLoginForm();
+      }, 3000);
+    } else {
+      errEl.textContent = data.error || 'Datos de recuperación incorrectos';
+      errEl.style.display = 'block';
+    }
+  } catch (err) {
+    errEl.textContent = 'Error al enviar la solicitud';
+    errEl.style.display = 'block';
+  }
+}
+
 function doLogout() {
   TOKEN = '';
   localStorage.removeItem('txpl_token');
@@ -94,6 +211,8 @@ function doLogout() {
   termCleanup();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-box').style.display = 'block';
+  document.getElementById('reset-box').style.display = 'none';
 }
 
 async function checkAuth() {

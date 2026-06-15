@@ -112,6 +112,68 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     if (!valid) return fail(res, 403, 'Contraseña incorrecta');
     queries.disableTotp.run(u.id);
     audit(u.username, clientIp(req), '2fa.disable', null);
+  }));
+
+  // Obtener pregunta de seguridad
+  router.get('/reset-question', wrap(async (req, res) => {
+    const { username } = req.query || {};
+    if (typeof username !== 'string' || !username.trim()) {
+      return fail(res, 400, 'Usuario requerido');
+    }
+    const user = queries.getUserByName.get(username.trim());
+    if (!user || !user.security_question) {
+      return fail(res, 404, 'Usuario no encontrado o pregunta no configurada');
+    }
+    ok(res, { question: user.security_question });
+  }));
+
+  // Restablecer contraseña verificando respuesta + email
+  router.post('/reset-password', loginLimiter, wrap(async (req, res) => {
+    const ip = clientIp(req);
+    const { username, email, answer, newPassword } = req.body || {};
+
+    if (
+      typeof username !== 'string' || !username.trim() ||
+      typeof email !== 'string' || !email.trim() ||
+      typeof answer !== 'string' || !answer.trim() ||
+      typeof newPassword !== 'string' || newPassword.length < 8
+    ) {
+      return fail(res, 400, 'Todos los campos son requeridos y la nueva contraseña debe tener al menos 8 caracteres');
+    }
+
+    if (loginLocked(ip)) {
+      audit(username, ip, 'reset.locked', null);
+      return fail(res, 429, 'Demasiados intentos fallidos. Cuenta bloqueada temporalmente.');
+    }
+
+    const user = queries.getUserByName.get(username.trim());
+    if (!user || !user.email || !user.security_answer_hash) {
+      recordLoginFail(ip);
+      audit(username, ip, 'reset.fail.no_user', null);
+      return fail(res, 403, 'Datos de recuperación incorrectos');
+    }
+
+    // Verificar email (insensible a mayúsculas/minúsculas y espacios)
+    const emailMatch = user.email.toLowerCase().trim() === email.toLowerCase().trim();
+    if (!emailMatch) {
+      recordLoginFail(ip);
+      audit(username, ip, 'reset.fail.email', null);
+      return fail(res, 403, 'Datos de recuperación incorrectos');
+    }
+
+    // Verificar respuesta de seguridad (insensible a mayúsculas/minúsculas y espacios)
+    const answerMatch = await bcrypt.compare(answer.toLowerCase().trim(), user.security_answer_hash);
+    if (!answerMatch) {
+      recordLoginFail(ip);
+      audit(username, ip, 'reset.fail.answer', null);
+      return fail(res, 403, 'Datos de recuperación incorrectos');
+    }
+
+    // Si todo es correcto, actualizar contraseña y limpiar bloqueos
+    const newHash = bcrypt.hashSync(newPassword, 12);
+    queries.setPassword.run(newHash, user.id);
+    clearLoginFails(ip);
+    audit(username, ip, 'reset.success', null);
     ok(res);
   }));
 
