@@ -970,6 +970,21 @@
         <textarea id="docker-create-envs" placeholder="KEY=VALUE&#10;PORT=80" style="width:100%;height:100px;font-family:var(--mono);font-size:12px;padding:8px"></textarea>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Escribe una variable KEY=VALUE por línea.</div>
       </div>
+
+      <div class="form-group">
+        <label>Datos persistentes (volumen, opcional)</label>
+        <div style="font-size:11px;color:var(--text-muted);margin:-2px 0 8px">Guarda los datos en un volumen con nombre para que <strong>no se pierdan al recrear o actualizar</strong> el contenedor. Déjalo en blanco si tu app no guarda datos.</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nombre del volumen</label>
+          <input type="text" id="docker-create-volname" placeholder="mi-app-datos">
+        </div>
+        <div class="form-group">
+          <label>Ruta dentro del contenedor</label>
+          <input type="text" id="docker-create-volpath" placeholder="/var/lib/mysql">
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-container')">Cancelar</button>

@@ -343,5 +343,7 @@ echo -e "     txpl logs      registros en vivo (Ctrl+C para salir)"
 echo -e "     txpl restart   reiniciar el panel"
 echo -e "     txpl backup    copia de seguridad ahora"
 echo ""
+echo -e " Si quieres ayudarme no olvides compartir y darle una estrella a este proyecto."
+echo ""
 echo -e "  ${CYAN}Detalle de la instalación:  $LOGFILE${RESET}"
 sep

@@ -151,8 +151,27 @@ router.post('/containers/:id/:action', wrap(async (req, res) => {
 router.delete('/containers/:id', wrap(async (req, res) => {
   const { id } = req.params;
   try {
+    // Antes de borrar, leer los puertos publicados para cerrarlos luego en UFW.
+    const hostPorts = [];
+    try {
+      const insp = await dockerRequest('GET', `/containers/${id}/json`);
+      if (insp.statusCode < 400) {
+        const info = JSON.parse(insp.body.toString());
+        const bindings = (info && info.HostConfig && info.HostConfig.PortBindings) || {};
+        for (const arr of Object.values(bindings)) {
+          for (const b of (arr || [])) {
+            if (b && b.HostPort) hostPorts.push(b.HostPort);
+          }
+        }
+      }
+    } catch (_) { /* best-effort: si no se puede inspeccionar, seguimos con el borrado */ }
+
     const result = await dockerRequest('DELETE', `/containers/${id}?v=1&force=1`);
     if (result.statusCode === 204) {
+      // Cerrar en el firewall los puertos que habíamos abierto al crear (best-effort).
+      for (const p of [...new Set(hostPorts)]) {
+        await runSafe('ufw', ['delete', 'allow', `${p}/tcp`]);
+      }
       audit(req.user.username, clientIp(req), 'docker.delete', id.substring(0, 12));
       return ok(res, { success: true });
     }
@@ -181,10 +200,27 @@ router.get('/containers/:id/logs', wrap(async (req, res) => {
 
 // POST /api/docker/containers/create - pull or build Dockerfile, create, and start a container
 router.post('/containers/create', wrap(async (req, res) => {
-  const { name, image, hostPort, containerPort, envs, dockerfile } = req.body || {};
+  const { name, image, hostPort, containerPort, envs, dockerfile, volumeName, volumePath } = req.body || {};
 
   if (!image && !dockerfile) {
     return fail(res, 400, 'Se requiere una imagen o un contenido Dockerfile.');
+  }
+
+  // Validar el volumen persistente (opcional) antes de descargar o compilar nada.
+  let volumeBind = null;
+  if (volumeName || volumePath) {
+    const vName = String(volumeName || '').trim();
+    const vPath = String(volumePath || '').trim();
+    if (!vName || !vPath) {
+      return fail(res, 400, 'Para el volumen persistente indica el nombre y la ruta, o deja ambos vacíos.');
+    }
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(vName)) {
+      return fail(res, 400, 'Nombre de volumen inválido (letras, números, _ . - y máx 63 caracteres).');
+    }
+    if (!vPath.startsWith('/') || vPath.includes('..')) {
+      return fail(res, 400, 'La ruta del contenedor debe ser absoluta (empezar por /) y sin "..".');
+    }
+    volumeBind = `${vName}:${vPath}`;
   }
 
   let targetImage = image;
@@ -222,7 +258,9 @@ router.post('/containers/create', wrap(async (req, res) => {
     // 2. Build configuration
     const config = {
       Image: targetImage,
-      Env: []
+      Env: [],
+      // Reinicio automático: el contenedor vuelve solo tras un reinicio del VPS o una caída.
+      HostConfig: { RestartPolicy: { Name: 'unless-stopped' } }
     };
 
     if (envs && typeof envs === 'string') {
@@ -232,13 +270,18 @@ router.post('/containers/create', wrap(async (req, res) => {
     }
 
     if (hostPort && containerPort) {
-      const cPort = containerPort.includes('/') ? containerPort : `${containerPort}/tcp`;
+      // containerPort puede llegar como número desde el frontend; normalizar a "<puerto>/tcp".
+      const cp = String(containerPort);
+      const cPort = cp.includes('/') ? cp : `${cp}/tcp`;
       config.ExposedPorts = { [cPort]: {} };
-      config.HostConfig = {
-        PortBindings: {
-          [cPort]: [{ HostPort: String(hostPort) }]
-        }
+      config.HostConfig.PortBindings = {
+        [cPort]: [{ HostPort: String(hostPort) }]
       };
+    }
+
+    // Volumen con nombre para datos persistentes (opcional). Docker lo crea solo si no existe.
+    if (volumeBind) {
+      config.HostConfig.Binds = [volumeBind];
     }
 
     // 3. Create container
@@ -261,6 +304,11 @@ router.post('/containers/create', wrap(async (req, res) => {
     const startResult = await dockerRequest('POST', `/containers/${containerId}/start`);
     if (startResult.statusCode >= 400) {
       return fail(res, startResult.statusCode, `Contenedor creado pero falló al iniciar: ${startResult.body.toString()}`);
+    }
+
+    // 5. Abrir el puerto en el firewall para que sea accesible desde fuera (best-effort).
+    if (hostPort) {
+      await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
     }
 
     audit(req.user.username, clientIp(req), 'docker.create', name || targetImage);

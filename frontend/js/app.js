@@ -1675,6 +1675,13 @@ async function createDockerContainer() {
   const hostPort = document.getElementById('docker-create-hostport').value.trim();
   const containerPort = document.getElementById('docker-create-contport').value.trim();
   const envs = document.getElementById('docker-create-envs').value;
+  const volumeName = document.getElementById('docker-create-volname').value.trim();
+  const volumePath = document.getElementById('docker-create-volpath').value.trim();
+
+  if ((volumeName && !volumePath) || (!volumeName && volumePath)) {
+    toast('Para el volumen, rellena el nombre y la ruta, o deja ambos vacíos', 'error');
+    return;
+  }
 
   const isFile = currentDockerTab === 'file';
   const image = isFile ? '' : document.getElementById('docker-create-image').value.trim();
@@ -1697,7 +1704,9 @@ async function createDockerContainer() {
     dockerfile: isFile ? dockerfile : undefined,
     hostPort: hostPort ? parseInt(hostPort, 10) : undefined,
     containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
-    envs: envs || undefined
+    envs: envs || undefined,
+    volumeName: volumeName || undefined,
+    volumePath: volumePath || undefined
   });
 
   if (r?.success) {
@@ -1706,7 +1715,7 @@ async function createDockerContainer() {
     loadDockerContainers();
 
     // Reset inputs
-    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs'].forEach(id => {
+    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
