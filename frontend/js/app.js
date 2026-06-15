@@ -1677,9 +1677,15 @@ async function createDockerContainer() {
   const envs = document.getElementById('docker-create-envs').value;
   const volumeName = document.getElementById('docker-create-volname').value.trim();
   const volumePath = document.getElementById('docker-create-volpath').value.trim();
+  const domain = document.getElementById('docker-create-domain').value.trim();
+  const ssl = document.getElementById('docker-create-ssl').checked;
 
   if ((volumeName && !volumePath) || (!volumeName && volumePath)) {
     toast('Para el volumen, rellena el nombre y la ruta, o deja ambos vacíos', 'error');
+    return;
+  }
+  if (domain && !hostPort) {
+    toast('Para usar un dominio indica también el Puerto Host', 'error');
     return;
   }
 
@@ -1706,19 +1712,23 @@ async function createDockerContainer() {
     containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
     envs: envs || undefined,
     volumeName: volumeName || undefined,
-    volumePath: volumePath || undefined
+    volumePath: volumePath || undefined,
+    domain: domain || undefined,
+    ssl: ssl || undefined
   });
 
   if (r?.success) {
-    toast('Contenedor creado y arrancado con éxito', 'success');
+    if (r.warning) toast(r.warning, 'error');
+    else toast('Contenedor creado y arrancado con éxito' + (r.message ? '. ' + r.message : ''), 'success');
     closeModal('modal-new-container');
     loadDockerContainers();
 
     // Reset inputs
-    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath'].forEach(id => {
+    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath', 'docker-create-domain'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+    document.getElementById('docker-create-ssl').checked = false;
     switchDockerTab('image');
   } else {
     if (r?.error && r.error.includes('Error de compilación del Dockerfile')) {

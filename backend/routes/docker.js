@@ -5,10 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
+const { isValidDomain } = require('../lib/validators');
 const { audit } = require('../database');
 
 const router = express.Router();
 const DOCKER_SOCKET = '/var/run/docker.sock';
+const NGINX_AVAILABLE = '/etc/nginx/sites-available';
+const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 
 // Helper to make native HTTP requests to the Docker UNIX socket
 function dockerRequest(method, path, body = null) {
@@ -109,6 +112,66 @@ function decodeDockerLogs(buffer) {
   return output;
 }
 
+// ── Proxy de dominio (Nginx) para contenedores ─────────────────
+// Mismo patrón que las Apps: un vhost que enruta el dominio al puerto
+// publicado del contenedor en 127.0.0.1. El conf se nombra con el dominio
+// para poder limpiarlo al borrar el contenedor (el dominio se guarda en
+// una label de Docker, así no hace falta tocar la BD del panel).
+function buildDockerProxy(domain, port) {
+  return `server {
+    listen 80;
+    server_name ${domain};
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+`;
+}
+
+async function setupDockerProxy(domain, port) {
+  const confName = `txpl-docker-${domain}`;
+  const confPath = path.join(NGINX_AVAILABLE, confName);
+  fs.writeFileSync(confPath, buildDockerProxy(domain, port));
+  try { fs.symlinkSync(confPath, path.join(NGINX_ENABLED, confName)); }
+  catch (e) { if (e.code !== 'EEXIST') throw e; }
+
+  const test = await runSafe('nginx', ['-t']);
+  if (!test.ok) {
+    fs.rmSync(path.join(NGINX_ENABLED, confName), { force: true });
+    throw new Error(test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0] || 'config nginx inválida');
+  }
+  await runSafe('systemctl', ['reload', 'nginx']);
+}
+
+async function removeDockerProxy(domain) {
+  const confName = `txpl-docker-${domain}`;
+  let removed = false;
+  try {
+    if (fs.existsSync(path.join(NGINX_ENABLED, confName))) {
+      fs.rmSync(path.join(NGINX_ENABLED, confName), { force: true });
+      removed = true;
+    }
+  } catch (_) {}
+  try { fs.rmSync(path.join(NGINX_AVAILABLE, confName), { force: true }); } catch (_) {}
+  if (removed) await runSafe('systemctl', ['reload', 'nginx']);
+}
+
+// HTTPS con certbot solo para el dominio indicado (sin www: encaja mejor
+// con subdominios tipo app.midominio.com).
+async function installDockerSsl(domain) {
+  const r = await runSafe('certbot', ['--nginx', '-d', domain,
+    '--non-interactive', '--agree-tos', '--redirect',
+    '-m', process.env.SSL_EMAIL || `admin@${domain}`]);
+  if (!r.ok) throw new Error(r.stderr.split('\n').slice(-3).join(' ') || 'certbot falló');
+}
+
 // ── Endpoints ──────────────────────────────────────────────────
 
 // GET /api/docker/containers - List all containers
@@ -151,8 +214,10 @@ router.post('/containers/:id/:action', wrap(async (req, res) => {
 router.delete('/containers/:id', wrap(async (req, res) => {
   const { id } = req.params;
   try {
-    // Antes de borrar, leer los puertos publicados para cerrarlos luego en UFW.
+    // Antes de borrar, leer los puertos publicados y el dominio (label) para
+    // cerrar el firewall y quitar el proxy Nginx después.
     const hostPorts = [];
+    let proxyDomain = null;
     try {
       const insp = await dockerRequest('GET', `/containers/${id}/json`);
       if (insp.statusCode < 400) {
@@ -163,6 +228,7 @@ router.delete('/containers/:id', wrap(async (req, res) => {
             if (b && b.HostPort) hostPorts.push(b.HostPort);
           }
         }
+        proxyDomain = (info && info.Config && info.Config.Labels && info.Config.Labels['txpl.domain']) || null;
       }
     } catch (_) { /* best-effort: si no se puede inspeccionar, seguimos con el borrado */ }
 
@@ -172,6 +238,8 @@ router.delete('/containers/:id', wrap(async (req, res) => {
       for (const p of [...new Set(hostPorts)]) {
         await runSafe('ufw', ['delete', 'allow', `${p}/tcp`]);
       }
+      // Quitar el proxy Nginx del dominio si lo habíamos creado.
+      if (proxyDomain) await removeDockerProxy(proxyDomain);
       audit(req.user.username, clientIp(req), 'docker.delete', id.substring(0, 12));
       return ok(res, { success: true });
     }
@@ -200,7 +268,7 @@ router.get('/containers/:id/logs', wrap(async (req, res) => {
 
 // POST /api/docker/containers/create - pull or build Dockerfile, create, and start a container
 router.post('/containers/create', wrap(async (req, res) => {
-  const { name, image, hostPort, containerPort, envs, dockerfile, volumeName, volumePath } = req.body || {};
+  const { name, image, hostPort, containerPort, envs, dockerfile, volumeName, volumePath, domain, ssl } = req.body || {};
 
   if (!image && !dockerfile) {
     return fail(res, 400, 'Se requiere una imagen o un contenido Dockerfile.');
@@ -221,6 +289,16 @@ router.post('/containers/create', wrap(async (req, res) => {
       return fail(res, 400, 'La ruta del contenedor debe ser absoluta (empezar por /) y sin "..".');
     }
     volumeBind = `${vName}:${vPath}`;
+  }
+
+  // Validar el dominio (opcional). Necesita un puerto host al que apuntar el proxy.
+  let proxyDomain = null;
+  const wantSsl = ssl === true || ssl === 'true';
+  if (domain) {
+    const d = String(domain).trim();
+    if (!isValidDomain(d)) return fail(res, 400, 'Dominio inválido.');
+    if (!hostPort) return fail(res, 400, 'Para usar un dominio necesitas indicar un Puerto Host (al que apuntará el proxy).');
+    proxyDomain = d;
   }
 
   let targetImage = image;
@@ -284,6 +362,11 @@ router.post('/containers/create', wrap(async (req, res) => {
       config.HostConfig.Binds = [volumeBind];
     }
 
+    // Etiqueta para poder limpiar el proxy del dominio al borrar el contenedor.
+    if (proxyDomain) {
+      config.Labels = { 'txpl.domain': proxyDomain };
+    }
+
     // 3. Create container
     let createUrl = '/containers/create';
     if (name && name.trim()) {
@@ -311,8 +394,24 @@ router.post('/containers/create', wrap(async (req, res) => {
       await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
     }
 
+    // 6. Si hay dominio, montar el proxy Nginx y, opcionalmente, HTTPS.
+    let extraMsg = '';
+    if (proxyDomain) {
+      try {
+        await setupDockerProxy(proxyDomain, hostPort);
+        extraMsg = `Dominio ${proxyDomain} → puerto ${hostPort} (proxy Nginx activo).`;
+      } catch (e) {
+        audit(req.user.username, clientIp(req), 'docker.create', `${name || targetImage} (proxy falló)`);
+        return ok(res, { success: true, id: containerId, warning: `Contenedor creado y arrancado, pero falló el proxy del dominio: ${e.message}` });
+      }
+      if (wantSsl) {
+        try { await installDockerSsl(proxyDomain); extraMsg += ' HTTPS instalado.'; }
+        catch (e) { extraMsg += ` HTTPS no se pudo instalar automáticamente (${e.message}).`; }
+      }
+    }
+
     audit(req.user.username, clientIp(req), 'docker.create', name || targetImage);
-    ok(res, { success: true, id: containerId });
+    ok(res, { success: true, id: containerId, message: extraMsg || undefined });
   } catch (err) {
     console.error('[docker] Error al crear contenedor:', err.message);
     fail(res, 500, err.message || 'No se pudo crear el contenedor');
