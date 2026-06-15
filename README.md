@@ -174,6 +174,8 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 <br />
 
+### Gracias a todos los que hacen esto posible
+
 <p align="center">
   <img src="public/logo2.png" alt="TecXPaneL Logo 2" width="150" />
 </p>
