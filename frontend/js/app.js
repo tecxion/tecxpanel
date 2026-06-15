@@ -1356,6 +1356,28 @@ async function loadSettings() {
       <span style="color:var(--text-muted)">${esc(r.label)}</span>
       <span style="font-weight:600">${esc(r.value)}</span>
     </div>`).join('');
+
+  // Precargar los datos de recuperación actuales (email + pregunta)
+  const rec = await req('GET', '/auth/recovery');
+  if (rec) {
+    document.getElementById('set-rec-email').value = rec.email || '';
+    document.getElementById('set-rec-question').value = rec.question || '';
+  }
+}
+
+async function saveRecovery() {
+  const email = document.getElementById('set-rec-email').value.trim();
+  const question = document.getElementById('set-rec-question').value.trim();
+  const answer = document.getElementById('set-rec-answer').value;
+  const password = document.getElementById('set-rec-pass').value;
+  if (!email || !question) { toast('El email y la pregunta son obligatorios', 'error'); return; }
+  if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
+  const r = await req('POST', '/auth/recovery', { password, email, question, answer });
+  if (r?.success) {
+    toast('Datos de recuperación actualizados', 'success');
+    document.getElementById('set-rec-answer').value = '';
+    document.getElementById('set-rec-pass').value = '';
+  } else toast(r?.error || 'Error al guardar la recuperación', 'error');
 }
 
 async function changePassword() {

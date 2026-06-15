@@ -127,6 +127,37 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     ok(res, { question: user.security_question });
   }));
 
+  // ── Datos de recuperación (email + pregunta de seguridad) ────
+  const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  router.get('/recovery', auth, (req, res) => {
+    const r = queries.getRecovery.get(req.user.uid);
+    if (!r) return fail(res, 401, 'No autorizado');
+    ok(res, { email: r.email || '', question: r.security_question || '' });
+  });
+
+  // Cambia email / pregunta / (opcional) respuesta. Exige la contraseña actual
+  // porque estos datos son la vía para restablecer la contraseña.
+  router.post('/recovery', auth, wrap(async (req, res) => {
+    const { password, email, question, answer } = req.body || {};
+    if (typeof email !== 'string' || !RE_EMAIL.test(email.trim())) return fail(res, 400, 'Email inválido');
+    if (typeof question !== 'string' || !question.trim()) return fail(res, 400, 'La pregunta de seguridad es obligatoria');
+
+    const u = queries.getUserFullById.get(req.user.uid);
+    if (!u) return fail(res, 401, 'No autorizado');
+    const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
+    if (!valid) { audit(u.username, clientIp(req), 'recovery.update.fail', null); return fail(res, 403, 'La contraseña actual no es correcta'); }
+
+    if (typeof answer === 'string' && answer.trim()) {
+      const answerHash = bcrypt.hashSync(answer.toLowerCase().trim(), 12);
+      queries.setRecovery.run(email.trim(), question.trim(), answerHash, u.id);
+    } else {
+      queries.setRecoveryNoAnswer.run(email.trim(), question.trim(), u.id);
+    }
+    audit(u.username, clientIp(req), 'recovery.update.ok', null);
+    ok(res);
+  }));
+
   // Restablecer contraseña verificando respuesta + email
   router.post('/reset-password', loginLimiter, wrap(async (req, res) => {
     const ip = clientIp(req);

@@ -556,6 +556,16 @@
             <div class="form-group"><label>Repite la nueva contraseña</label><input type="password" id="set-pass-new2"></div>
             <button class="btn btn-primary" onclick="changePassword()"><i class="ti ti-device-floppy"></i> Guardar contraseña</button>
           </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-lifebuoy"></i> Recuperación de contraseña</div>
+            </div>
+            <div class="form-group"><label>Email de recuperación</label><input type="email" id="set-rec-email" placeholder="admin@ejemplo.com"></div>
+            <div class="form-group"><label>Pregunta de seguridad</label><input type="text" id="set-rec-question" placeholder="¿Nombre de tu primera mascota?"></div>
+            <div class="form-group"><label>Nueva respuesta</label><input type="text" id="set-rec-answer" placeholder="Dejar en blanco para no cambiarla"></div>
+            <div class="form-group"><label>Contraseña actual (para confirmar)</label><input type="password" id="set-rec-pass"></div>
+            <button class="btn btn-primary" onclick="saveRecovery()"><i class="ti ti-device-floppy"></i> Guardar recuperación</button>
+          </div>
         </div>
         <div class="card mt-2">
           <div class="card-header">

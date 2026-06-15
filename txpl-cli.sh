@@ -35,6 +35,7 @@ help() {
     echo "  txpl stop            — Parar el panel"
     echo "  txpl restart         — Reiniciar el panel"
     echo "  txpl logs            — Ver logs en tiempo real"
+    echo "  txpl reset-password  — Restablecer la contraseña de un usuario"
     echo "  txpl update          — Actualizar el panel"
     echo "  txpl panel:ssl <dom> — Instalar HTTPS en el panel (dominio propio)"
     echo ""
@@ -169,6 +170,27 @@ restart)
 logs)
     echo -e "${C}Logs del panel (Ctrl+C para salir):${X}"
     pm2 logs txpl-panel --lines 50
+    ;;
+
+reset-password)
+    # Restablece la contraseña directamente en la BD (no requiere login).
+    # Útil cuando has perdido el acceso al panel.
+    echo -e "${B}Restablecer contraseña${X}"
+    read -p "  Usuario [admin]: " RP_USER; RP_USER="${RP_USER:-admin}"
+    read -sp "  Nueva contraseña (mín 8): " RP_PASS; echo
+    read -sp "  Repite la contraseña: " RP_PASS2; echo
+    if [[ "$RP_PASS" != "$RP_PASS2" ]]; then
+        echo -e "${R}Las contraseñas no coinciden${X}"; exit 1
+    fi
+    if [[ ${#RP_PASS} -lt 8 ]]; then
+        echo -e "${R}La contraseña debe tener al menos 8 caracteres${X}"; exit 1
+    fi
+    if TXPL_DIR="${TXPL_DIR:-/opt/txpl}" RESET_NEW_PASSWORD="$RP_PASS" \
+        node "${TXPL_DIR:-/opt/txpl}/backend/scripts/reset-password.js" "$RP_USER"; then
+        echo -e "${G}✅ Listo. Ya puedes entrar con la nueva contraseña.${X}"
+    else
+        echo -e "${R}No se pudo restablecer la contraseña.${X}"; exit 1
+    fi
     ;;
 
 update)

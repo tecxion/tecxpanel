@@ -155,6 +155,9 @@ const queries = {
   setTotpSecret: db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?'),
   enableTotp:    db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?'),
   disableTotp:   db.prepare('UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?'),
+  getRecovery:   db.prepare('SELECT email, security_question FROM users WHERE id = ?'),
+  setRecovery:   db.prepare('UPDATE users SET email = ?, security_question = ?, security_answer_hash = ? WHERE id = ?'),
+  setRecoveryNoAnswer: db.prepare('UPDATE users SET email = ?, security_question = ? WHERE id = ?'),
 
   // websites
   listWebsites:  db.prepare('SELECT * FROM websites ORDER BY created_at DESC'),
