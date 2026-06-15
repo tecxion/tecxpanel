@@ -1,5 +1,15 @@
 'use strict';
 
+// ============================================================
+//  TecXPaneL — Webhooks de auto-despliegue
+//
+//  Endpoint PÚBLICO (sin token JWT) que llaman GitHub/GitLab cuando
+//  haces "push" a tu repositorio. Al recibir el aviso, el panel
+//  actualiza la app automáticamente: git pull → instalar deps →
+//  build → recargar en PM2. La seguridad está en que la URL incluye
+//  un secreto único e impredecible por cada app.
+// ============================================================
+
 const express = require('express');
 const { queries, audit } = require('../database');
 const { ok, fail, runSafe, wrap } = require('../lib/helpers');
@@ -8,7 +18,9 @@ const path = require('path');
 
 const router = express.Router();
 
-// Helper function to run deployment steps in the background
+// Ejecuta los pasos del despliegue EN SEGUNDO PLANO (no bloquea la respuesta
+// al proveedor del webhook, que si no podría dar timeout). Cualquier error se
+// registra en la auditoría en vez de propagarse.
 async function executeDeployment(appRow) {
   const cwd = appRow.path;
   const pm2Name = appRow.pm2_name;

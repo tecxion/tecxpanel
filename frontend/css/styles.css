@@ -1,3 +1,13 @@
+/* ════════════════════════════════════════════════════════════
+   TecXPaneL — Estilos del panel
+   - Primero un "reset" que quita márgenes/paddings por defecto del
+     navegador para partir de una base uniforme.
+   - Luego las variables de color y medidas en :root (con var(--x)
+     se reutilizan en todo el archivo; cambiar el tema es cambiarlas aquí).
+   - El resto son los estilos de cada componente (sidebar, tarjetas,
+     tablas, botones, modales...).
+   ════════════════════════════════════════════════════════════ */
+
 /* ── Reset & Variables ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{

@@ -1,14 +1,26 @@
 // ════════════════════════════════════════════════════════════
-// TXPL Frontend Logic
+//  TecXPaneL — Lógica del frontend (JavaScript "vanilla", sin frameworks)
+//
+//  Este único archivo controla toda la interfaz del panel: login,
+//  navegación entre páginas, y la lógica de cada sección (sitios,
+//  apps, bases de datos, Docker, archivos, firewall, etc.).
+//  Se comunica con el backend mediante la función req() (API REST)
+//  y WebSockets para los datos en tiempo real.
 // ════════════════════════════════════════════════════════════
 
-const API = window.location.origin;
-let TOKEN = localStorage.getItem('txpl_token') || '';
-let statsWS = null;
-let currentPage = 'dashboard';
-let serverIp = '';
+// Variables globales del estado de la app:
+const API = window.location.origin;                  // URL base del panel
+let TOKEN = localStorage.getItem('txpl_token') || ''; // token JWT guardado en el navegador
+let statsWS = null;                                   // conexión WebSocket de estadísticas
+let currentPage = 'dashboard';                        // página visible actualmente
+let serverIp = '';                                    // IP pública del servidor (se carga al entrar)
 
-// ── Helpers ──────────────────────────────────────────────────
+// ── Helpers (funciones de apoyo usadas en toda la app) ────────
+
+// req: hace una petición a la API REST con el token JWT incluido.
+//  - method: 'GET' | 'POST' | 'DELETE'...   - path: ruta tras /api (ej. '/websites').
+//  - body: objeto que se envía como JSON (opcional).
+// Si el servidor responde 401 (no autorizado), cierra la sesión automáticamente.
 async function req(method, path, body) {
   const opts = {
     method,
@@ -20,6 +32,7 @@ async function req(method, path, body) {
   return r.json();
 }
 
+// toast: muestra un mensajito flotante (verde/rojo/azul) que desaparece a los 3,5 s.
 function toast(msg, type = 'info') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -27,6 +40,7 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.classList.remove('show'), 3500);
 }
 
+// fmtBytes: convierte un número de bytes en algo legible (ej. 1536 → "1.5 KB").
 function fmtBytes(b) {
   if (!b || b === 0) return '0 B';
   const k = 1024, sz = ['B','KB','MB','GB','TB'];
@@ -34,16 +48,21 @@ function fmtBytes(b) {
   return (b / Math.pow(k, i)).toFixed(1) + ' ' + sz[i];
 }
 
+// fmtDate: formatea una fecha al estilo español (ej. "15 jun 2026"), o "—" si no hay.
 function fmtDate(d) {
   return d ? new Date(d).toLocaleDateString('es-ES', {day:'2-digit',month:'short',year:'numeric'}) : '—';
 }
 
+// esc: "escapa" caracteres peligrosos (< > & " ') antes de meter texto en el HTML.
+// Es la defensa contra XSS: evita que datos del usuario se interpreten como código.
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => (
     { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
   ));
 }
 
+// openModal / closeModal: muestran u ocultan una ventana modal por su id.
+// (Las modales "dynamic" se eliminan del DOM al cerrarse.)
 function openModal(id) {
   const el = document.getElementById(id);
   if (el) el.classList.add('open');
@@ -56,11 +75,14 @@ function closeModal(id) {
   }
 }
 
+// Cerrar la modal al hacer clic fuera de ella (en el fondo oscuro).
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open') });
 });
 
 // ── Auth ──────────────────────────────────────────────────────
+// doLogin: envía usuario+contraseña al backend. Si hay token, lo guarda y entra
+// al panel; si el backend pide 2FA, muestra el campo del código.
 async function doLogin() {
   const user = document.getElementById('login-user').value;
   const pass = document.getElementById('login-pass').value;
@@ -96,6 +118,7 @@ document.getElementById('reset-username').addEventListener('keydown', e => {
   });
 });
 
+// showForgotPasswordForm: cambia del formulario de login al de recuperación.
 function showForgotPasswordForm(e) {
   if (e) e.preventDefault();
   document.getElementById('login-box').style.display = 'none';
@@ -118,6 +141,7 @@ function showForgotPasswordForm(e) {
   succEl.textContent = '';
 }
 
+// showLoginForm: vuelve del formulario de recuperación al de login.
 function showLoginForm(e) {
   if (e) e.preventDefault();
   document.getElementById('login-box').style.display = 'block';
@@ -125,6 +149,8 @@ function showLoginForm(e) {
   document.getElementById('login-error').style.display = 'none';
 }
 
+// fetchSecurityQuestion: pide al backend la pregunta de seguridad del usuario
+// (paso 1 de la recuperación de contraseña).
 async function fetchSecurityQuestion() {
   const username = document.getElementById('reset-username').value.trim();
   const errEl = document.getElementById('reset-error');
@@ -155,6 +181,8 @@ async function fetchSecurityQuestion() {
   }
 }
 
+// submitResetPassword: envía respuesta + email + nueva contraseña para
+// restablecerla (paso 2 de la recuperación).
 async function submitResetPassword() {
   const username = document.getElementById('reset-username').value.trim();
   const answer = document.getElementById('reset-answer').value.trim();
@@ -204,6 +232,7 @@ async function submitResetPassword() {
   }
 }
 
+// doLogout: borra el token, cierra el WebSocket y vuelve a la pantalla de login.
 function doLogout() {
   TOKEN = '';
   localStorage.removeItem('txpl_token');
@@ -215,6 +244,8 @@ function doLogout() {
   document.getElementById('reset-box').style.display = 'none';
 }
 
+// checkAuth: al cargar la página, si ya hay un token guardado, entra directo
+// al panel sin pedir login otra vez.
 async function checkAuth() {
   if (!TOKEN) return;
   const data = await req('GET', '/auth/me');
@@ -229,6 +260,8 @@ async function checkAuth() {
 }
 
 // ── Navigation ────────────────────────────────────────────────
+// navigate: cambia de página en la SPA. Oculta todas las páginas, muestra la
+// elegida y llama a su función de carga (loadDashboard, loadWebsites, etc.).
 function navigate(el) {
   const page = typeof el === 'string' ? el : el?.dataset?.page;
   const target = page && document.getElementById('page-' + page);
@@ -261,6 +294,8 @@ function navigate(el) {
 }
 
 // ── Init ──────────────────────────────────────────────────────
+// initApp: arranca el panel tras el login (carga IP del servidor, dashboard
+// y abre el WebSocket de estadísticas).
 function initApp() {
   loadDashboard();
   connectStatsWS();
@@ -276,6 +311,7 @@ const memHistory = [];
 const netRxHistory = [];
 const netTxHistory = [];
 
+// drawSparkline: dibuja un mini-gráfico de líneas (CPU/RAM/red) en un <canvas>.
 function drawSparkline(canvasId, data, color, isNet = false, data2 = null) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -328,6 +364,8 @@ function drawSparkline(canvasId, data, color, isNet = false, data2 = null) {
 }
 
 // ── Stats WebSocket ───────────────────────────────────────────
+// connectStatsWS: abre el WebSocket /ws/stats y actualiza los gráficos en vivo
+// cada vez que el servidor envía datos (CPU, RAM, red).
 function connectStatsWS() {
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${wsProto}://${location.host}/ws/stats?token=${TOKEN}`;
@@ -370,6 +408,7 @@ function connectStatsWS() {
 }
 
 // ── Dashboard ─────────────────────────────────────────────────
+// loadDashboard: carga las tarjetas del panel principal (stats y resúmenes).
 async function loadDashboard() {
   const data = await req('GET', '/system/stats');
   if (!data) return;
@@ -403,6 +442,7 @@ async function loadDashboard() {
 }
 
 // ── Services ──────────────────────────────────────────────────
+// loadServices: lista los servicios del sistema (nginx, mysql...) y su estado.
 async function loadServices() {
   const data = await req('GET', '/system/services');
   if (!data) return;
@@ -427,6 +467,7 @@ async function loadServices() {
   `).join('');
 }
 
+// svcAction: arranca/para/reinicia un servicio del sistema y refresca la lista.
 async function svcAction(name, action) {
   toast(`${action} ${name}...`, 'info');
   const r = await req('POST', `/system/service/${name}/${action}`);
@@ -435,6 +476,7 @@ async function svcAction(name, action) {
 }
 
 // ── Processes ─────────────────────────────────────────────────
+// loadProcesses: muestra los procesos que más CPU consumen.
 async function loadProcesses() {
   const data = await req('GET', '/system/processes');
   if (!data) return;
@@ -450,6 +492,7 @@ async function loadProcesses() {
 }
 
 // ── Websites ──────────────────────────────────────────────────
+// loadWebsites: pide la lista de sitios web y la pinta en la tabla.
 async function loadWebsites() {
   const data = await req('GET', '/websites');
   if (!data) return;
@@ -486,6 +529,7 @@ async function loadWebsites() {
   `).join('');
 }
 
+// toggleSiteMode: alterna el formulario entre "con dominio" y "por IP:puerto".
 function toggleSiteMode() {
   const mode = document.getElementById('site-mode').value;
   const label = document.getElementById('site-domain-label');
@@ -505,11 +549,13 @@ function toggleSiteMode() {
   }
 }
 
+// togglePhpVersion: muestra el selector de versión de PHP solo si el tipo es PHP.
 function togglePhpVersion() {
   const type = document.getElementById('site-type').value;
   document.getElementById('site-php-version-group').style.display = type === 'php' ? '' : 'none';
 }
 
+// createWebsite: envía el formulario para crear un sitio web nuevo.
 async function createWebsite() {
   const domain = document.getElementById('site-domain').value.trim();
   if (!domain) { toast('Introduce un dominio o nombre', 'error'); return; }
@@ -530,6 +576,7 @@ async function createWebsite() {
   } else toast(r?.error || 'Error al crear sitio', 'error');
 }
 
+// deleteWebsite: borra un sitio web (pide confirmación antes).
 async function deleteWebsite(id) {
   if (!confirm('¿Eliminar este sitio web?')) return;
   const r = await req('DELETE', `/websites/${id}`);
@@ -537,6 +584,7 @@ async function deleteWebsite(id) {
   else toast(r?.error || 'Error', 'error');
 }
 
+// installSSL: instala el certificado HTTPS (Let's Encrypt) en un sitio.
 async function installSSL(id) {
   toast('Instalando certificado SSL...', 'info');
   const r = await req('POST', `/websites/${id}/ssl`);
@@ -545,6 +593,7 @@ async function installSSL(id) {
 }
 
 // ── Apps ──────────────────────────────────────────────────────
+// loadApps: lista las aplicaciones desplegadas (PM2) con su estado y acciones.
 async function loadApps() {
   const data = await req('GET', '/apps');
   if (!data) return;
@@ -576,6 +625,7 @@ async function loadApps() {
   `).join('');
 }
 
+// updateAppPathPreview: muestra una vista previa de la ruta donde se creará la app.
 function updateAppPathPreview() {
   const name = document.getElementById('app-name').value.trim() || 'nombre-app';
   const base = document.getElementById('app-path').value.trim() || '/var/www';
@@ -596,11 +646,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDeployDrops();
 });
 
+// setupDeployDrops: prepara las zonas de "arrastrar y soltar" para subir el código.
 function setupDeployDrops() {
   bindDeployDrop('deploy-zip-drop', 'deploy-zip', 'deploy-zip-label', (f) => { deployZipFile = f; });
   bindDeployDrop('deploy-env-drop', 'deploy-env', 'deploy-env-label', (f) => { deployEnvFile = f; });
 }
 
+// bindDeployDrop: conecta una zona de drag-and-drop con su input de archivo.
 function bindDeployDrop(zoneId, inputId, labelId, setFile) {
   const zone = document.getElementById(zoneId);
   const input = document.getElementById(inputId);
@@ -619,12 +671,14 @@ function bindDeployDrop(zoneId, inputId, labelId, setFile) {
   });
 }
 
+// deployLog: añade una línea a la consola de despliegue de apps.
 function deployLog(msg) {
   const el = document.getElementById('deploy-log');
   el.textContent += msg + '\n';
   el.scrollTop = el.scrollHeight;
 }
 
+// renderDeploySteps: dibuja la lista de pasos del despliegue con su estado.
 function renderDeploySteps(steps) {
   document.getElementById('deploy-steps').innerHTML = steps.map((s) => {
     const icon = s.state === 'ok' ? 'ti-circle-check' : s.state === 'err' ? 'ti-circle-x'
@@ -635,6 +689,7 @@ function renderDeploySteps(steps) {
 
 let currentDeployTab = 'zip';
 
+// switchDeployTab: alterna entre las pestañas del modal de despliegue de apps.
 function switchDeployTab(tab) {
   currentDeployTab = tab;
   document.getElementById('tab-deploy-zip').classList.toggle('active', tab === 'zip');
@@ -643,6 +698,8 @@ function switchDeployTab(tab) {
   document.getElementById('deploy-git-section').style.display = tab === 'git' ? 'block' : 'none';
 }
 
+// startDeploy: orquesta el despliegue de una app paso a paso (crear → subir →
+// extraer → instalar → build → arrancar → proxy), mostrando el progreso.
 async function startDeploy() {
   const name = document.getElementById('app-name').value.trim();
   const basePath = document.getElementById('app-path').value.trim() || '/var/www';
@@ -765,6 +822,7 @@ async function startDeploy() {
   }
 }
 
+// resetDeployModal: limpia el modal de despliegue para empezar de cero.
 function resetDeployModal() {
   deployZipFile = null;
   deployEnvFile = null;
@@ -784,6 +842,7 @@ function resetDeployModal() {
   document.getElementById('deploy-env-drop').classList.remove('has-file');
 }
 
+// appAction: ejecuta una acción sobre una app (start/stop/restart/delete).
 async function appAction(id, action) {
   if (action === 'delete' && !confirm('⚠ Se eliminará la aplicación Y TODOS sus archivos de forma permanente (carpeta, código, proxy y puerto). Esta acción no se puede deshacer.\n\n¿Continuar?')) return;
   const labels = { start: 'iniciada', stop: 'detenida', restart: 'reiniciada', delete: 'eliminada' };
@@ -792,6 +851,7 @@ async function appAction(id, action) {
   else toast(r?.error || 'Error', 'error');
 }
 
+// viewAppLogs: muestra los últimos logs de una app de PM2.
 async function viewAppLogs(id, name) {
   const r = await req('GET', `/apps/${id}/logs`);
   document.getElementById('log-output').textContent = r?.logs || 'Sin logs';
@@ -801,6 +861,7 @@ async function viewAppLogs(id, name) {
 // ── Consola de la app ─────────────────────────────────────────
 let consoleAppId = null;
 
+// openAppConsole: abre una consola para ejecutar comandos dentro de la carpeta de la app.
 function openAppConsole(id, name) {
   consoleAppId = id;
   document.getElementById('console-app-name').textContent = name;
@@ -810,6 +871,7 @@ function openAppConsole(id, name) {
   setTimeout(() => document.getElementById('console-cmd').focus(), 100);
 }
 
+// runAppCommand: envía el comando escrito en la consola de la app y muestra su salida.
 async function runAppCommand() {
   if (!consoleAppId) return;
   const input = document.getElementById('console-cmd');
@@ -832,10 +894,12 @@ async function runAppCommand() {
   input.focus();
 }
 
+// consoleKeydown: ejecuta el comando al pulsar Enter en la consola de la app.
 function consoleKeydown(e) {
   if (e.key === 'Enter') { e.preventDefault(); runAppCommand(); }
 }
 
+// installApp: instala las dependencias de una app ya creada (botón 📦).
 async function installApp(id, name) {
   toast(`Instalando dependencias de "${name}"...`, 'info');
   const r = await req('POST', `/apps/${id}/install`);
@@ -856,6 +920,7 @@ async function installApp(id, name) {
 let dbTools = { pma: {}, adminer: {} };
 const dbPassShown = {};
 
+// loadDatabases: lista las bases de datos y dibuja la tabla con sus acciones.
 async function loadDatabases() {
   // Estado de las herramientas web (para los botones por fila)
   dbTools.pma = (await req('GET', '/databases/phpmyadmin/status')) || {};
@@ -891,6 +956,7 @@ async function loadDatabases() {
   `;}).join('');
 }
 
+// toggleDbPass: muestra/oculta la contraseña de una base de datos (icono del ojo).
 async function toggleDbPass(id) {
   const span = document.getElementById('pass-' + id);
   const icon = document.getElementById('passicon-' + id);
@@ -910,6 +976,7 @@ async function toggleDbPass(id) {
   }
 }
 
+// openTool: abre phpMyAdmin o Adminer en una pestaña nueva (IP:puerto).
 function openTool(tool) {
   const host = serverIp || location.hostname;
   if (tool === 'pma') {
@@ -925,6 +992,7 @@ function openTool(tool) {
   toast('Instala el plugin Adminer desde la página Plugins primero.', 'error');
 }
 
+// deleteDatabase: borra una base de datos y su usuario (con confirmación).
 async function deleteDatabase(id, name) {
   if (!confirm(`⚠ Se eliminará la base de datos "${name}" Y su usuario de forma permanente. Todos los datos que contenga se perderán y no se pueden recuperar.\n\n¿Continuar?`)) return;
   const r = await req('DELETE', `/databases/${id}`);
@@ -932,6 +1000,7 @@ async function deleteDatabase(id, name) {
   else toast(r?.error || 'Error al eliminar', 'error');
 }
 
+// createDatabase: crea una base de datos nueva; muestra la contraseña generada.
 async function createDatabase() {
   const name = document.getElementById('db-name').value.trim();
   if (!name) { toast('Nombre de BD requerido', 'error'); return; }
@@ -948,6 +1017,7 @@ async function createDatabase() {
 }
 
 // phpMyAdmin: configurar acceso web (instala PHP-FPM y crea el vhost)
+// setupPma: configura el acceso web a phpMyAdmin (vhost de nginx en su puerto).
 async function setupPma() {
   toast('Configurando phpMyAdmin (puede instalar PHP-FPM)...', 'info');
   const r = await req('POST', '/databases/phpmyadmin/setup');
@@ -958,6 +1028,7 @@ async function setupPma() {
 // ── Files ─────────────────────────────────────────────────────
 let currentFilePath = '/';
 
+// loadFiles: lista el contenido de la carpeta actual en el gestor de archivos.
 async function loadFiles() {
   const path = currentFilePath;
   const data = await req('GET', `/files?path=${encodeURIComponent(path)}`);
@@ -1008,6 +1079,7 @@ async function loadFiles() {
   setupDragDrop();
 }
 
+// updateBreadcrumb: dibuja la barra de "migas de pan" (la ruta clicable de carpetas).
 function updateBreadcrumb(path) {
   if (path === '/') {
     document.getElementById('file-breadcrumb').innerHTML = '<span style="color:var(--text-muted)">/</span>';
@@ -1022,6 +1094,7 @@ function updateBreadcrumb(path) {
   document.getElementById('file-breadcrumb').innerHTML = `<a href="#" onclick="event.preventDefault();browseDir('/')" style="color:var(--text-muted);text-decoration:none;cursor:pointer">/</a> <span style="color:var(--text-muted)">/</span> ${crumbs}`;
 }
 
+// getFileIcon: elige un icono según la extensión del archivo.
 function getFileIcon(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   const iconMap = {
@@ -1034,6 +1107,7 @@ function getFileIcon(filename) {
 }
 
 let dragDropBound = false;
+// setupDragDrop: activa arrastrar y soltar archivos/carpetas en el gestor.
 function setupDragDrop() {
   const zone = document.getElementById('drop-zone');
   if (!zone || dragDropBound) return;
@@ -1069,6 +1143,7 @@ function setupDragDrop() {
   zone.addEventListener('click', () => document.getElementById('file-upload').click());
 }
 
+// handleDrop: procesa los archivos/carpetas soltados en el gestor.
 function handleDrop(e) {
   const dt = e.dataTransfer;
   if (!dt) return;
@@ -1095,11 +1170,13 @@ function handleDrop(e) {
   }
 }
 
+// handleFileUpload: gestiona la subida desde el botón de seleccionar archivos.
 function handleFileUpload(e) {
   uploadFlatFiles(e.target.files);
   e.target.value = '';
 }
 
+// showProgress: actualiza la barra de progreso de subida de archivos.
 function showProgress(done, total, currentName) {
   const wrap = document.getElementById('upload-progress');
   const bar = document.getElementById('upload-bar');
@@ -1115,15 +1192,18 @@ function showProgress(done, total, currentName) {
   detail.textContent = `${done} / ${total} archivos`;
 }
 
+// hideProgress: oculta la barra de progreso al terminar.
 function hideProgress() {
   const wrap = document.getElementById('upload-progress');
   if (wrap) setTimeout(() => { wrap.style.display = 'none'; }, 3000);
 }
 
+// readEntryAsFile: convierte una entrada del drag-drop en un objeto File (promesa).
 function readEntryAsFile(entry) {
   return new Promise((resolve, reject) => entry.file(resolve, reject));
 }
 
+// readDirEntries: lee todas las entradas de una carpeta arrastrada.
 function readDirEntries(reader) {
   return new Promise((resolve, reject) => {
     const all = [];
@@ -1137,6 +1217,7 @@ function readDirEntries(reader) {
   });
 }
 
+// flattenEntry: recorre recursivamente una carpeta y devuelve su lista de archivos.
 async function flattenEntry(entry, basePath) {
   const list = [];
   if (entry.isFile) {
@@ -1155,6 +1236,7 @@ async function flattenEntry(entry, basePath) {
 }
 
 // Sube un archivo por streaming binario (sin base64, sin límite de JSON)
+// uploadBinary: sube un archivo al servidor por streaming binario.
 async function uploadBinary(file, destPath) {
   const r = await fetch(API + '/api/files/upload?path=' + encodeURIComponent(destPath), {
     method: 'POST',
@@ -1165,6 +1247,7 @@ async function uploadBinary(file, destPath) {
   try { return await r.json(); } catch (_) { return { success: r.ok }; }
 }
 
+// processEntries: sube en orden todos los archivos arrastrados, con progreso.
 async function processEntries(entries) {
   const allItems = [];
   for (const entry of entries) {
@@ -1199,6 +1282,7 @@ async function processEntries(entries) {
   loadFiles();
 }
 
+// uploadFlatFiles: sube una lista plana de archivos (sin estructura de carpetas).
 async function uploadFlatFiles(fileList) {
   const files = Array.from(fileList);
   const total = files.length;
@@ -1224,6 +1308,7 @@ async function uploadFlatFiles(fileList) {
   loadFiles();
 }
 
+// createFolder: crea una carpeta nueva en la ruta actual.
 async function createFolder() {
   const name = document.getElementById('folder-name').value.trim();
   if (!name) { toast('Nombre requerido', 'error'); return; }
@@ -1233,6 +1318,7 @@ async function createFolder() {
   else toast(r?.error || 'Error', 'error');
 }
 
+// createFile: crea un archivo vacío en la ruta actual.
 async function createFile() {
   const name = document.getElementById('file-name').value.trim();
   if (!name) { toast('Nombre requerido', 'error'); return; }
@@ -1242,11 +1328,13 @@ async function createFile() {
   else toast(r?.error || 'Error', 'error');
 }
 
+// browseDir: entra en una carpeta y recarga la lista de archivos.
 function browseDir(path) {
   currentFilePath = path;
   loadFiles();
 }
 
+// deleteFile: borra un archivo o carpeta (con confirmación).
 async function deleteFile(path) {
   const name = path.split('/').pop();
   if (!confirm(`¿Eliminar "${name}"?`)) return;
@@ -1255,6 +1343,7 @@ async function deleteFile(path) {
   else toast(r?.error || 'Error', 'error');
 }
 
+// extractFile: descomprime un archivo .zip/.tar en su carpeta.
 async function extractFile(path) {
   const name = path.split('/').pop();
   if (!confirm(`¿Extraer "${name}" en esta carpeta?`)) return;
@@ -1264,6 +1353,7 @@ async function extractFile(path) {
   else toast(r?.error || 'Error al extraer', 'error');
 }
 
+// editFile: abre un archivo de texto en el editor del panel.
 async function editFile(path) {
   const name = path.split('/').pop();
   const r = await req('GET', `/files/read?path=${encodeURIComponent(path)}`);
@@ -1292,6 +1382,7 @@ async function editFile(path) {
   document.body.appendChild(modal);
 }
 
+// saveFile: guarda los cambios del editor en el archivo.
 async function saveFile(path) {
   const content = document.getElementById('file-editor').value;
   const r = await req('POST', '/files/write', { path, content });
@@ -1300,6 +1391,7 @@ async function saveFile(path) {
 }
 
 // ── Firewall ──────────────────────────────────────────────────
+// loadFirewall: muestra el estado del firewall y sus reglas.
 async function loadFirewall() {
   const data = await req('GET', '/firewall');
   if (!data) return;
@@ -1320,6 +1412,7 @@ async function loadFirewall() {
   `).join('');
 }
 
+// createRule: añade una regla nueva al firewall.
 async function createRule() {
   const r = await req('POST', '/firewall/rule', {
     action: document.getElementById('rule-action').value,
@@ -1331,6 +1424,7 @@ async function createRule() {
   else toast(r?.error || 'Error', 'error');
 }
 
+// deleteRule: borra la regla número "num" del firewall.
 async function deleteRule(num) {
   if (!confirm('¿Eliminar esta regla?')) return;
   const r = await req('DELETE', `/firewall/rule/${num}`);
@@ -1339,11 +1433,13 @@ async function deleteRule(num) {
 }
 
 // ── SSL ───────────────────────────────────────────────────────
+// loadSSL: reutiliza la lista de sitios (la gestión de SSL vive ahí).
 async function loadSSL() {
   await loadWebsites();
 }
 
 // ── Settings ──────────────────────────────────────────────────
+// loadSettings: carga la página de Ajustes (datos de cuenta y recuperación).
 async function loadSettings() {
   const me = await req('GET', '/auth/me');
   if (!me) return;
@@ -1365,6 +1461,8 @@ async function loadSettings() {
   }
 }
 
+// saveRecovery: guarda los datos de recuperación (email, pregunta y, opcional,
+// nueva respuesta), pidiendo la contraseña actual para confirmar.
 async function saveRecovery() {
   const email = document.getElementById('set-rec-email').value.trim();
   const question = document.getElementById('set-rec-question').value.trim();
@@ -1380,6 +1478,7 @@ async function saveRecovery() {
   } else toast(r?.error || 'Error al guardar la recuperación', 'error');
 }
 
+// changePassword: cambia la contraseña del usuario (pide la actual + la nueva x2).
 async function changePassword() {
   const oldPass = document.getElementById('set-pass-old').value;
   const newPass = document.getElementById('set-pass-new').value;
@@ -1394,6 +1493,7 @@ async function changePassword() {
 }
 
 // ── Logs ──────────────────────────────────────────────────────
+// loadLog: muestra un log (nginx/sistema/auditoría) en la página de logs.
 async function loadLog(type, el) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -1406,21 +1506,25 @@ async function loadLog(type, el) {
 // ── Terminal (xterm.js) ──────────────────────────────────────
 let term = null, fitAddon = null, termWS = null;
 
+// sendResize: informa al servidor del nuevo tamaño de la terminal (filas/columnas).
 function sendResize() {
   if (term && termWS && termWS.readyState === 1) {
     termWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
   }
 }
+// termResizeHandler: reajusta la terminal cuando cambia el tamaño de la ventana.
 function termResizeHandler() {
   if (!fitAddon) return;
   try { fitAddon.fit(); sendResize(); } catch (_) {}
 }
+// termCleanup: cierra la terminal y libera sus recursos al salir de la página.
 function termCleanup() {
   window.removeEventListener('resize', termResizeHandler);
   if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
   if (term) { try { term.dispose(); } catch (_) {} term = null; fitAddon = null; }
 }
 
+// initTerminal: abre la terminal SSH del navegador (xterm.js + WebSocket /ws/terminal).
 function initTerminal() {
   termCleanup();
   if (!window.Terminal || !window.FitAddon) { toast('No se pudo cargar xterm.js (¿sin conexión al CDN?)', 'error'); return; }
@@ -1462,6 +1566,7 @@ function initTerminal() {
 }
 
 // ── Plugins ──────────────────────────────────────────────────
+// loadPlugins: lista los plugins del servidor (Docker, Redis...) y si están instalados.
 async function loadPlugins() {
   const data = await req('GET', '/plugins');
   if (!data) return;
@@ -1487,17 +1592,21 @@ async function loadPlugins() {
   `).join('');
 }
 
+// installPlugin: instala un plugin (con confirmación) mostrando la salida en vivo.
 function installPlugin(id, name) {
   if (!confirm(`¿Instalar ${name}? Esto puede tardar unos minutos.`)) return;
   streamPlugin(id, 'install', name);
 }
 
+// uninstallPlugin: desinstala un plugin (con confirmación).
 function uninstallPlugin(id, name) {
   if (!confirm(`¿Desinstalar ${name}?`)) return;
   streamPlugin(id, 'uninstall', name);
 }
 
 // Ejecuta install/uninstall mostrando la salida en vivo en la consola de plugins.
+// streamPlugin: ejecuta install/uninstall de un plugin y muestra la salida en
+// directo (lee el stream y detecta el marcador __TXPL_DONE__ del final).
 async function streamPlugin(id, action, name) {
   const wrap = document.getElementById('plugin-console');
   const out = document.getElementById('plugin-console-output');
@@ -1547,6 +1656,7 @@ async function streamPlugin(id, action, name) {
 }
 
 // ── Utils ─────────────────────────────────────────────────────
+// copyText: copia un texto al portapapeles (con alternativa para conexiones sin HTTPS).
 function copyText(text) {
   // navigator.clipboard solo existe en contextos seguros (HTTPS/localhost).
   if (navigator.clipboard && window.isSecureContext) {
@@ -1557,6 +1667,8 @@ function copyText(text) {
   }
 }
 
+// fallbackCopy: copia al portapapeles usando un textarea oculto (método antiguo,
+// necesario cuando navigator.clipboard no está disponible, p.ej. sin HTTPS).
 function fallbackCopy(text) {
   try {
     const ta = document.createElement('textarea');
@@ -1574,6 +1686,7 @@ function fallbackCopy(text) {
 }
 
 // ── Docker ────────────────────────────────────────────────────
+// loadDockerContainers: lista los contenedores Docker en la tabla con sus acciones.
 async function loadDockerContainers() {
   const tb = document.getElementById('docker-table');
   tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-loader-2 ti-spin"></i> Cargando contenedores...</td></tr>';
@@ -1640,6 +1753,7 @@ async function loadDockerContainers() {
   }).join('');
 }
 
+// dockerAction: arranca/para/reinicia un contenedor y refresca la lista.
 async function dockerAction(id, action) {
   toast(`${action === 'stop' ? 'Deteniendo' : action === 'start' ? 'Iniciando' : 'Reiniciando'} contenedor...`, 'info');
   const r = await req('POST', `/docker/containers/${id}/${action}`);
@@ -1651,6 +1765,7 @@ async function dockerAction(id, action) {
   }
 }
 
+// viewDockerLogs: muestra las últimas líneas de log de un contenedor.
 async function viewDockerLogs(id, name) {
   document.getElementById('docker-logs-title').textContent = name;
   document.getElementById('docker-logs-output').textContent = 'Cargando logs...';
@@ -1666,11 +1781,40 @@ function switchDockerTab(tab) {
   currentDockerTab = tab;
   document.getElementById('tab-docker-image').classList.toggle('active', tab === 'image');
   document.getElementById('tab-docker-file').classList.toggle('active', tab === 'file');
+  document.getElementById('tab-docker-deploy').classList.toggle('active', tab === 'deploy');
   document.getElementById('docker-image-section').style.display = tab === 'image' ? 'block' : 'none';
   document.getElementById('docker-file-section').style.display = tab === 'file' ? 'block' : 'none';
+  document.getElementById('docker-deploy-section').style.display = tab === 'deploy' ? 'block' : 'none';
+  // El botón cambia de texto según la pestaña
+  const btn = document.getElementById('docker-create-btn');
+  if (btn) btn.innerHTML = tab === 'deploy'
+    ? '<i class="ti ti-rocket"></i> Desplegar'
+    : '<i class="ti ti-plus"></i> Crear y Arrancar';
+  if (tab !== 'deploy') document.getElementById('docker-deploy-progress').style.display = 'none';
+  else onDeployTemplateChange();
 }
 
+// Ajusta la ayuda y el puerto interno por defecto según la plantilla elegida.
+function onDeployTemplateChange() {
+  const t = document.getElementById('docker-deploy-template').value;
+  const cport = document.getElementById('docker-create-contport');
+  const hints = {
+    static: 'Tu sitio se sirve con Nginx en el puerto 80.',
+    node: 'Necesita un script "start" en package.json. Se inyecta la variable PORT automáticamente.',
+    python: 'Arranca app.py e instala requirements.txt si existe. Se inyecta la variable PORT.',
+    php: 'Tu código PHP se sirve con Apache (puerto 80).',
+    dockerfile: 'Se usará el Dockerfile incluido en tu .zip. Indica el Puerto Contenedor que expone.'
+  };
+  document.getElementById('docker-deploy-hint').textContent = hints[t] || '';
+  if (t === 'static' || t === 'php') cport.value = '80';
+  else if (t === 'node' && !cport.value) cport.value = '3000';
+  else if (t === 'python' && !cport.value) cport.value = '8000';
+}
+
+// createDockerContainer: crea un contenedor desde imagen o Dockerfile. Si la
+// pestaña activa es "Desplegar mi app", delega en deployDockerApp().
 async function createDockerContainer() {
+  if (currentDockerTab === 'deploy') { deployDockerApp(); return; }
   const name = document.getElementById('docker-create-name').value.trim();
   const hostPort = document.getElementById('docker-create-hostport').value.trim();
   const containerPort = document.getElementById('docker-create-contport').value.trim();
@@ -1739,6 +1883,112 @@ async function createDockerContainer() {
   }
 }
 
+// Asistente "Despliega tu app": sube el ZIP y construye/arranca con logs en vivo.
+async function deployDockerApp() {
+  const name = document.getElementById('docker-create-name').value.trim();
+  const template = document.getElementById('docker-deploy-template').value;
+  const fileInput = document.getElementById('docker-deploy-file');
+  const file = fileInput.files && fileInput.files[0];
+  const hostPort = document.getElementById('docker-create-hostport').value.trim();
+  const containerPort = document.getElementById('docker-create-contport').value.trim();
+  const domain = document.getElementById('docker-create-domain').value.trim();
+  const ssl = document.getElementById('docker-create-ssl').checked;
+  const envs = document.getElementById('docker-create-envs').value;
+  const volumeName = document.getElementById('docker-create-volname').value.trim();
+  const volumePath = document.getElementById('docker-create-volpath').value.trim();
+
+  if (!name) { toast('Indica un nombre para tu app', 'error'); return; }
+  if (!/^[a-zA-Z0-9_-]{1,40}$/.test(name)) { toast('Nombre inválido (letras, números, - y _)', 'error'); return; }
+  if (!file) { toast('Sube el archivo .zip de tu app', 'error'); return; }
+  if ((volumeName && !volumePath) || (!volumeName && volumePath)) { toast('Para el volumen, rellena nombre y ruta o deja ambos vacíos', 'error'); return; }
+  if (domain && !hostPort) { toast('Para usar un dominio indica también el Puerto Host', 'error'); return; }
+
+  const progress = document.getElementById('docker-deploy-progress');
+  const logEl = document.getElementById('docker-deploy-log');
+  const spinner = document.getElementById('docker-deploy-spinner');
+  const btn = document.getElementById('docker-create-btn');
+  progress.style.display = 'block';
+  spinner.style.display = 'inline';
+  btn.disabled = true;
+  logEl.textContent = 'Subiendo el código al servidor...\n';
+
+  // 1. Subir el ZIP (stream binario)
+  try {
+    const up = await fetch(API + '/api/docker/deploy/upload?name=' + encodeURIComponent(name), {
+      method: 'POST', headers: { 'Authorization': `Bearer ${TOKEN}` }, body: file
+    });
+    if (up.status === 401) { doLogout(); return; }
+    const upJson = await up.json().catch(() => ({}));
+    if (!upJson.success) {
+      logEl.textContent += '✖ Error al subir: ' + (upJson.error || up.status) + '\n';
+      spinner.style.display = 'none'; btn.disabled = false;
+      toast('Error al subir el código', 'error');
+      return;
+    }
+  } catch (e) {
+    logEl.textContent += '✖ Error de conexión al subir: ' + (e?.message || e) + '\n';
+    spinner.style.display = 'none'; btn.disabled = false;
+    return;
+  }
+
+  // 2. Construir + desplegar (streaming de logs)
+  logEl.textContent += 'Código subido. Iniciando despliegue...\n\n';
+  const DONE = '__TXPL_DONE__';
+  let exitCode = 1;
+  try {
+    const r = await fetch(API + '/api/docker/deploy/build', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, template,
+        hostPort: hostPort ? parseInt(hostPort, 10) : undefined,
+        containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
+        domain: domain || undefined,
+        ssl: ssl || undefined,
+        volumeName: volumeName || undefined,
+        volumePath: volumePath || undefined,
+        envs: envs || undefined
+      })
+    });
+    if (r.status === 401) { doLogout(); return; }
+    if (r.status >= 400) {
+      const j = await r.json().catch(() => ({}));
+      logEl.textContent += '✖ ' + (j.error || ('Error ' + r.status)) + '\n';
+      spinner.style.display = 'none'; btn.disabled = false;
+      toast(j.error || 'Error al desplegar', 'error');
+      return;
+    }
+    if (!r.body) { logEl.textContent += 'El navegador no soporta streaming.'; spinner.style.display = 'none'; btn.disabled = false; return; }
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += dec.decode(value, { stream: true });
+      let display = buffer;
+      const idx = buffer.indexOf(DONE);
+      if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
+      logEl.textContent = display;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  } catch (e) {
+    logEl.textContent += '\n✖ Error de conexión: ' + (e?.message || e) + '\n';
+  }
+
+  spinner.style.display = 'none';
+  btn.disabled = false;
+  const success = exitCode === 0;
+  toast(success ? 'App desplegada con éxito' : 'El despliegue terminó con errores', success ? 'success' : 'error');
+  loadDockerContainers();
+  if (success) {
+    fileInput.value = '';
+    setTimeout(() => closeModal('modal-new-container'), 2500);
+  }
+}
+
+// deleteDockerContainer: elimina un contenedor (con confirmación).
 async function deleteDockerContainer(id, name) {
   if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el contenedor "${name}"?`)) return;
   toast('Eliminando contenedor...', 'info');
@@ -1753,6 +2003,7 @@ async function deleteDockerContainer(id, name) {
 
 let currentDockerEditType = 'dockerfile';
 
+// openDockerEditModal: abre el editor del Dockerfile/compose "global" del panel.
 async function openDockerEditModal(type) {
   currentDockerEditType = type;
   const titleEl = document.getElementById('docker-edit-title');
@@ -1784,6 +2035,7 @@ async function openDockerEditModal(type) {
   }
 }
 
+// saveDockerFile: guarda y aplica el Dockerfile/compose global (build o up -d).
 async function saveDockerFile() {
   const content = document.getElementById('docker-edit-textarea').value;
   const progress = document.getElementById('docker-edit-progress');
@@ -1822,6 +2074,7 @@ async function saveDockerFile() {
 // ── Git / Webhooks ────────────────────────────────────────────
 let gitInfoAppId = null;
 
+// openGitInfoModal: muestra el repo/rama y la URL del webhook de auto-deploy de una app.
 function openGitInfoModal(id, name, repo, branch, secret) {
   gitInfoAppId = id;
   document.getElementById('git-info-repo').textContent = repo || '—';
@@ -1837,11 +2090,13 @@ function openGitInfoModal(id, name, repo, branch, secret) {
   openModal('modal-git-info');
 }
 
+// copyWebhookUrl: copia la URL del webhook al portapapeles.
 function copyWebhookUrl() {
   const input = document.getElementById('git-info-webhook');
   copyText(input.value);
 }
 
+// triggerGitPull: lanza manualmente un git pull + rebuild + recarga de la app.
 async function triggerGitPull() {
   if (!gitInfoAppId) return;
 

@@ -6,41 +6,22 @@ const crypto = require('crypto');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { RE_APP_NAME, ALLOWED_APP_TYPES, ALLOWED_APP_ACTIONS, isPort, isValidDomain } = require('../lib/validators');
+const nginx = require('../lib/nginx');
 const { queries, audit } = require('../database');
-
-const NGINX_AVAILABLE = '/etc/nginx/sites-available';
-const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 
 const router = express.Router();
 
 // Borra recursivamente la carpeta de una app, con guardas de seguridad
 // para no eliminar nunca rutas raíz o demasiado superficiales.
+// (Evita catástrofes como borrar "/" o "/etc" si la ruta viene mal.)
 function removeAppDir(dir) {
   if (!dir || typeof dir !== 'string') return;
   const resolved = path.resolve(dir);
+  // Profundidad = nº de segmentos de la ruta. Menos de 2 es demasiado superficial.
   const depth = resolved.split(/[\\/]+/).filter(Boolean).length;
   const forbidden = ['/', '/root', '/etc', '/var', '/var/www', '/home', '/usr', '/opt', '/bin', '/boot'];
   if (depth < 2 || forbidden.includes(resolved)) return; // demasiado peligroso, no tocar
   try { fs.rmSync(resolved, { recursive: true, force: true }); } catch (_) {}
-}
-
-// Config nginx que enruta un dominio hacia el puerto local de la app.
-function buildAppProxy(domain, port) {
-  return `server {
-    listen 80;
-    server_name ${domain} www.${domain};
-    location / {
-        proxy_pass http://127.0.0.1:${port};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-`;
 }
 
 async function pm2Status(pm2Name) {
@@ -362,20 +343,16 @@ router.post('/:id/proxy', wrap(async (req, res) => {
     lines.push(u.ok ? `Puerto ${appRow.port} abierto en el firewall` : `Aviso: no se pudo abrir el puerto (${u.stderr.split('\n')[0] || 'ufw'})`);
   }
 
-  // 2. Si hay dominio, crear/actualizar el proxy de nginx → acceso por dominio
+  // 2. Si hay dominio, crear/actualizar el proxy de nginx → acceso por dominio.
+  //    El vhost se llama como la app en PM2 (txpl-app-<nombre>) para localizarlo
+  //    fácilmente al borrar. enableSite valida la config y revierte si falla.
   if (appRow.domain) {
     if (!appRow.port) return fail(res, 400, 'Se necesita un puerto para crear el proxy del dominio');
-    const confName = appRow.pm2_name; // txpl-app-<nombre>
-    const confPath = path.join(NGINX_AVAILABLE, confName);
-    fs.writeFileSync(confPath, buildAppProxy(appRow.domain, appRow.port));
-    try { fs.symlinkSync(confPath, path.join(NGINX_ENABLED, confName)); } catch (e) { if (e.code !== 'EEXIST') throw e; }
-
-    const test = await runSafe('nginx', ['-t']);
-    if (!test.ok) {
-      fs.rmSync(path.join(NGINX_ENABLED, confName), { force: true });
-      return fail(res, 500, 'Config nginx inválida: ' + (test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0]));
+    try {
+      await nginx.enableSite(appRow.pm2_name, nginx.buildProxy(appRow.domain, appRow.port, { www: true }));
+    } catch (e) {
+      return fail(res, 500, e.message);
     }
-    await runSafe('systemctl', ['reload', 'nginx']);
     lines.push(`Dominio ${appRow.domain} → puerto ${appRow.port} (proxy nginx activo)`);
   }
 
@@ -392,12 +369,8 @@ router.post('/:id/:action', wrap(async (req, res) => {
   if (action === 'delete') {
     await runSafe('pm2', ['delete', appRow.pm2_name]);
     await runSafe('pm2', ['save']);
-    // Limpia el proxy nginx y cierra el puerto si existían
-    const confName = appRow.pm2_name;
-    let removedProxy = false;
-    try { if (fs.existsSync(path.join(NGINX_ENABLED, confName))) { fs.rmSync(path.join(NGINX_ENABLED, confName), { force: true }); removedProxy = true; } } catch (_) {}
-    try { fs.rmSync(path.join(NGINX_AVAILABLE, confName), { force: true }); } catch (_) {}
-    if (removedProxy) await runSafe('systemctl', ['reload', 'nginx']);
+    // Limpia el proxy nginx (si existía) y cierra el puerto del firewall.
+    await nginx.removeSite(appRow.pm2_name);
     if (appRow.port) await runSafe('ufw', ['delete', 'allow', `${appRow.port}/tcp`]);
     // Borrado recursivo de la carpeta de la app (no deja nada)
     removeAppDir(appRow.path);

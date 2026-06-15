@@ -1,5 +1,20 @@
 'use strict';
 
+// ============================================================
+//  TecXPaneL — Autenticación y seguridad de acceso
+//
+//  Gestiona el login, los tokens JWT, el cambio de contraseña, el
+//  2FA (TOTP) y la recuperación de contraseña (email + pregunta).
+//
+//  Conceptos clave:
+//   - bcrypt: las contraseñas NUNCA se guardan en claro; se guarda un
+//     "hash" (huella) que no se puede revertir. Al hacer login se
+//     compara el hash, no la contraseña.
+//   - JWT (JSON Web Token): tras el login se entrega un token firmado.
+//     El navegador lo envía en cada petición para demostrar quién es,
+//     sin tener que reenviar la contraseña.
+// ============================================================
+
 const crypto = require('crypto');
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -8,13 +23,16 @@ const { queries, audit } = require('../database');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { base32Encode, totpVerify } = require('../lib/crypto');
 
+// Es una "fábrica": server.js la llama pasándole el secreto JWT, la duración
+// del token y el limitador de login, y devuelve el router + utilidades de auth.
 module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) {
   const router = express.Router();
 
-  // Login lockout
+  // Bloqueo por intentos fallidos: tras 5 fallos desde una IP, se bloquea el
+  // login de esa IP durante 15 minutos (defensa contra fuerza bruta).
   const LOGIN_MAX_FAILS = 5;
   const LOGIN_LOCK_MS = 15 * 60_000;
-  const loginFails = new Map();
+  const loginFails = new Map(); // IP -> { count, until }
   function loginLocked(ip) { const e = loginFails.get(ip); return e && e.until && e.until > Date.now(); }
   function recordLoginFail(ip) {
     const e = loginFails.get(ip) || { count: 0, until: 0 };

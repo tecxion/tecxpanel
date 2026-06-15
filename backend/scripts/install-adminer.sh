@@ -1,5 +1,13 @@
 #!/bin/bash
-# Instala Adminer (gestor web para MySQL y PostgreSQL) y lo sirve por nginx en el puerto 8082
+# ============================================================
+#  TecXPaneL — Instalador de Adminer
+#
+#  Adminer es un gestor web ligero de bases de datos (MySQL y
+#  PostgreSQL) en un solo archivo PHP. Este script instala PHP-FPM,
+#  descarga Adminer y crea un vhost de nginx para servirlo en el
+#  puerto 8082. Lo lanza el panel desde la sección de Plugins.
+#  "set -e" = si algún comando falla, el script se detiene.
+# ============================================================
 set -e
 
 echo "▶ Instalando dependencias PHP (php-fpm, php-pgsql, php-mysql)..."

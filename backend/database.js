@@ -2,8 +2,14 @@
 //  TecXPaneL — Capa de datos (SQLite)
 //  /opt/txpl/backend/database.js
 //
-//  Usa better-sqlite3 (síncrono, sin callbacks). El fichero vive
-//  en TXPL_DIR/data/txpl.db y se respalda con txpl-backup.sh.
+//  Toda la información del panel (usuarios, sitios, apps, BDs,
+//  auditoría) se guarda en una única base de datos SQLite: un
+//  fichero (.db) en TXPL_DIR/data/txpl.db, sin servidor aparte.
+//
+//  Usamos better-sqlite3 porque es SÍNCRONO: las consultas
+//  devuelven el resultado directamente (sin callbacks ni await),
+//  lo que simplifica mucho el código. El fichero se respalda con
+//  txpl-backup.sh.
 // ============================================================
 
 'use strict';
@@ -17,11 +23,15 @@ const TXPL_DIR = process.env.TXPL_DIR || '/opt/txpl';
 const DATA_DIR = path.join(TXPL_DIR, 'data');
 const DB_PATH = process.env.TXPL_DB || path.join(DATA_DIR, 'txpl.db');
 
-// Asegura el directorio de datos
+// Asegura que existe la carpeta de datos antes de abrir la BD.
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');   // mejor concurrencia lectura/escritura
+// WAL (Write-Ahead Logging): permite leer y escribir a la vez sin bloqueos,
+// y hace que un proceso externo (ej. el comando reset-password) vea los
+// cambios al instante.
+db.pragma('journal_mode = WAL');
+// Activa las claves foráneas (relaciones entre tablas).
 db.pragma('foreign_keys = ON');
 
 // ── Esquema ───────────────────────────────────────────────────
@@ -145,7 +155,13 @@ function seedAdmin() {
   }
 }
 
-// ── Helpers de acceso ─────────────────────────────────────────
+// ── Consultas preparadas (prepared statements) ────────────────
+// Una "prepared statement" es una consulta SQL compilada una sola vez y
+// reutilizada muchas. Tiene dos grandes ventajas:
+//   1) Velocidad: SQLite no re-analiza el SQL en cada llamada.
+//   2) Seguridad: los valores van como PARÁMETROS (?, @nombre), nunca
+//      concatenados, lo que evita la inyección SQL.
+// Se ejecutan con .get() (una fila), .all() (varias) o .run() (insert/update).
 const queries = {
   // users
   getUserByName: db.prepare('SELECT * FROM users WHERE username = ?'),

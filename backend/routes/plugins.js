@@ -1,5 +1,14 @@
 'use strict';
 
+// ============================================================
+//  TecXPaneL — Plugins (paquetes del servidor)
+//
+//  Instala o desinstala software del servidor con un clic: Docker,
+//  phpMyAdmin, Adminer, Redis, Fail2Ban, Composer y Certbot.
+//  La salida de la instalación se transmite EN VIVO al navegador
+//  (streaming), para que el usuario vea el progreso en tiempo real.
+// ============================================================
+
 const path = require('path');
 const express = require('express');
 const { spawn } = require('child_process');
@@ -10,16 +19,21 @@ const SCRIPTS = path.join(__dirname, '..', 'scripts');
 
 const router = express.Router();
 
-// Ejecuta un comando y transmite su salida en vivo al cliente (streaming).
+// Ejecuta un comando y transmite su salida línea a línea al cliente (streaming).
+// En vez de esperar a que termine y mandar todo de golpe, vamos escribiendo en
+// la respuesta (res.write) según el proceso produce salida. Al final mandamos
+// un marcador "__TXPL_DONE__<código>" para que el frontend sepa que acabó y con
+// qué código de salida (0 = éxito).
 function streamCommand(res, cmd, args, intro) {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('X-Accel-Buffering', 'no'); // nginx: no almacenar en buffer
+  res.setHeader('X-Accel-Buffering', 'no'); // pide a nginx que NO almacene en buffer
   res.flushHeaders?.();
   if (intro) res.write(intro);
 
   let child;
   try {
+    // DEBIAN_FRONTEND=noninteractive evita que apt se quede esperando respuestas.
     child = spawn(cmd, args, { env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
   } catch (e) {
     res.write('\n[error] No se pudo iniciar: ' + e.message + '\n');
@@ -31,6 +45,10 @@ function streamCommand(res, cmd, args, intro) {
   child.on('close', (code) => res.end('\n__TXPL_DONE__' + (code === null ? 1 : code)));
 }
 
+// Catálogo de plugins. Para cada uno definimos:
+//  - check:     comando para saber si YA está instalado.
+//  - install:   comando para instalarlo.
+//  - uninstall: comando para desinstalarlo.
 const PLUGINS = {
   docker: {
     name: 'Docker', category: 'Contenedores', icon: 'brand-docker', desc: 'Motor de contenedores',
@@ -76,6 +94,7 @@ const PLUGINS = {
   },
 };
 
+// GET /api/plugins — Lista los plugins y si están instalados (ejecuta cada "check").
 router.get('/', wrap(async (req, res) => {
   const result = [];
   for (const [key, p] of Object.entries(PLUGINS)) {
@@ -85,6 +104,7 @@ router.get('/', wrap(async (req, res) => {
   ok(res, result);
 }));
 
+// POST /api/plugins/:id/install — Instala un plugin, transmitiendo la salida.
 router.post('/:id/install', (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin desconocido');
@@ -92,6 +112,7 @@ router.post('/:id/install', (req, res) => {
   streamCommand(res, p.install[0], p.install[1], `▶ Instalando ${p.name}...\n\n`);
 });
 
+// POST /api/plugins/:id/uninstall — Desinstala un plugin, transmitiendo la salida.
 router.post('/:id/uninstall', (req, res) => {
   const p = PLUGINS[req.params.id];
   if (!p) return fail(res, 404, 'Plugin desconocido');

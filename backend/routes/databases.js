@@ -5,6 +5,7 @@ const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { RE_APP_NAME, RE_DB_USER } = require('../lib/validators');
 const { encryptSecret, decryptSecret, genPassword } = require('../lib/crypto');
+const nginx = require('../lib/nginx');
 const { queries, audit } = require('../database');
 
 const router = express.Router();
@@ -103,22 +104,6 @@ function detectPhpFpmSock() {
   return null;
 }
 
-function buildPmaNginx(sock) {
-  return `server {
-    listen ${PMA_PORT};
-    server_name _;
-    root ${PMA_DIR};
-    index index.php index.html;
-    location / { try_files $uri $uri/ /index.php?$query_string; }
-    location ~ \\.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:${sock};
-    }
-    location ~ /\\.ht { deny all; }
-}
-`;
-}
-
 router.get('/phpmyadmin/status', (req, res) => {
   const installed = fs.existsSync(PMA_DIR);
   const configured = fs.existsSync(PMA_LINK);
@@ -136,16 +121,12 @@ router.post('/phpmyadmin/setup', wrap(async (req, res) => {
   }
   if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
 
-  // 2. Escribir vhost nginx
-  fs.writeFileSync(PMA_CONF, buildPmaNginx(sock));
-  try { fs.symlinkSync(PMA_CONF, PMA_LINK); } catch (e) { if (e.code !== 'EEXIST') throw e; }
-
-  const test = await runSafe('nginx', ['-t']);
-  if (!test.ok) {
-    fs.rmSync(PMA_LINK, { force: true });
-    return fail(res, 500, 'Config nginx inválida: ' + (test.stderr.split('\n').find((l) => /error|emerg/i.test(l)) || test.stderr.split('\n')[0]));
+  // 2. Escribir y activar el vhost de nginx (valida y revierte si falla).
+  try {
+    await nginx.enableSite('txpl-phpmyadmin', nginx.buildPhpFpmSite(PMA_PORT, PMA_DIR, sock));
+  } catch (e) {
+    return fail(res, 500, e.message);
   }
-  await runSafe('systemctl', ['reload', 'nginx']);
   await runSafe('ufw', ['allow', `${PMA_PORT}/tcp`]);
 
   audit(req.user.username, clientIp(req), 'phpmyadmin.setup', `puerto ${PMA_PORT}`);

@@ -1,16 +1,25 @@
 'use strict';
 
+// ============================================================
+//  TecXPaneL — Sistema
+//
+//  Información y control del servidor: estadísticas (CPU, RAM, disco),
+//  estado de los servicios (nginx, mysql...), lista de procesos, IP
+//  pública y versiones de PHP instaladas.
+// ============================================================
+
 const os = require('os');
 const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { runSafe } = require('../lib/helpers');
-const { cpuPercent, memInfo } = require('../lib/websocket');
+const { cpuPercent, memInfo } = require('../lib/websocket'); // reutilizamos los cálculos del WS
 const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
 
 const router = express.Router();
 
+// Lee el nombre y versión del sistema operativo desde /etc/os-release.
 function osInfo() {
   let distro = 'Linux', release = '';
   try {
@@ -21,6 +30,8 @@ function osInfo() {
   return { hostname: os.hostname(), distro, release, arch: os.arch(), uptime: Math.floor(os.uptime()) };
 }
 
+// Uso de disco con el comando "df" (-PB1 = tamaños en bytes). Filtra sistemas
+// de archivos temporales y los de snap (que no interesan al usuario).
 async function diskInfo() {
   const out = await runSafe('df', ['-PB1', '-x', 'tmpfs', '-x', 'devtmpfs']);
   if (!out.ok) return [];
@@ -30,11 +41,14 @@ async function diskInfo() {
   }).filter((d) => d.mount && !d.mount.startsWith('/snap'));
 }
 
+// GET /api/system/stats — CPU, RAM, disco y datos del SO de una sola vez.
+// Promise.all ejecuta CPU y disco en paralelo (más rápido).
 router.get('/stats', wrap(async (req, res) => {
   const [cpu, disk] = await Promise.all([cpuPercent(), diskInfo()]);
   ok(res, { cpu, memory: memInfo(), disk, os: osInfo() });
 }));
 
+// GET /api/system/services — Estado (activo/parado) de los servicios clave.
 router.get('/services', wrap(async (req, res) => {
   const result = [];
   for (const name of ['nginx', 'mysql', 'postgresql', 'redis', 'ssh']) {
@@ -44,6 +58,8 @@ router.get('/services', wrap(async (req, res) => {
   ok(res, result);
 }));
 
+// POST /api/system/service/:name/:action — Arranca/para/reinicia un servicio.
+// :name y :action se validan contra listas blancas (solo lo permitido).
 router.post('/service/:name/:action', wrap(async (req, res) => {
   const { name, action } = req.params;
   if (!ALLOWED_SERVICES.includes(name)) return fail(res, 400, 'Servicio no permitido');
@@ -54,6 +70,7 @@ router.post('/service/:name/:action', wrap(async (req, res) => {
   ok(res);
 }));
 
+// GET /api/system/processes — Los 20 procesos que más CPU consumen.
 router.get('/processes', wrap(async (req, res) => {
   const out = await runSafe('ps', ['-eo', 'pid,comm,%cpu,%mem', '--sort=-%cpu']);
   if (!out.ok) return ok(res, []);
@@ -64,6 +81,8 @@ router.get('/processes', wrap(async (req, res) => {
   ok(res, procs);
 }));
 
+// GET /api/system/ip — IP pública del servidor. Primero pregunta a ipify.org;
+// si no hay internet, usa la IP local de "hostname -I".
 router.get('/ip', wrap(async (req, res) => {
   let ip = '';
   const r1 = await runSafe('curl', ['-4', '-s', '--max-time', '3', 'https://api.ipify.org']);
@@ -75,6 +94,8 @@ router.get('/ip', wrap(async (req, res) => {
   ok(res, { ip: ip || 'desconocida' });
 }));
 
+// GET /api/system/php-versions — Detecta las versiones de PHP-FPM instaladas
+// mirando los sockets /run/php/phpX.Y-fpm.sock.
 router.get('/php-versions', wrap(async (req, res) => {
   const r = await runSafe('bash', ['-c', 'ls /run/php/php*-fpm.sock 2>/dev/null || true']);
   const versions = [];

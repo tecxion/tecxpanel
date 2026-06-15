@@ -1,4 +1,15 @@
 <!DOCTYPE html>
+<!--
+  ════════════════════════════════════════════════════════════
+   TecXPaneL — Página única (SPA) del panel de control
+   Toda la interfaz vive en este archivo: la pantalla de login,
+   la barra lateral de navegación, una <div class="page"> por cada
+   sección (dashboard, sitios, apps, BDs, Docker, archivos...) y las
+   ventanas modales. La lógica está en js/app.js y los estilos en
+   css/styles.css. Los iconos (Tabler) y la terminal (xterm) se
+   cargan desde CDN.
+  ════════════════════════════════════════════════════════════
+-->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -930,6 +941,7 @@
       <div class="tabs" style="margin-bottom:1.25rem">
         <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i class="ti ti-brand-docker"></i> Usar Imagen</div>
         <div class="tab" id="tab-docker-file" onclick="switchDockerTab('file')"><i class="ti ti-file-code"></i> Escribir Dockerfile</div>
+        <div class="tab" id="tab-docker-deploy" onclick="switchDockerTab('deploy')"><i class="ti ti-rocket"></i> Desplegar mi app</div>
       </div>
 
       <div class="form-group">
@@ -952,6 +964,26 @@
           <label>Contenido del Dockerfile</label>
           <textarea id="docker-create-file" placeholder="FROM nginx:alpine&#10;COPY index.html /usr/share/nginx/html/&#10;EXPOSE 80" style="width:100%;height:180px;font-family:var(--mono);font-size:12.5px;padding:8px"></textarea>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se compilará una nueva imagen local en tu VPS al vuelo.</div>
+        </div>
+      </div>
+
+      <!-- Deploy section (asistente) -->
+      <div id="docker-deploy-section" style="display:none">
+        <div class="form-group">
+          <label>Tipo de aplicación (plantilla)</label>
+          <select id="docker-deploy-template" onchange="onDeployTemplateChange()">
+            <option value="static">Sitio estático (HTML/CSS/JS)</option>
+            <option value="node">Node.js</option>
+            <option value="python">Python</option>
+            <option value="php">PHP</option>
+            <option value="dockerfile">Ya tengo un Dockerfile en mi código</option>
+          </select>
+          <div id="docker-deploy-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+        </div>
+        <div class="form-group">
+          <label>Código de tu app (archivo .zip)</label>
+          <input type="file" id="docker-deploy-file" accept=".zip">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sube tu proyecto comprimido en .zip. El panel generará el Dockerfile, construirá la imagen y arrancará el contenedor. Indica un <strong>Nombre</strong> y un <strong>Puerto Host</strong> abajo.</div>
         </div>
       </div>
 
@@ -995,10 +1027,16 @@
           <input type="text" id="docker-create-volpath" placeholder="/var/lib/mysql">
         </div>
       </div>
+
+      <!-- Logs en vivo del despliegue -->
+      <div id="docker-deploy-progress" style="display:none;margin-top:1rem">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px"><i class="ti ti-loader-2 ti-spin" id="docker-deploy-spinner"></i> Despliegue en curso...</div>
+        <pre id="docker-deploy-log" style="background:var(--bg-app,#0b0e14);color:#cfe3ee;max-height:280px;overflow:auto;padding:10px;border-radius:8px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0"></pre>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-container')">Cancelar</button>
-      <button class="btn btn-primary" onclick="createDockerContainer()"><i class="ti ti-plus"></i> Crear y Arrancar</button>
+      <button class="btn btn-primary" id="docker-create-btn" onclick="createDockerContainer()"><i class="ti ti-plus"></i> Crear y Arrancar</button>
     </div>
   </div>
 </div>
@@ -1006,6 +1044,6 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js?v=20260614n"></script>
+<script src="js/app.js?v=20260615f4"></script>
 </body>
 </html>
