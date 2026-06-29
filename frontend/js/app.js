@@ -763,6 +763,7 @@ async function startDeploy() {
   const setStep = (key, state) => { steps.find((s) => s.key === key).state = state; renderDeploySteps(steps); };
 
   let createdId = null;
+  let pyMode = null;       // 'web' | 'worker' | null (solo Python)
   const finish = async (success) => {
     if (!success && createdId) {
       deployLog('\n↩ Despliegue fallido. Limpiando: se elimina la carpeta y los archivos creados...');
@@ -774,18 +775,17 @@ async function startDeploy() {
     document.getElementById('deploy-done-btn').style.display = 'inline-flex';
     if (!success) return;
     const host = serverIp || location.hostname;
-    deployLog('\n✅ Deploy completado. Accede a tu app desde:');
     if (pyMode !== 'worker') {
+      deployLog('\n✅ Deploy completado. Accede a tu app desde:');
       if (port) deployLog(`   • IP:    http://${host}:${port}`);
       if (domain) deployLog(`   • Dominio: http://${domain}  (apunta el DNS del dominio a ${host})`);
     } else {
-      deployLog('   • Worker/Bot en ejecución (sin puerto ni proxy).');
+      deployLog('\n✅ Deploy completado. Worker/Bot en ejecución (sin puerto ni proxy).');
     }
   };
 
   try {
     let detected = null;   // detección de proyecto (tipo, pyFiles, startCmd, mode…)
-    let pyMode = null;     // 'web' | 'worker' | null (solo Python)
 
     // 1. Crear / Clonar
     setStep('create', 'active'); deployLog(isGit ? '▶ Clonando repositorio Git...' : '▶ Creando aplicación...');
