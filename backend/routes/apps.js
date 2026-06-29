@@ -336,8 +336,9 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
   // Detectar proyecto
   const det = detectProject(cwd);
 
-  // Actualizar comando si el tipo es nodejs/react/python etc.
-  queries.setAppConfig.run(det.type, det.startCmd, appRow.id);
+  // Preservar el comando de arranque configurado por el usuario (no sobrescribirlo
+  // con la auto-detección); solo refrescamos el tipo por si cambió el proyecto.
+  queries.setAppConfig.run(det.type, appRow.start_cmd || det.startCmd, appRow.id);
 
   // 2. Instalar dependencias con devDependencies
   if (det.installCmd) {
