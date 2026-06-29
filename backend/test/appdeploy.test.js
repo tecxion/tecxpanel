@@ -81,3 +81,16 @@ test('buildPm2Launch: Node con npm start no cambia', () => {
   assert.strictEqual(args[0], 'start');
   assert.strictEqual(args[1], 'npm');
 });
+
+test('checkBuildRequirements: Python sin .venv avisa', () => {
+  const dir = tmpProject({ 'bot.py': 'x=1' });
+  const msg = appdeploy.checkBuildRequirements({ path: dir, type: 'python', start_cmd: 'python bot.py' });
+  assert.match(msg, /Instalar|venv|dependencias/i);
+});
+
+test('checkBuildRequirements: Python con .venv pasa', () => {
+  const dir = tmpProject({ 'bot.py': 'x=1' });
+  fs.mkdirSync(path.join(dir, '.venv'));
+  const msg = appdeploy.checkBuildRequirements({ path: dir, type: 'python', start_cmd: 'python bot.py' });
+  assert.strictEqual(msg, null);
+});

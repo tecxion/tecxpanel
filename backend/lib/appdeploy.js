@@ -71,6 +71,14 @@ function buildPm2Launch(appRow) {
 function checkBuildRequirements(appRow) {
   const cwd = appRow.path;
   const cmd = (appRow.start_cmd || '').trim();
+
+  if (appRow.type === 'python') {
+    if (!fs.existsSync(path.join(cwd, '.venv'))) {
+      return 'Faltan las dependencias de Python. Pulsa el botón de instalar (📦) para crear el entorno virtual antes de iniciar.';
+    }
+    return null;
+  }
+
   try {
     const pkgPath = path.join(cwd, 'package.json');
     if (!fs.existsSync(pkgPath)) return null;
