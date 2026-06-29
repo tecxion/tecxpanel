@@ -719,6 +719,26 @@
 
     <!-- Paso 2: consola de despliegue -->
     <div class="modal-body" id="deploy-progress" style="display:none">
+      <div id="py-confirm" style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)">
+        <div style="font-weight:600;margin-bottom:8px"><i class="ti ti-brand-python"></i> Configura tu app Python</div>
+        <div class="form-group">
+          <label>Tipo de app</label>
+          <select id="py-mode">
+            <option value="web">Servicio web (puerto + proxy)</option>
+            <option value="worker">Worker / Bot (sin puerto)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Archivo de arranque</label>
+          <select id="py-file"></select>
+        </div>
+        <div class="form-group">
+          <label>Comando de arranque</label>
+          <input type="text" id="py-cmd" placeholder="python bot.py">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ej.: <code>python bot.py</code>, <code>gunicorn -w 2 app:app</code>, <code>uvicorn main:app --host 0.0.0.0 --port 8000</code></div>
+        </div>
+        <button class="btn btn-primary" id="py-confirm-btn"><i class="ti ti-check"></i> Continuar despliegue</button>
+      </div>
       <div id="deploy-steps" style="margin-bottom:12px"></div>
       <pre id="deploy-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
     </div>

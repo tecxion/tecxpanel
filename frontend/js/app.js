@@ -687,6 +687,33 @@ function renderDeploySteps(steps) {
   }).join('');
 }
 
+// confirmPythonConfig: pausa el deploy y deja al usuario confirmar comando/modo
+// de una app Python. Resuelve con { start_cmd, mode } al pulsar "Continuar".
+function confirmPythonConfig(detected) {
+  return new Promise((resolve) => {
+    const box = document.getElementById('py-confirm');
+    const modeEl = document.getElementById('py-mode');
+    const fileEl = document.getElementById('py-file');
+    const cmdEl = document.getElementById('py-cmd');
+    const btn = document.getElementById('py-confirm-btn');
+
+    modeEl.value = detected.mode === 'worker' ? 'worker' : 'web';
+    fileEl.innerHTML = (detected.pyFiles || []).map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+    cmdEl.value = detected.startCmd || 'python app.py';
+    // Elegir un .py rellena el comando con "python <archivo>"
+    fileEl.onchange = () => { if (fileEl.value) cmdEl.value = `python ${fileEl.value}`; };
+
+    box.style.display = 'block';
+    btn.onclick = () => {
+      const start_cmd = cmdEl.value.trim();
+      if (!start_cmd) { toast('Indica el comando de arranque', 'error'); return; }
+      box.style.display = 'none';
+      btn.onclick = null;
+      resolve({ start_cmd, mode: modeEl.value });
+    };
+  });
+}
+
 let currentDeployTab = 'zip';
 
 // switchDeployTab: alterna entre las pestañas del modal de despliegue de apps.
@@ -748,11 +775,18 @@ async function startDeploy() {
     if (!success) return;
     const host = serverIp || location.hostname;
     deployLog('\n✅ Deploy completado. Accede a tu app desde:');
-    if (port) deployLog(`   • IP:    http://${host}:${port}`);
-    if (domain) deployLog(`   • Dominio: http://${domain}  (apunta el DNS del dominio a ${host})`);
+    if (pyMode !== 'worker') {
+      if (port) deployLog(`   • IP:    http://${host}:${port}`);
+      if (domain) deployLog(`   • Dominio: http://${domain}  (apunta el DNS del dominio a ${host})`);
+    } else {
+      deployLog('   • Worker/Bot en ejecución (sin puerto ni proxy).');
+    }
   };
 
   try {
+    let detected = null;   // detección de proyecto (tipo, pyFiles, startCmd, mode…)
+    let pyMode = null;     // 'web' | 'worker' | null (solo Python)
+
     // 1. Crear / Clonar
     setStep('create', 'active'); deployLog(isGit ? '▶ Clonando repositorio Git...' : '▶ Creando aplicación...');
     const createData = { name, path: basePath, port, domain };
@@ -767,6 +801,7 @@ async function startDeploy() {
     setStep('create', 'ok'); deployLog(isGit ? '✓ Clonado exitosamente en: ' + created.path : '✓ Carpeta: ' + created.path);
 
     if (isGit && created.detected) {
+      detected = created.detected;
       deployLog(`\nProyecto detectado: ${created.detected.type}\nInstalar: ${created.detected.installCmd || '—'}\nBuild: ${created.detected.buildCmd || '—'}\nInicio: ${created.detected.startCmd}`);
     }
 
@@ -786,6 +821,15 @@ async function startDeploy() {
       const ext = await req('POST', `/apps/${id}/extract`);
       if (!ext?.success) { setStep('extract', 'err'); deployLog('✖ ' + (ext?.error || 'Error al extraer')); return finish(false); }
       setStep('extract', 'ok'); deployLog(ext.output || '');
+      detected = ext.detected || null;
+    }
+
+    // Pausa de confirmación solo para proyectos Python
+    if (detected && detected.type === 'python') {
+      const cfg = await confirmPythonConfig(detected);
+      const saved = await req('POST', `/apps/${id}/config`, { type: 'python', start_cmd: cfg.start_cmd, mode: cfg.mode, port, domain });
+      if (!saved?.success) { deployLog('✖ No se pudo guardar la configuración'); return finish(false); }
+      pyMode = cfg.mode;
     }
 
     // 4. Instalar
@@ -808,11 +852,15 @@ async function startDeploy() {
     if (!st?.success) { setStep('start', 'err'); deployLog('✖ ' + (st?.error || 'No arrancó')); return finish(false); }
     setStep('start', 'ok'); deployLog('✓ Aplicación en marcha');
 
-    // 7. Configurar acceso
-    setStep('proxy', 'active'); deployLog('\n▶ Configurando acceso...');
-    const px = await req('POST', `/apps/${id}/proxy`);
-    if (px?.success) { setStep('proxy', 'ok'); deployLog(px.output || ''); }
-    else { setStep('proxy', 'err'); deployLog('✖ ' + (px?.error || 'No se pudo configurar el acceso')); }
+    // 7. Configurar acceso (se omite en workers Python sin puerto)
+    if (pyMode !== 'worker') {
+      setStep('proxy', 'active'); deployLog('\n▶ Configurando acceso...');
+      const px = await req('POST', `/apps/${id}/proxy`);
+      if (px?.success) { setStep('proxy', 'ok'); deployLog(px.output || ''); }
+      else { setStep('proxy', 'err'); deployLog('✖ ' + (px?.error || 'No se pudo configurar el acceso')); }
+    } else {
+      setStep('proxy', 'ok'); deployLog('\nWorker/Bot: sin proxy ni puerto.');
+    }
 
     toast(`App "${name}" desplegada`, 'success');
     await finish(true);
