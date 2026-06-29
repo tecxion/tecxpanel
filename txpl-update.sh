@@ -62,6 +62,14 @@ fi
 npm install --silent --production
 log "✅ Dependencias actualizadas"
 
+# ── 3b. Asegurar python3-venv (necesario para desplegar apps Python) ──
+if ! dpkg -s python3-venv >/dev/null 2>&1; then
+    log "🐍 Instalando python3-venv (necesario para apps Python)..."
+    apt-get update -qq && apt-get install -y -qq python3-venv \
+        && log "✅ python3-venv instalado" \
+        || warn "No se pudo instalar python3-venv automáticamente (instálalo con: apt install python3-venv)"
+fi
+
 # ── 4. Reload sin downtime con PM2 ──────────────────────────
 sep
 log "🔄 Recargando panel (zero downtime)..."
