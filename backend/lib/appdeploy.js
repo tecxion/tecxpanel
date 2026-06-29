@@ -3,6 +3,21 @@
 const path = require('path');
 const fs = require('fs');
 
+// Entrypoints Python reconocidos (en orden de preferencia)
+const PY_ENTRIES = ['app.py', 'main.py', 'wsgi.py', 'server.py', 'bot.py', 'run.py'];
+// Frameworks que implican un servicio web (escucha en un puerto)
+const PY_WEB_FRAMEWORKS = ['flask', 'fastapi', 'django', 'gunicorn', 'uvicorn'];
+
+// Decide si un proyecto Python es "web" (puerto + proxy) o "worker" (sin puerto)
+// mirando los frameworks declarados en requirements.txt.
+function detectPyMode(cwd, reqPath) {
+  try {
+    if (!fs.existsSync(reqPath)) return 'worker';
+    const reqs = fs.readFileSync(reqPath, 'utf8').toLowerCase();
+    return PY_WEB_FRAMEWORKS.some((fw) => reqs.includes(fw)) ? 'web' : 'worker';
+  } catch (_) { return 'worker'; }
+}
+
 // Borra recursivamente la carpeta de una app, con guardas de seguridad
 // para no eliminar nunca rutas raíz o demasiado superficiales.
 // (Evita catástrofes como borrar "/" o "/etc" si la ruta viene mal.)
@@ -71,10 +86,10 @@ function checkBuildRequirements(appRow) {
 
 // Detecta tipo de proyecto y comandos de install/build/start desde los archivos.
 function detectProject(cwd) {
-  const det = { type: 'nodejs', manager: 'npm', installCmd: '', buildCmd: '', startCmd: '', notes: [] };
+  const det = { type: 'nodejs', manager: 'npm', installCmd: '', buildCmd: '', startCmd: '', notes: [], mode: 'web', pyFiles: [] };
   const pkgPath = path.join(cwd, 'package.json');
   const reqPath = path.join(cwd, 'requirements.txt');
-  const hasPyFile = () => ['app.py', 'main.py', 'wsgi.py', 'server.py'].some((f) => fs.existsSync(path.join(cwd, f)));
+  const hasPyFile = () => PY_ENTRIES.some((f) => fs.existsSync(path.join(cwd, f)));
 
   if (fs.existsSync(pkgPath)) {
     let pkg = {};
@@ -109,9 +124,15 @@ function detectProject(cwd) {
   } else if (fs.existsSync(reqPath) || hasPyFile()) {
     det.type = 'python';
     det.manager = 'pip';
-    det.installCmd = fs.existsSync(reqPath) ? 'pip3 install -r requirements.txt' : '';
-    const entry = ['app.py', 'main.py', 'wsgi.py', 'server.py'].find((f) => fs.existsSync(path.join(cwd, f)));
-    det.startCmd = `python3 ${entry || 'app.py'}`;
+    // Virtualenv por app: crea .venv y, si hay requirements.txt, instala dentro.
+    // Evita el error PEP 668 (externally-managed-environment) del pip global.
+    det.installCmd = fs.existsSync(reqPath)
+      ? 'python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt'
+      : 'python3 -m venv .venv';
+    const entry = PY_ENTRIES.find((f) => fs.existsSync(path.join(cwd, f)));
+    det.startCmd = `python ${entry || 'app.py'}`;
+    det.mode = detectPyMode(cwd, reqPath);
+    det.pyFiles = fs.readdirSync(cwd).filter((f) => f.endsWith('.py'));
   } else {
     det.notes.push('No se detectó package.json ni requirements.txt');
     det.startCmd = 'npm start';
