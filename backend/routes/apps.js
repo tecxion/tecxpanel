@@ -232,6 +232,38 @@ router.post('/:id/proxy', wrap(async (req, res) => {
   ok(res, { success: true, output: lines.join('\n') || 'Sin cambios de red' });
 }));
 
+// Guarda la configuración de despliegue editada por el usuario (comando, modo).
+// En modo worker se limpian puerto y dominio (no escucha en red).
+router.post('/:id/config', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+
+  const startCmd = (req.body?.start_cmd || '').trim();
+  if (!startCmd) return fail(res, 400, 'El comando de arranque es obligatorio');
+
+  const type = ALLOWED_APP_TYPES.includes(req.body?.type) ? req.body.type : appRow.type;
+  const mode = req.body?.mode === 'worker' ? 'worker' : 'web';
+
+  let port = appRow.port;
+  let domain = appRow.domain;
+  if (mode === 'worker') { port = null; domain = null; }
+  else {
+    if (req.body?.port != null && req.body.port !== '') {
+      const p = parseInt(req.body.port, 10);
+      if (!isPort(p)) return fail(res, 400, 'Puerto inválido');
+      port = p;
+    }
+    if (req.body?.domain) {
+      if (!isValidDomain(req.body.domain)) return fail(res, 400, 'Dominio inválido');
+      domain = req.body.domain;
+    }
+  }
+
+  queries.setAppDeployConfig.run(type, startCmd, port, domain, appRow.id);
+  audit(req.user.username, clientIp(req), 'app.config', `${appRow.name}: ${startCmd}`);
+  ok(res, { success: true, type, start_cmd: startCmd, port, domain, mode });
+}));
+
 router.post('/:id/:action', wrap(async (req, res) => {
   const { action } = req.params;
   if (!ALLOWED_APP_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
