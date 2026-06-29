@@ -82,9 +82,13 @@ export DEBIAN_FRONTEND=noninteractive
 
 phase_base() {
     apt-get update -qq
+    # python3-venv/-dev: necesarios para crear el virtualenv de las apps Python y
+    #   compilar dependencias con extensiones C. unzip/tar: extracción de los ZIP
+    #   y tar.gz al desplegar apps (evita instalarlos a mitad del despliegue).
     apt-get install -y -qq \
-        curl git ca-certificates gnupg build-essential python3 python3-pip python3-venv \
-        nginx ufw certbot python3-certbot-nginx sqlite3
+        curl git ca-certificates gnupg build-essential \
+        python3 python3-pip python3-venv python3-dev \
+        nginx ufw certbot python3-certbot-nginx sqlite3 unzip tar
 }
 
 phase_node() {
@@ -209,10 +213,10 @@ mkdir -p "$TXPL_DIR/backend" "$TXPL_DIR/frontend" "$TXPL_DIR/data" \
 step_done
 
 step_begin "Copiando archivos del panel"
-# Backend (server.js, database.js, lib/, routes/)
+# Backend (server.js, database.js, lib/, routes/, scripts/) — copia recursiva
 cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
 cp "$SCRIPT_DIR/package.json"        "$TXPL_DIR/backend/"
-# Frontend (index.html, css/, js/)
+# Frontend (index.html, css/, js/, views/) — copia recursiva, incluye las vistas modulares
 cp -r "$SCRIPT_DIR/frontend/." "$TXPL_DIR/frontend/"
 cp "$SCRIPT_DIR/ecosystem.config.js" "$TXPL_DIR/"
 cp "$SCRIPT_DIR/txpl-backup.sh" "$SCRIPT_DIR/txpl-update.sh" "$TXPL_DIR/" 2>/dev/null || true
