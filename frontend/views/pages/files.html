@@ -1,0 +1,33 @@
+<div style="margin-bottom:1rem;display:flex;gap:8px">
+  <button class="btn btn-primary" onclick="openModal('modal-new-folder')"><i class="ti ti-folder-plus"></i> Nueva carpeta</button>
+  <button class="btn btn-primary" onclick="openModal('modal-new-file')"><i class="ti ti-file-plus"></i> Nuevo archivo</button>
+  <button class="btn btn-sm" onclick="loadFiles()"><i class="ti ti-refresh"></i></button>
+</div>
+<div id="file-breadcrumb" style="margin-bottom:1rem;font-size:13px;color:var(--text-secondary)"></div>
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-folders"></i> Archivos y carpetas</div>
+  </div>
+  <div id="drop-zone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:2rem;text-align:center;color:var(--text-muted);background:var(--bg-card2);cursor:pointer;margin-bottom:1rem;transition:all 0.15s">
+    <p><i class="ti ti-cloud-upload" style="font-size:24px;display:block;margin-bottom:0.5rem"></i></p>
+    <p style="margin:0"><strong>Arrastra archivos o carpetas aquí</strong></p>
+    <p style="margin:0;font-size:12px">o haz clic para seleccionar archivos</p>
+    <input type="file" id="file-upload" style="display:none" multiple onchange="handleFileUpload(event)">
+  </div>
+  <div id="upload-progress" style="display:none;margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span id="upload-status" style="font-size:13px;color:var(--text-secondary)">Subiendo...</span>
+      <span id="upload-percent" style="font-size:13px;font-weight:600;color:var(--accent)">0%</span>
+    </div>
+    <div style="width:100%;height:8px;background:var(--bg-card2);border-radius:4px;overflow:hidden">
+      <div id="upload-bar" style="width:0%;height:100%;background:var(--accent);border-radius:4px;transition:width 0.2s ease"></div>
+    </div>
+    <div id="upload-detail" style="font-size:11px;color:var(--text-muted);margin-top:4px">0 / 0 archivos</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th style="width:40px"></th><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th>Acciones</th></tr></thead>
+      <tbody id="files-table"><tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted)"><i class="ti ti-inbox"></i> Cargando...</td></tr></tbody>
+    </table>
+  </div>
+</div>

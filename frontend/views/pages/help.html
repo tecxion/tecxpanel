@@ -1,0 +1,59 @@
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-book"></i> Manual de uso de TecXPaneL</div>
+  </div>
+  <div style="font-size:13px;color:var(--text-secondary);line-height:1.9">
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-layout-dashboard" style="color:var(--accent)"></i> Dashboard</h3>
+    <p>Muestra el estado del servidor en tiempo real: uso de CPU, RAM, disco y red. Tambi&eacute;n ves los servicios activos (Nginx, MySQL, etc.) y los procesos que m&aacute;s recursos consumen. Los datos se actualizan autom&aacute;ticamente cada pocos segundos.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Terminal</h3>
+    <p>Una terminal SSH real dentro del navegador. Puedes ejecutar cualquier comando como si estuvieras conectado por SSH. Pulsa <strong>Conectar</strong> para abrir la sesi&oacute;n. Soporta colores, autocompletado y todo lo que har&iacute;as en una terminal normal.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios web</h3>
+    <p>Crea y gestiona sitios web alojados en tu VPS. Puedes crear sitios de tipo:</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>HTML est&aacute;tico</strong> &mdash; p&aacute;ginas simples sin backend.</li>
+      <li><strong>PHP</strong> &mdash; WordPress, Laravel y cualquier app PHP. Puedes elegir la versi&oacute;n de PHP.</li>
+      <li><strong>Node.js / React / Python</strong> &mdash; se configura como proxy inverso hacia tu app.</li>
+    </ul>
+    <p><strong>Sin dominio:</strong> Si no tienes un dominio, marca &laquo;Acceso por IP:Puerto&raquo; y el panel asignar&aacute; un puerto autom&aacute;ticamente. Podr&aacute;s acceder al sitio desde <code>http://tu-ip:puerto</code>.</p>
+    <p><strong>Con dominio:</strong> Introduce tu dominio (ej: <code>ejemplo.com</code>). Recuerda crear un registro A apuntando a la IP de tu VPS. Luego puedes instalar SSL desde la secci&oacute;n SSL/HTTPS.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Aplicaciones</h3>
+    <p>Despliega aplicaciones Node.js, Python, TypeScript o React gestionadas por PM2. El panel se encarga de mantenerlas vivas y reiniciarlas si se caen.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Ruta del proyecto:</strong> la carpeta donde est&aacute; tu c&oacute;digo (ej: <code>/var/www/mi-api</code>).</li>
+      <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>).</li>
+      <li><strong>Puerto:</strong> en qu&eacute; puerto escucha tu app (informativo, para configurar el proxy).</li>
+    </ul>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-database" style="color:var(--accent)"></i> Bases de datos</h3>
+    <p>Crea bases de datos MySQL (MariaDB) o PostgreSQL con un clic. El panel genera autom&aacute;ticamente un usuario y contrase&ntilde;a seguros. Las contrase&ntilde;as se almacenan cifradas y puedes copiarlas con el bot&oacute;n de copiar.</p>
+    <p><strong>Requisito:</strong> el motor de BD debe estar instalado. Si no lo instalaste durante el setup, puedes hacerlo desde <strong>Plugins</strong>.</p>
+    <p><strong>phpMyAdmin:</strong> para gestionar tus bases de datos visualmente, instala phpMyAdmin desde Plugins. Estar&aacute; accesible en el puerto 8081.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-folders" style="color:var(--accent)"></i> Gestor de archivos</h3>
+    <p>Navega, crea, edita y elimina archivos y carpetas del sistema. Ideal para subir o editar el c&oacute;digo de tus sitios web directamente desde el navegador.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Firewall UFW</h3>
+    <p>Gestiona las reglas del firewall UFW. Por defecto se abren los puertos 22 (SSH), 80 (HTTP) y 443 (HTTPS). Puedes a&ntilde;adir reglas para abrir otros puertos que necesiten tus apps.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-certificate" style="color:var(--accent)"></i> SSL / HTTPS</h3>
+    <p>Instala certificados SSL gratuitos de Let&rsquo;s Encrypt en tus sitios con dominio. El certificado se renueva autom&aacute;ticamente. Requisitos: tener un dominio apuntando a la IP del VPS y Certbot instalado (viene por defecto o se instala desde Plugins).</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-puzzle" style="color:var(--accent)"></i> Plugins</h3>
+    <p>Instala software adicional sin tocar la terminal:</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Docker</strong> &mdash; contenedores para aislar aplicaciones.</li>
+      <li><strong>phpMyAdmin</strong> &mdash; gestor web para MySQL/MariaDB (puerto 8081).</li>
+      <li><strong>Redis</strong> &mdash; cach&eacute; en memoria para mejorar rendimiento.</li>
+      <li><strong>Fail2Ban</strong> &mdash; protege SSH y otros servicios contra ataques de fuerza bruta.</li>
+      <li><strong>Composer</strong> &mdash; gestor de paquetes PHP (Laravel, WordPress plugins).</li>
+      <li><strong>Certbot</strong> &mdash; certificados SSL gratuitos.</li>
+    </ul>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes</h3>
+    <p>Cambia tu contrase&ntilde;a de acceso al panel. La contrase&ntilde;a debe tener al menos 8 caracteres.</p>
+  </div>
+</div>

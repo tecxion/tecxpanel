@@ -1,0 +1,8 @@
+<div class="tabs">
+  <div class="tab active" onclick="loadLog('nginx_access',this)">Nginx Access</div>
+  <div class="tab" onclick="loadLog('nginx_error',this)">Nginx Error</div>
+  <div class="tab" onclick="loadLog('system',this)">Sistema</div>
+</div>
+<div class="card">
+  <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Selecciona un log para verlo...</pre>
+</div>

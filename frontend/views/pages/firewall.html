@@ -1,0 +1,18 @@
+<div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+  <button class="btn btn-primary" onclick="openModal('modal-new-rule')">
+    <i class="ti ti-plus"></i> Nueva regla
+  </button>
+  <button class="btn btn-sm" onclick="loadFirewall()"><i class="ti ti-refresh"></i></button>
+</div>
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-shield-lock"></i> Reglas del Firewall UFW</div>
+    <div id="ufw-status" class="badge badge-green">Activo</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Destino</th><th>Acción</th><th>Desde</th><th>Acciones</th></tr></thead>
+      <tbody id="firewall-table"><tr><td colspan="5" class="empty-state">Cargando reglas...</td></tr></tbody>
+    </table>
+  </div>
+</div>

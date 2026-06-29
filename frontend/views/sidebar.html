@@ -1,0 +1,59 @@
+<div class="sidebar-logo">
+  <div class="logo-txpl">TecXPaneL<span>.</span></div>
+  <div class="logo-sub">VPS Control Panel</div>
+</div>
+
+<div class="sidebar-section">General</div>
+<div class="nav-item active" data-page="dashboard" onclick="navigate(this)">
+  <i class="ti ti-layout-dashboard"></i> Dashboard
+</div>
+<div class="nav-item" data-page="terminal" onclick="navigate(this)">
+  <i class="ti ti-terminal-2"></i> Terminal
+</div>
+<div class="nav-item" data-page="logs" onclick="navigate(this)">
+  <i class="ti ti-file-text"></i> Logs del sistema
+</div>
+
+<div class="sidebar-section">Servicios</div>
+<div class="nav-item" data-page="websites" onclick="navigate(this)">
+  <i class="ti ti-world"></i> Sitios web
+</div>
+<div class="nav-item" data-page="apps" onclick="navigate(this)">
+  <i class="ti ti-brand-nodejs"></i> Aplicaciones
+</div>
+<div class="nav-item" data-page="databases" onclick="navigate(this)">
+  <i class="ti ti-database"></i> Bases de datos
+</div>
+<div class="nav-item" data-page="docker" onclick="navigate(this)">
+  <i class="ti ti-brand-docker"></i> Docker
+</div>
+
+<div class="sidebar-section">Sistema</div>
+<div class="nav-item" data-page="files" onclick="navigate(this)">
+  <i class="ti ti-folders"></i> Archivos
+</div>
+<div class="nav-item" data-page="firewall" onclick="navigate(this)">
+  <i class="ti ti-shield-lock"></i> Firewall UFW
+</div>
+<div class="nav-item" data-page="ssl" onclick="navigate(this)">
+  <i class="ti ti-certificate"></i> SSL / HTTPS
+</div>
+<div class="nav-item" data-page="plugins" onclick="navigate(this)">
+  <i class="ti ti-puzzle"></i> Plugins
+</div>
+
+<div class="sidebar-section">Ayuda</div>
+<div class="nav-item" data-page="help" onclick="navigate(this)">
+  <i class="ti ti-book"></i> Manual de uso
+</div>
+
+<div class="sidebar-bottom">
+  <div class="user-chip" onclick="navigate('settings')">
+    <div class="user-avatar" id="user-avatar">A</div>
+    <div>
+      <div class="user-name" id="user-name">Admin</div>
+      <div class="user-role">Administrador</div>
+    </div>
+    <i class="ti ti-settings" style="margin-left:auto;color:var(--text-muted);font-size:16px"></i>
+  </div>
+</div>

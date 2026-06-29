@@ -1,0 +1,65 @@
+<div class="stats-grid">
+  <div class="stat-card cpu">
+    <div class="stat-label"><i class="ti ti-cpu"></i> CPU</div>
+    <div class="stat-value"><span id="cpu-val">—</span><span>%</span></div>
+    <div class="stat-bar"><div class="stat-bar-fill cpu" id="cpu-bar" style="width:0%"></div></div>
+    <div style="margin-top:10px;height:40px;"><canvas id="cpu-chart" style="width:100%;height:40px;display:block;"></canvas></div>
+  </div>
+  <div class="stat-card mem">
+    <div class="stat-label"><i class="ti ti-cpu-2"></i> Memoria RAM</div>
+    <div class="stat-value"><span id="mem-val">—</span><span>%</span></div>
+    <div class="stat-bar"><div class="stat-bar-fill mem" id="mem-bar" style="width:0%;background:var(--cyan)"></div></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="mem-detail">— / —</div>
+    <div style="margin-top:10px;height:40px;"><canvas id="mem-chart" style="width:100%;height:40px;display:block;"></canvas></div>
+  </div>
+  <div class="stat-card disk">
+    <div class="stat-label"><i class="ti ti-database"></i> Disco</div>
+    <div class="stat-value"><span id="disk-val">—</span><span>%</span></div>
+    <div class="stat-bar"><div class="stat-bar-fill disk" id="disk-bar" style="width:0%;background:var(--green)"></div></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="disk-detail">— / —</div>
+  </div>
+  <div class="stat-card net">
+    <div class="stat-label"><i class="ti ti-activity"></i> Red</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:0.25rem">
+      <div>
+        <div style="font-size:10px;color:var(--text-muted)">↓ RECV</div>
+        <div style="font-size:1.1rem;font-weight:700" id="net-rx">—</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted)">↑ SEND</div>
+        <div style="font-size:1.1rem;font-weight:700" id="net-tx">—</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;height:40px;"><canvas id="net-chart" style="width:100%;height:40px;display:block;"></canvas></div>
+  </div>
+</div>
+
+<div class="overview-grid">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="ti ti-server"></i> Servicios del sistema</div>
+      <button class="btn btn-sm" onclick="loadServices()"><i class="ti ti-refresh"></i></button>
+    </div>
+    <div class="services-list" id="services-list">
+      <div class="empty-state"><i class="ti ti-loader"></i> Cargando...</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="ti ti-activity"></i> Procesos top</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>PID</th><th>Proceso</th><th>CPU%</th><th>MEM%</th></tr></thead>
+        <tbody id="procs-table"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-info-circle"></i> Información del sistema</div>
+  </div>
+  <div id="os-info" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem"></div>
+</div>

@@ -1,0 +1,19 @@
+<div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+  <button class="btn btn-primary" onclick="resetDeployModal();openModal('modal-new-app')">
+    <i class="ti ti-plus"></i> Nueva aplicación
+  </button>
+</div>
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-brand-nodejs"></i> Aplicaciones PM2</div>
+    <button class="btn btn-sm" onclick="loadApps()"><i class="ti ti-refresh"></i></button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Nombre</th><th>Tipo</th><th>Puerto</th><th>Estado</th><th>Dominio</th><th>Acciones</th></tr></thead>
+      <tbody id="apps-table">
+        <tr><td colspan="6" class="empty-state">Sin aplicaciones aún</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

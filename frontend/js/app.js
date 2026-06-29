@@ -75,10 +75,7 @@ function closeModal(id) {
   }
 }
 
-// Cerrar la modal al hacer clic fuera de ella (en el fondo oscuro).
-document.querySelectorAll('.modal-overlay').forEach(o => {
-  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open') });
-});
+// Cerrar la modal al hacer clic fuera de ella (en el fondo oscuro) se vincula dinámicamente en bootApp
 
 // ── Auth ──────────────────────────────────────────────────────
 // doLogin: envía usuario+contraseña al backend. Si hay token, lo guarda y entra
@@ -636,15 +633,7 @@ function updateAppPathPreview() {
 // ── Deploy por ZIP (estilo Hostinger) ─────────────────────────
 let deployZipFile = null;
 let deployEnvFile = null;
-
-document.addEventListener('DOMContentLoaded', () => {
-  const nameEl = document.getElementById('app-name');
-  const pathEl = document.getElementById('app-path');
-  if (nameEl) nameEl.addEventListener('input', updateAppPathPreview);
-  if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
-  setupDragDrop();
-  setupDeployDrops();
-});
+// La inicialización del DOM se realiza en bootApp tras cargar las plantillas dinámicamente
 
 // setupDeployDrops: prepara las zonas de "arrastrar y soltar" para subir el código.
 function setupDeployDrops() {
@@ -2169,7 +2158,70 @@ async function triggerGitPull() {
 }
 
 // ── Init ──────────────────────────────────────────────────────
-checkAuth();
+async function loadTemplates() {
+  const pages = [
+    'dashboard', 'terminal', 'websites', 'apps', 'databases',
+    'docker', 'files', 'firewall', 'ssl', 'logs', 'plugins',
+    'help', 'settings'
+  ];
+
+  const promises = [
+    fetch('views/sidebar.html')
+      .then(r => { if (!r.ok) throw new Error(`sidebar: ${r.statusText}`); return r.text(); })
+      .then(html => {
+        const mount = document.getElementById('sidebar-mount');
+        if (mount) mount.innerHTML = html;
+      }),
+    fetch('views/modals.html')
+      .then(r => { if (!r.ok) throw new Error(`modals: ${r.statusText}`); return r.text(); })
+      .then(html => {
+        const mount = document.getElementById('modals-mount');
+        if (mount) mount.innerHTML = html;
+      })
+  ];
+
+  pages.forEach(page => {
+    promises.push(
+      fetch(`views/pages/${page}.html`)
+        .then(r => { if (!r.ok) throw new Error(`${page}: ${r.statusText}`); return r.text(); })
+        .then(html => {
+          const mount = document.getElementById(`page-${page}`);
+          if (mount) mount.innerHTML = html;
+        })
+    );
+  });
+
+  try {
+    await Promise.all(promises);
+  } catch (err) {
+    console.error('Error loading templates:', err);
+    toast('Error al cargar la interfaz. Revisa la consola o recarga.', 'error');
+  }
+}
+
+function bindModalOverlayEvents() {
+  document.querySelectorAll('.modal-overlay').forEach(o => {
+    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open') });
+  });
+}
+
+async function bootApp() {
+  await loadTemplates();
+  bindModalOverlayEvents();
+  
+  // Re-run setup logic for DOM elements that were loaded dynamically
+  const nameEl = document.getElementById('app-name');
+  const pathEl = document.getElementById('app-path');
+  if (nameEl) nameEl.addEventListener('input', updateAppPathPreview);
+  if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
+  setupDragDrop();
+  setupDeployDrops();
+  
+  // Check auth
+  await checkAuth();
+}
+
+bootApp();
 
 setInterval(() => {
   if (currentPage === 'dashboard') { loadServices(); loadProcesses(); }
