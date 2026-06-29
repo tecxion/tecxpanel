@@ -34,7 +34,7 @@ const { setupWebSockets } = require('./lib/websocket');
 const PORT = parseInt(process.env.TXPL_PORT || '8585', 10);
 const JWT_SECRET = process.env.JWT_SECRET;            // clave para firmar los tokens
 const TOKEN_TTL = process.env.TXPL_TOKEN_TTL || '8h'; // duración de la sesión
-const FRONTEND_DIR = process.env.FRONTEND_DIR || path.join(process.env.TXPL_DIR || '/opt/txpl', 'frontend');
+const FRONTEND_DIR = path.resolve(process.env.FRONTEND_DIR || path.join(process.env.TXPL_DIR || '/opt/txpl', 'frontend'));
 
 // Sin un JWT_SECRET fuerte no arrancamos: firmaría tokens fáciles de falsificar.
 if (!JWT_SECRET || JWT_SECRET.length < 32) {

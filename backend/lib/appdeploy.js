@@ -42,15 +42,15 @@ function buildPm2Launch(appRow) {
 
   // Python: ejecutar siempre con el intérprete/binarios del virtualenv (.venv)
   if (appRow.type === 'python') {
-    const venvBin = path.join(cwd, '.venv', 'bin');
+    const venvBin = path.posix.join(cwd, '.venv', 'bin');
     const parts = cmd.split(/\s+/).filter(Boolean);
     const first = parts[0] || 'python';
     if (/^python3?$/.test(first)) {
       const script = parts.slice(1).join(' ') || 'app.py';
-      return ['start', script, ...baseOpts, '--interpreter', path.join(venvBin, 'python')];
+      return ['start', script, ...baseOpts, '--interpreter', path.posix.join(venvBin, 'python')];
     }
     // gunicorn / uvicorn / otro binario instalado en el venv
-    return ['start', path.join(venvBin, first), ...baseOpts, '--interpreter', 'none', '--', ...parts.slice(1)];
+    return ['start', path.posix.join(venvBin, first), ...baseOpts, '--interpreter', 'none', '--', ...parts.slice(1)];
   }
 
   if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
