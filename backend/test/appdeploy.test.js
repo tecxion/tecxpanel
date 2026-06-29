@@ -57,3 +57,27 @@ test('detectProject: proyecto Node mantiene mode web y pyFiles vacío', () => {
   assert.strictEqual(det.mode, 'web');
   assert.deepStrictEqual(det.pyFiles, []);
 });
+
+test('buildPm2Launch: script Python usa el python del venv', () => {
+  const args = appdeploy.buildPm2Launch({ pm2_name: 'txpl-app-bot', path: '/var/www/bot', type: 'python', start_cmd: 'python bot.py' });
+  assert.deepStrictEqual(args.slice(0, 2), ['start', 'bot.py']);
+  const i = args.indexOf('--interpreter');
+  assert.ok(i > -1);
+  assert.strictEqual(args[i + 1], '/var/www/bot/.venv/bin/python');
+});
+
+test('buildPm2Launch: gunicorn usa el binario del venv con --interpreter none', () => {
+  const args = appdeploy.buildPm2Launch({ pm2_name: 'txpl-app-api', path: '/var/www/api', type: 'python', start_cmd: 'gunicorn -w 2 app:app' });
+  assert.strictEqual(args[0], 'start');
+  assert.strictEqual(args[1], '/var/www/api/.venv/bin/gunicorn');
+  const i = args.indexOf('--interpreter');
+  assert.strictEqual(args[i + 1], 'none');
+  const sep = args.indexOf('--');
+  assert.deepStrictEqual(args.slice(sep + 1), ['-w', '2', 'app:app']);
+});
+
+test('buildPm2Launch: Node con npm start no cambia', () => {
+  const args = appdeploy.buildPm2Launch({ pm2_name: 'txpl-app-web', path: '/var/www/web', type: 'nodejs', start_cmd: 'npm start' });
+  assert.strictEqual(args[0], 'start');
+  assert.strictEqual(args[1], 'npm');
+});

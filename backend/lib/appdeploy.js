@@ -40,19 +40,29 @@ function buildPm2Launch(appRow) {
   const baseOpts = ['--name', pm2Name, '--cwd', cwd, '--max-restarts', '5', '--restart-delay', '3000'];
   let pm2Args;
 
+  // Python: ejecutar siempre con el intérprete/binarios del virtualenv (.venv)
+  if (appRow.type === 'python') {
+    const venvBin = path.join(cwd, '.venv', 'bin');
+    const parts = cmd.split(/\s+/).filter(Boolean);
+    const first = parts[0] || 'python';
+    if (/^python3?$/.test(first)) {
+      const script = parts.slice(1).join(' ') || 'app.py';
+      return ['start', script, ...baseOpts, '--interpreter', path.join(venvBin, 'python')];
+    }
+    // gunicorn / uvicorn / otro binario instalado en el venv
+    return ['start', path.join(venvBin, first), ...baseOpts, '--interpreter', 'none', '--', ...parts.slice(1)];
+  }
+
   if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
     const parts = cmd.split(/\s+/);
     pm2Args = ['start', parts[0], ...baseOpts, '--', ...parts.slice(1)];
-  } else if (/^(python3?|node)\s/.test(cmd)) {
+  } else if (/^node\s/.test(cmd)) {
     const parts = cmd.split(/\s+/);
-    const interp = parts[0];
-    const script = parts.slice(1).join(' ') || (interp.startsWith('python') ? 'app.py' : 'index.js');
+    const script = parts.slice(1).join(' ') || 'index.js';
     pm2Args = ['start', script, ...baseOpts];
-    if (interp.startsWith('python')) pm2Args.push('--interpreter', interp);
   } else {
-    const script = cmd || (appRow.type === 'python' ? 'app.py' : 'index.js');
+    const script = cmd || 'index.js';
     pm2Args = ['start', script, ...baseOpts];
-    if (appRow.type === 'python') pm2Args.push('--interpreter', 'python3');
   }
   return pm2Args;
 }
