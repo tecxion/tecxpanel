@@ -192,6 +192,7 @@ const queries = {
   insertApp:  db.prepare('INSERT INTO apps (name, type, path, start_cmd, port, domain, pm2_name, status, git_repo, git_branch, webhook_secret) VALUES (@name, @type, @path, @start_cmd, @port, @domain, @pm2_name, @status, @git_repo, @git_branch, @webhook_secret)'),
   setAppStatus: db.prepare('UPDATE apps SET status = ? WHERE id = ?'),
   setAppConfig: db.prepare('UPDATE apps SET type = ?, start_cmd = ? WHERE id = ?'),
+  setAppDeployConfig: db.prepare('UPDATE apps SET type = ?, start_cmd = ?, port = ?, domain = ? WHERE id = ?'),
   setAppGitConfig: db.prepare('UPDATE apps SET git_repo = ?, git_branch = ? WHERE id = ?'),
   deleteApp:  db.prepare('DELETE FROM apps WHERE id = ?'),
 

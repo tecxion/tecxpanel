@@ -83,7 +83,7 @@ export DEBIAN_FRONTEND=noninteractive
 phase_base() {
     apt-get update -qq
     apt-get install -y -qq \
-        curl git ca-certificates gnupg build-essential python3 python3-pip \
+        curl git ca-certificates gnupg build-essential python3 python3-pip python3-venv \
         nginx ufw certbot python3-certbot-nginx sqlite3
 }
 

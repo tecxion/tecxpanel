@@ -8,21 +8,12 @@ const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { RE_APP_NAME, ALLOWED_APP_TYPES, ALLOWED_APP_ACTIONS, isPort, isValidDomain } = require('../lib/validators');
 const nginx = require('../lib/nginx');
 const { queries, audit } = require('../database');
+const {
+  removeAppDir, buildPm2Launch, checkBuildRequirements,
+  detectProject, flattenSingleSubdir,
+} = require('../lib/appdeploy');
 
 const router = express.Router();
-
-// Borra recursivamente la carpeta de una app, con guardas de seguridad
-// para no eliminar nunca rutas raíz o demasiado superficiales.
-// (Evita catástrofes como borrar "/" o "/etc" si la ruta viene mal.)
-function removeAppDir(dir) {
-  if (!dir || typeof dir !== 'string') return;
-  const resolved = path.resolve(dir);
-  // Profundidad = nº de segmentos de la ruta. Menos de 2 es demasiado superficial.
-  const depth = resolved.split(/[\\/]+/).filter(Boolean).length;
-  const forbidden = ['/', '/root', '/etc', '/var', '/var/www', '/home', '/usr', '/opt', '/bin', '/boot'];
-  if (depth < 2 || forbidden.includes(resolved)) return; // demasiado peligroso, no tocar
-  try { fs.rmSync(resolved, { recursive: true, force: true }); } catch (_) {}
-}
 
 async function pm2Status(pm2Name) {
   const r = await runSafe('pm2', ['jlist']);
@@ -34,59 +25,6 @@ async function pm2Status(pm2Name) {
   } catch (_) { return 'unknown'; }
 }
 
-// Reconstruye los argumentos de pm2 start a partir de la config guardada en la BD.
-function buildPm2Launch(appRow) {
-  const pm2Name = appRow.pm2_name;
-  const cwd = appRow.path;
-  const cmd = (appRow.start_cmd || '').trim();
-  // Opciones de PM2 — DEBEN ir antes del separador '--' para no pasarse al script
-  const baseOpts = ['--name', pm2Name, '--cwd', cwd, '--max-restarts', '5', '--restart-delay', '3000'];
-  let pm2Args;
-
-  if (/^(npm|yarn|pnpm)\b/.test(cmd)) {
-    const parts = cmd.split(/\s+/);
-    pm2Args = ['start', parts[0], ...baseOpts, '--', ...parts.slice(1)];
-  } else if (/^(python3?|node)\s/.test(cmd)) {
-    const parts = cmd.split(/\s+/);
-    const interp = parts[0];
-    const script = parts.slice(1).join(' ') || (interp.startsWith('python') ? 'app.py' : 'index.js');
-    pm2Args = ['start', script, ...baseOpts];
-    if (interp.startsWith('python')) pm2Args.push('--interpreter', interp);
-  } else {
-    const script = cmd || (appRow.type === 'python' ? 'app.py' : 'index.js');
-    pm2Args = ['start', script, ...baseOpts];
-    if (appRow.type === 'python') pm2Args.push('--interpreter', 'python3');
-  }
-  return pm2Args;
-}
-
-// Comprueba requisitos previos según el tipo de proyecto antes de arrancar.
-function checkBuildRequirements(appRow) {
-  const cwd = appRow.path;
-  const cmd = (appRow.start_cmd || '').trim();
-  try {
-    const pkgPath = path.join(cwd, 'package.json');
-    if (!fs.existsSync(pkgPath)) return null;
-
-    // node_modules ausente con comando npm/yarn/pnpm
-    if (/^(npm|yarn|pnpm)\b/.test(cmd) && !fs.existsSync(path.join(cwd, 'node_modules'))) {
-      return 'Faltan las dependencias. Pulsa el botón de instalar (📦) o ejecuta "npm install" en la consola antes de iniciar.';
-    }
-
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-    const startScript = (pkg.scripts && pkg.scripts.start) || '';
-
-    // Next.js: "next start" necesita un build previo (.next)
-    if ((deps.next || /\bnext start\b/.test(startScript)) && /next start/.test(startScript)) {
-      if (!fs.existsSync(path.join(cwd, '.next'))) {
-        return 'Es una app Next.js sin compilar. Abre la consola y ejecuta "npm run build" antes de iniciar.';
-      }
-    }
-  } catch (_) { /* si falla la comprobación, dejamos que PM2 lo intente */ }
-  return null;
-}
-
 router.get('/', wrap(async (req, res) => {
   const apps = queries.listApps.all();
   const enriched = await Promise.all(apps.map(async (a) => ({
@@ -96,72 +34,6 @@ router.get('/', wrap(async (req, res) => {
   })));
   ok(res, enriched);
 }));
-
-// Detecta tipo de proyecto y comandos de install/build/start desde los archivos.
-function detectProject(cwd) {
-  const det = { type: 'nodejs', manager: 'npm', installCmd: '', buildCmd: '', startCmd: '', notes: [] };
-  const pkgPath = path.join(cwd, 'package.json');
-  const reqPath = path.join(cwd, 'requirements.txt');
-  const hasPyFile = () => ['app.py', 'main.py', 'wsgi.py', 'server.py'].some((f) => fs.existsSync(path.join(cwd, f)));
-
-  if (fs.existsSync(pkgPath)) {
-    let pkg = {};
-    try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')); } catch (_) {}
-    const scripts = pkg.scripts || {};
-    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-
-    let mgr = 'npm';
-    if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) mgr = 'pnpm';
-    else if (fs.existsSync(path.join(cwd, 'yarn.lock'))) mgr = 'yarn';
-    det.manager = mgr;
-    // IMPORTANTE: forzar la instalación de devDependencies (necesarias para el build,
-    // ej. tailwindcss). Si no, con NODE_ENV=production npm/yarn/pnpm las omiten.
-    det.installCmd = mgr === 'npm' ? 'npm install --include=dev --also=dev'
-      : mgr === 'yarn' ? 'yarn install --production=false'
-      : 'pnpm install --prod=false';
-
-    if (scripts.build) det.buildCmd = mgr === 'npm' ? 'npm run build' : `${mgr} run build`;
-
-    if (scripts.start) {
-      det.startCmd = mgr === 'npm' ? 'npm start' : `${mgr} start`;
-    } else if (deps.next) {
-      det.startCmd = 'npx next start';
-    } else {
-      const entry = (pkg.main && fs.existsSync(path.join(cwd, pkg.main)) && pkg.main)
-        || ['server.js', 'index.js', 'app.js', 'main.js'].find((f) => fs.existsSync(path.join(cwd, f)));
-      det.startCmd = entry ? `node ${entry}` : 'npm start';
-    }
-
-    if (deps.next) det.notes.push('Next.js detectado');
-    det.type = deps.react && !deps.next ? 'react' : 'nodejs';
-  } else if (fs.existsSync(reqPath) || hasPyFile()) {
-    det.type = 'python';
-    det.manager = 'pip';
-    det.installCmd = fs.existsSync(reqPath) ? 'pip3 install -r requirements.txt' : '';
-    const entry = ['app.py', 'main.py', 'wsgi.py', 'server.py'].find((f) => fs.existsSync(path.join(cwd, f)));
-    det.startCmd = `python3 ${entry || 'app.py'}`;
-  } else {
-    det.notes.push('No se detectó package.json ni requirements.txt');
-    det.startCmd = 'npm start';
-  }
-  return det;
-}
-
-// Si el zip se extrajo dentro de una única subcarpeta, sube su contenido a la raíz.
-function flattenSingleSubdir(cwd) {
-  const entries = fs.readdirSync(cwd, { withFileTypes: true });
-  const hasRootManifest = entries.some((e) => e.isFile() && ['package.json', 'requirements.txt'].includes(e.name));
-  if (hasRootManifest) return;
-  const dirs = entries.filter((e) => e.isDirectory());
-  if (entries.length !== 1 || dirs.length !== 1) return;
-  const sub = path.join(cwd, dirs[0].name);
-  const subHasManifest = ['package.json', 'requirements.txt'].some((f) => fs.existsSync(path.join(sub, f)));
-  if (!subHasManifest) return;
-  for (const item of fs.readdirSync(sub)) {
-    fs.renameSync(path.join(sub, item), path.join(cwd, item));
-  }
-  fs.rmdirSync(sub);
-}
 
 const APP_TIMEOUT = { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 };
 
@@ -360,6 +232,38 @@ router.post('/:id/proxy', wrap(async (req, res) => {
   ok(res, { success: true, output: lines.join('\n') || 'Sin cambios de red' });
 }));
 
+// Guarda la configuración de despliegue editada por el usuario (comando, modo).
+// En modo worker se limpian puerto y dominio (no escucha en red).
+router.post('/:id/config', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+
+  const startCmd = (req.body?.start_cmd || '').trim();
+  if (!startCmd) return fail(res, 400, 'El comando de arranque es obligatorio');
+
+  const type = ALLOWED_APP_TYPES.includes(req.body?.type) ? req.body.type : appRow.type;
+  const mode = req.body?.mode === 'worker' ? 'worker' : 'web';
+
+  let port = appRow.port;
+  let domain = appRow.domain;
+  if (mode === 'worker') { port = null; domain = null; }
+  else {
+    if (req.body?.port != null && req.body.port !== '') {
+      const p = parseInt(req.body.port, 10);
+      if (!isPort(p)) return fail(res, 400, 'Puerto inválido');
+      port = p;
+    }
+    if (req.body?.domain) {
+      if (!isValidDomain(req.body.domain)) return fail(res, 400, 'Dominio inválido');
+      domain = req.body.domain;
+    }
+  }
+
+  queries.setAppDeployConfig.run(type, startCmd, port, domain, appRow.id);
+  audit(req.user.username, clientIp(req), 'app.config', `${appRow.name}: ${startCmd}`);
+  ok(res, { success: true, type, start_cmd: startCmd, port, domain, mode });
+}));
+
 router.post('/:id/:action', wrap(async (req, res) => {
   const { action } = req.params;
   if (!ALLOWED_APP_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
@@ -432,8 +336,9 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
   // Detectar proyecto
   const det = detectProject(cwd);
 
-  // Actualizar comando si el tipo es nodejs/react/python etc.
-  queries.setAppConfig.run(det.type, det.startCmd, appRow.id);
+  // Preservar el comando de arranque configurado por el usuario (no sobrescribirlo
+  // con la auto-detección); solo refrescamos el tipo por si cambió el proyecto.
+  queries.setAppConfig.run(det.type, appRow.start_cmd || det.startCmd, appRow.id);
 
   // 2. Instalar dependencias con devDependencies
   if (det.installCmd) {
