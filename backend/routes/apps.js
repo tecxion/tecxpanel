@@ -264,53 +264,9 @@ router.post('/:id/config', wrap(async (req, res) => {
   ok(res, { success: true, type, start_cmd: startCmd, port, domain, mode });
 }));
 
-router.post('/:id/:action', wrap(async (req, res) => {
-  const { action } = req.params;
-  if (!ALLOWED_APP_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
-  const appRow = queries.getApp.get(+req.params.id);
-  if (!appRow) return fail(res, 404, 'App no encontrada');
-
-  if (action === 'delete') {
-    await runSafe('pm2', ['delete', appRow.pm2_name]);
-    await runSafe('pm2', ['save']);
-    // Limpia el proxy nginx (si existía) y cierra el puerto del firewall.
-    await nginx.removeSite(appRow.pm2_name);
-    if (appRow.port) await runSafe('ufw', ['delete', 'allow', `${appRow.port}/tcp`]);
-    // Borrado recursivo de la carpeta de la app (no deja nada)
-    removeAppDir(appRow.path);
-    queries.deleteApp.run(appRow.id);
-  } else if (action === 'start') {
-    if (!fs.existsSync(appRow.path)) return fail(res, 400, 'La carpeta de la app ya no existe');
-    const prereq = checkBuildRequirements(appRow);
-    if (prereq) return fail(res, 400, prereq);
-    // Re-lanza desde cero para evitar fallos si PM2 ya no conoce el proceso
-    await runSafe('pm2', ['delete', appRow.pm2_name]);
-    const env = { ...process.env };
-    if (appRow.port) env.PORT = String(appRow.port);
-    const r = await runSafe('pm2', buildPm2Launch(appRow), { cwd: appRow.path, env });
-    if (!r.ok) {
-      const msg = r.stderr.split('\n').filter(Boolean).slice(-2).join(' ') || 'PM2 no pudo iniciar la app';
-      return fail(res, 500, msg);
-    }
-    await runSafe('pm2', ['save']);
-    queries.setAppStatus.run('running', appRow.id);
-  } else {
-    const r = await runSafe('pm2', [action, appRow.pm2_name]);
-    if (!r.ok) return fail(res, 500, r.stderr.split('\n').filter(Boolean).slice(-1)[0] || 'Error de PM2');
-    queries.setAppStatus.run(action === 'stop' ? 'stopped' : 'running', appRow.id);
-  }
-  audit(req.user.username, clientIp(req), 'app.' + action, appRow.name);
-  ok(res);
-}));
-
-router.get('/:id/logs', wrap(async (req, res) => {
-  const appRow = queries.getApp.get(+req.params.id);
-  if (!appRow) return fail(res, 404, 'App no encontrada');
-  const r = await runSafe('pm2', ['logs', appRow.pm2_name, '--lines', '200', '--nostream', '--raw']);
-  ok(res, { logs: r.stdout || r.stderr || 'Sin logs' });
-}));
-
 // POST /api/apps/:id/git-pull - Actualización manual de Git con re-compilación e inicio
+// IMPORTANTE: debe ir ANTES de la ruta genérica '/:id/:action' para que Express
+// no la interprete como una acción (si no, devolvería 400 "Acción no permitida").
 router.post('/:id/git-pull', wrap(async (req, res) => {
   const appRow = queries.getApp.get(+req.params.id);
   if (!appRow) return fail(res, 404, 'App no encontrada');
@@ -378,6 +334,52 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
   audit(req.user.username, clientIp(req), 'app.git-pull', appRow.name);
 
   ok(res, { success: true, output: lines.join('\n') });
+}));
+
+router.post('/:id/:action', wrap(async (req, res) => {
+  const { action } = req.params;
+  if (!ALLOWED_APP_ACTIONS.includes(action)) return fail(res, 400, 'Acción no permitida');
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+
+  if (action === 'delete') {
+    await runSafe('pm2', ['delete', appRow.pm2_name]);
+    await runSafe('pm2', ['save']);
+    // Limpia el proxy nginx (si existía) y cierra el puerto del firewall.
+    await nginx.removeSite(appRow.pm2_name);
+    if (appRow.port) await runSafe('ufw', ['delete', 'allow', `${appRow.port}/tcp`]);
+    // Borrado recursivo de la carpeta de la app (no deja nada)
+    removeAppDir(appRow.path);
+    queries.deleteApp.run(appRow.id);
+  } else if (action === 'start') {
+    if (!fs.existsSync(appRow.path)) return fail(res, 400, 'La carpeta de la app ya no existe');
+    const prereq = checkBuildRequirements(appRow);
+    if (prereq) return fail(res, 400, prereq);
+    // Re-lanza desde cero para evitar fallos si PM2 ya no conoce el proceso
+    await runSafe('pm2', ['delete', appRow.pm2_name]);
+    const env = { ...process.env };
+    if (appRow.port) env.PORT = String(appRow.port);
+    const r = await runSafe('pm2', buildPm2Launch(appRow), { cwd: appRow.path, env });
+    if (!r.ok) {
+      const msg = r.stderr.split('\n').filter(Boolean).slice(-2).join(' ') || 'PM2 no pudo iniciar la app';
+      return fail(res, 500, msg);
+    }
+    await runSafe('pm2', ['save']);
+    queries.setAppStatus.run('running', appRow.id);
+  } else {
+    const r = await runSafe('pm2', [action, appRow.pm2_name]);
+    if (!r.ok) return fail(res, 500, r.stderr.split('\n').filter(Boolean).slice(-1)[0] || 'Error de PM2');
+    queries.setAppStatus.run(action === 'stop' ? 'stopped' : 'running', appRow.id);
+  }
+  audit(req.user.username, clientIp(req), 'app.' + action, appRow.name);
+  ok(res);
+}));
+
+router.get('/:id/logs', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  const r = await runSafe('pm2', ['logs', appRow.pm2_name, '--lines', '200', '--nostream', '--raw']);
+  ok(res, { logs: r.stdout || r.stderr || 'Sin logs' });
 }));
 
 module.exports = router;
