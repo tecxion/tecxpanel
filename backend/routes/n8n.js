@@ -18,8 +18,8 @@ const nginx = require('../lib/nginx');
 const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 const {
-  buildN8nContainerConfig, n8nApi, computeN8nStatus, accumulatePullProgress,
-  N8N_CONTAINER, N8N_IMAGE, N8N_PORT,
+  buildN8nContainerConfig, buildPullPath, n8nApi, computeN8nStatus, accumulatePullProgress,
+  N8N_CONTAINER, N8N_IMAGE, N8N_TAG, N8N_PORT,
 } = require('../lib/n8n');
 
 const router = express.Router();
@@ -49,12 +49,13 @@ function dockerRequest(method, path, body = null) {
 // Lee las líneas JSON de /images/create, agrega el % con accumulatePullProgress
 // y llama a write('__TXPL_PROGRESS__<pct>\n') cuando el entero cambia.
 // Resuelve al terminar; rechaza con el mensaje real si hay error.
-function pullImageWithProgress(image, write) {
+function pullImageWithProgress(image, tag, write) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(DOCKER_SOCKET)) {
       return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
     }
-    const path = `/images/create?fromImage=${encodeURIComponent(image)}`;
+    // buildPullPath fija el tag: sin él, la API descargaría TODAS las etiquetas.
+    const path = buildPullPath(image, tag);
     const options = { socketPath: DOCKER_SOCKET, path, method: 'POST', headers: { Host: 'localhost' } };
     const req = http.request(options, (res) => {
       // Errores HTTP "duros" (auth, etc.): leer el cuerpo y rechazar.
@@ -67,6 +68,7 @@ function pullImageWithProgress(image, write) {
       }
       const state = { layers: {} };
       let lastPct = -1;
+      let lastPhase = '';
       let buf = '';
       let failed = null;
       res.setEncoding('utf8');
@@ -83,6 +85,11 @@ function pullImageWithProgress(image, write) {
           const p = accumulatePullProgress(state, event);
           if (p.error) { failed = p.error; continue; }
           if (p.pct !== lastPct) { lastPct = p.pct; write(`__TXPL_PROGRESS__${p.pct}\n`); }
+          // Log de fase: avisa cuando pasa de descargar a extraer capas.
+          if (p.phase !== lastPhase) {
+            lastPhase = p.phase;
+            if (p.phase === 'extracción') write('⏳ Extrayendo capas de la imagen...\n');
+          }
         }
       });
       res.on('end', () => (failed ? reject(new Error(failed)) : resolve()));
@@ -190,15 +197,15 @@ router.post('/install', wrap(async (req, res) => {
       return done(1);
     }
 
-    // 1. Descargar imagen.
-    write(`⏳ Descargando imagen ${N8N_IMAGE}...\n`);
+    // 1. Descargar imagen (con tag fijo: una sola imagen, no todas las etiquetas).
+    write(`⏳ Descargando imagen ${N8N_IMAGE}:${N8N_TAG}...\n`);
     try {
-      await pullImageWithProgress(N8N_IMAGE, write);
+      await pullImageWithProgress(N8N_IMAGE, N8N_TAG, write);
     } catch (e) {
       write(`✖ Error al descargar la imagen: ${e.message}\n`);
       return done(1);
     }
-    write('✓ Imagen lista.\n');
+    write(`✓ Imagen ${N8N_IMAGE}:${N8N_TAG} lista.\n`);
 
     // 2. Si ya existe un contenedor previo, borrarlo (mantiene el volumen).
     await dockerRequest('DELETE', `/containers/${N8N_CONTAINER}?force=1`).catch(() => {});

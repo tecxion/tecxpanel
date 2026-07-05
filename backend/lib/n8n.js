@@ -11,7 +11,17 @@
 const N8N_CONTAINER = 'txpl-n8n';
 const N8N_VOLUME = 'n8n_data';
 const N8N_IMAGE = 'n8nio/n8n';
+// Etiqueta fija: SIN tag, la Docker API descarga TODAS las etiquetas del
+// repositorio (equivale a `docker pull --all-tags`) → decenas de GB. Fijamos
+// una etiqueta concreta para bajar una sola imagen.
+const N8N_TAG = 'latest';
 const N8N_PORT = 5678;
+
+// Construye la ruta del pull para la Docker API `/images/create`, SIEMPRE con
+// `tag` para no disparar la descarga de todas las etiquetas. Testeable en aislado.
+function buildPullPath(image, tag) {
+  return `/images/create?fromImage=${encodeURIComponent(image)}&tag=${encodeURIComponent(tag)}`;
+}
 
 // Construye la config que se envía a la Docker API para crear el contenedor n8n.
 //  - hostPort: puerto del VPS que se mapea al 5678 interno.
@@ -33,7 +43,7 @@ function buildN8nContainerConfig({ hostPort = N8N_PORT, domain = null, timezone 
   ];
   const cPort = `${N8N_PORT}/tcp`;
   return {
-    Image: N8N_IMAGE,
+    Image: `${N8N_IMAGE}:${N8N_TAG}`,
     Env: env,
     ExposedPorts: { [cPort]: {} },
     HostConfig: {
@@ -100,6 +110,6 @@ function accumulatePullProgress(state, event) {
 }
 
 module.exports = {
-  N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_PORT,
-  buildN8nContainerConfig, n8nApi, computeN8nStatus, accumulatePullProgress,
+  N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_TAG, N8N_PORT,
+  buildN8nContainerConfig, buildPullPath, n8nApi, computeN8nStatus, accumulatePullProgress,
 };

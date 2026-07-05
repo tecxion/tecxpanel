@@ -3,18 +3,27 @@ const assert = require('node:assert');
 const n8n = require('../lib/n8n');
 
 test('n8n exporta los helpers y constantes esperados', () => {
-  for (const fn of ['buildN8nContainerConfig', 'n8nApi', 'computeN8nStatus']) {
+  for (const fn of ['buildN8nContainerConfig', 'buildPullPath', 'n8nApi', 'computeN8nStatus']) {
     assert.strictEqual(typeof n8n[fn], 'function', `falta ${fn}`);
   }
   assert.strictEqual(n8n.N8N_CONTAINER, 'txpl-n8n');
   assert.strictEqual(n8n.N8N_VOLUME, 'n8n_data');
   assert.strictEqual(n8n.N8N_IMAGE, 'n8nio/n8n');
+  assert.strictEqual(n8n.N8N_TAG, 'latest');
   assert.strictEqual(n8n.N8N_PORT, 5678);
+});
+
+test('buildPullPath: incluye SIEMPRE el tag (no descarga todas las etiquetas)', () => {
+  const p = n8n.buildPullPath('n8nio/n8n', 'latest');
+  assert.match(p, /^\/images\/create\?fromImage=/);
+  assert.match(p, /[?&]tag=latest(?:&|$)/);
+  // Regresión del bug: la ruta NUNCA puede quedar sin parámetro tag.
+  assert.ok(/[?&]tag=/.test(p), 'la ruta de pull debe llevar tag');
 });
 
 test('buildN8nContainerConfig: sin dominio => http, cookie insegura, puerto host', () => {
   const c = n8n.buildN8nContainerConfig({ hostPort: 5678, domain: null, timezone: 'Europe/Madrid' });
-  assert.strictEqual(c.Image, 'n8nio/n8n');
+  assert.strictEqual(c.Image, 'n8nio/n8n:latest');
   assert.deepStrictEqual(c.HostConfig.RestartPolicy, { Name: 'unless-stopped' });
   assert.deepStrictEqual(c.HostConfig.Binds, ['n8n_data:/home/node/.n8n']);
   assert.deepStrictEqual(c.HostConfig.PortBindings, { '5678/tcp': [{ HostPort: '5678' }] });
