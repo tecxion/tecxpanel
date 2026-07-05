@@ -20,6 +20,29 @@ warn() { printf "\n${YELLOW}[WARN]${RESET} %s\n" "$1"; }
 err()  { printf "\n${RED}[ERROR]${RESET} %s\n" "$1"; exit 1; }
 sep()  { echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
+# Imprime el logo TECXPANEL (ANSI Shadow) si hay TTY y anchura suficiente;
+# si no, un banner de texto simple. Solo presentación, no cambia el flujo.
+banner() {
+    local cols; cols=$(tput cols 2>/dev/null || echo 80)
+    if [[ -t 1 && "$cols" -ge 74 ]]; then
+        printf '%b' "${CYAN}${BOLD}"
+        cat <<'LOGO'
+████████╗███████╗ ██████╗██╗  ██╗██████╗  █████╗ ███╗   ██╗███████╗██╗
+╚══██╔══╝██╔════╝██╔════╝╚██╗██╔╝██╔══██╗██╔══██╗████╗  ██║██╔════╝██║
+   ██║   █████╗  ██║      ╚███╔╝ ██████╔╝███████║██╔██╗ ██║█████╗  ██║
+   ██║   ██╔══╝  ██║      ██╔██╗ ██╔═══╝ ██╔══██║██║╚██╗██║██╔══╝  ██║
+   ██║   ███████╗╚██████╗██╔╝ ██╗██║     ██║  ██║██║ ╚████║███████╗███████╗
+   ╚═╝   ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝
+LOGO
+        printf '%b\n' "${RESET}${CYAN}              V P S   C O N T R O L   P A N E L${RESET}"
+        sep
+    else
+        sep
+        printf '%b\n' "${BOLD}   TecXPaneL — Instalador${RESET}"
+        sep
+    fi
+}
+
 [[ $EUID -ne 0 ]] && err "Ejecuta como root:  sudo bash txpl-setup.sh"
 command -v apt-get >/dev/null || err "Este instalador es para Ubuntu/Debian (apt)."
 
@@ -139,9 +162,7 @@ phase_pm2_start() {
 #  Configuración interactiva (ANTES de la barra, sin interrupciones)
 # ════════════════════════════════════════════════════════════
 clear 2>/dev/null || true
-sep
-echo -e "${BOLD}   TecXPaneL — Instalador${RESET}"
-sep
+banner
 echo ""
 
 # Los motores de BD son para las apps/webs que alojes, NO para el panel
