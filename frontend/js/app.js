@@ -1751,7 +1751,7 @@ async function loadN8n() {
 
   // state === 'ready' → dashboard
   body.innerHTML = `<div class="card">
-    <div class="card-actions">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <a class="btn" href="${st.base_url}" target="_blank" rel="noopener">Abrir en n8n</a>
       <button class="btn" onclick="n8nAction('restart')">Reiniciar</button>
       <button class="btn" onclick="n8nAction('stop')">Detener</button>
@@ -1770,18 +1770,19 @@ async function loadN8nWorkflows(baseUrl) {
   const r = await req('GET', '/n8n/workflows');
   if (!r || !r.workflows) { el.textContent = 'No pude cargar los workflows.'; return; }
   if (r.workflows.length === 0) { el.textContent = 'Aún no hay workflows. Créalos en n8n.'; return; }
-  el.innerHTML = '<table class="tbl"><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
+  const safeBase = esc(baseUrl);
+  el.innerHTML = '<table><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
     + r.workflows.map((w) => {
       const toggle = w.active
-        ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow('${w.id}', true)">Desactivar</button>`
-        : `<button class="btn btn-sm btn-primary" onclick="n8nToggleWorkflow('${w.id}', false)">Activar</button>`;
-      const editUrl = `${baseUrl}/workflow/${w.id}`;
+        ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow('${esc(w.id)}', true)">Desactivar</button>`
+        : `<button class="btn btn-sm btn-primary" onclick="n8nToggleWorkflow('${esc(w.id)}', false)">Activar</button>`;
+      const editUrl = `${safeBase}/workflow/${esc(w.id)}`;
       const webhook = w.webhookPath
-        ? `<br><small>webhook: <code>${baseUrl}/webhook/${w.webhookPath}</code></small>` : '';
+        ? `<br><small>webhook: <code>${safeBase}/webhook/${esc(w.webhookPath)}</code></small>` : '';
       return `<tr>
-        <td>${w.name}${webhook}</td>
-        <td>${w.tags.join(', ') || '—'}</td>
-        <td>${w.active ? '<span class="badge badge-ok">activo</span>' : '<span class="badge">inactivo</span>'}</td>
+        <td>${esc(w.name)}${webhook}</td>
+        <td>${w.tags.map(t => esc(t)).join(', ') || '—'}</td>
+        <td>${w.active ? '<span class="badge badge-green">activo</span>' : '<span class="badge">inactivo</span>'}</td>
         <td>${toggle} <a class="btn btn-sm" href="${editUrl}" target="_blank" rel="noopener">Abrir en n8n</a></td>
       </tr>`;
     }).join('') + '</tbody></table>';
@@ -1793,10 +1794,10 @@ async function loadN8nExecutions() {
   if (!r || !r.executions) { el.textContent = 'No pude cargar las ejecuciones.'; return; }
   if (r.executions.length === 0) { el.textContent = 'Sin ejecuciones todavía.'; return; }
   const icon = (s) => s === 'success' ? '✓' : (s === 'error' ? '✗' : '⏳');
-  el.innerHTML = '<table class="tbl"><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
+  el.innerHTML = '<table><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
     + r.executions.map((e) => `<tr>
-        <td>${e.workflowName}</td>
-        <td>${icon(e.status)} ${e.status}</td>
+        <td>${esc(e.workflowName)}</td>
+        <td>${icon(e.status)} ${esc(e.status)}</td>
         <td>${e.startedAt ? new Date(e.startedAt).toLocaleString() : '—'}</td>
       </tr>`).join('') + '</tbody></table>';
 }

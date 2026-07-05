@@ -7,10 +7,11 @@
 <div id="n8n-body"><div class="card"><p>Cargando estado de n8n...</p></div></div>
 
 <!-- Consola de streaming reutilizable para la instalación -->
-<div class="console-wrap" id="n8n-console" style="display:none">
-  <div class="console-head">
-    <span id="n8n-console-title">Instalando n8n</span>
-    <span id="n8n-console-spinner" class="spinner" style="display:none"></span>
+<div id="n8n-console" style="display:none;margin-top:1.25rem">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <span id="n8n-console-title" style="font-weight:600;font-size:13px">Instalando n8n</span>
+    <span id="n8n-console-spinner" style="color:var(--accent);font-size:12px;margin-left:auto"><i class="ti ti-loader-2"></i> en ejecución...</span>
+    <button class="btn btn-sm" onclick="document.getElementById('n8n-console').style.display='none'" title="Cerrar consola"><i class="ti ti-x"></i></button>
   </div>
-  <pre class="console-output" id="n8n-console-output"></pre>
+  <pre id="n8n-console-output" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
 </div>
