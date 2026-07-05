@@ -1741,7 +1741,7 @@ async function loadN8n() {
         <li>Ve a <strong>Settings → API</strong> y genera tu API key.</li>
         <li>Pégala aquí abajo.</li>
       </ol>
-      <a class="btn" href="${url}" target="_blank" rel="noopener">Abrir n8n</a>
+      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Abrir n8n</a>
       <div class="form-row"><label>URL base</label><input id="n8n-baseurl" type="text" value="${url}"></div>
       <div class="form-row"><label>API key</label><input id="n8n-apikey" type="password" placeholder="n8n_api_..."></div>
       <button class="btn btn-primary" onclick="n8nSaveConfig()">Conectar</button>
@@ -1752,7 +1752,7 @@ async function loadN8n() {
   // state === 'ready' → dashboard
   body.innerHTML = `<div class="card">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <a class="btn" href="${st.base_url}" target="_blank" rel="noopener">Abrir en n8n</a>
+      <a class="btn" href="${esc(st.base_url)}" target="_blank" rel="noopener">Abrir en n8n</a>
       <button class="btn" onclick="n8nAction('restart')">Reiniciar</button>
       <button class="btn" onclick="n8nAction('stop')">Detener</button>
       <button class="btn btn-danger" onclick="n8nUninstall()">Desinstalar</button>
@@ -1866,7 +1866,7 @@ async function n8nToggleWorkflow(id, active) {
   if (!r) return;
   if (r.error) { toast(r.error, 'error'); return; }
   toast(active ? 'Workflow desactivado' : 'Workflow activado', 'success');
-  loadN8nWorkflows((await req('GET', '/n8n/status')).base_url);
+  loadN8n();
 }
 
 async function n8nUninstall() {
