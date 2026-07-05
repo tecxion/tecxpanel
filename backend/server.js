@@ -83,6 +83,7 @@ app.use('/api/firewall', require('./routes/firewall'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/plugins', require('./routes/plugins'));
 app.use('/api/docker', require('./routes/docker'));
+app.use('/api/n8n', require('./routes/n8n'));
 
 // ── Frontend estático ─────────────────────────────────────────
 // Servimos los archivos del panel (HTML, JS, CSS).
