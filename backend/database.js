@@ -93,6 +93,17 @@ db.exec(`
     action TEXT NOT NULL,
     detail TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS n8n_config (
+    id           INTEGER PRIMARY KEY,
+    base_url     TEXT,
+    api_key_enc  TEXT,
+    container_id TEXT,
+    domain       TEXT,
+    host_port    INTEGER,
+    status       TEXT,
+    created_at   TEXT
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -206,6 +217,20 @@ const queries = {
   // audit
   insertAudit: db.prepare('INSERT INTO audit_log (user, ip, action, detail) VALUES (?, ?, ?, ?)'),
   getAuditLog: db.prepare('SELECT * FROM audit_log ORDER BY ts DESC LIMIT 500'),
+
+  // ── n8n (Workflows) ────────────────────────────────────────────
+  getN8nConfig: db.prepare('SELECT * FROM n8n_config WHERE id = 1'),
+  saveN8nConfig: db.prepare(`
+    INSERT INTO n8n_config (id, base_url, api_key_enc, container_id, domain, host_port, status, created_at)
+    VALUES (1, @base_url, @api_key_enc, @container_id, @domain, @host_port, @status, @created_at)
+    ON CONFLICT(id) DO UPDATE SET
+      base_url = excluded.base_url,
+      api_key_enc = excluded.api_key_enc,
+      container_id = excluded.container_id,
+      domain = excluded.domain,
+      host_port = excluded.host_port,
+      status = excluded.status`),
+  clearN8nConfig: db.prepare('DELETE FROM n8n_config WHERE id = 1'),
 };
 
 function audit(user, ip, action, detail) {
