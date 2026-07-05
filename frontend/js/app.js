@@ -1811,6 +1811,10 @@ async function n8nInstall() {
   const out = document.getElementById('n8n-console-output');
   const spinner = document.getElementById('n8n-console-spinner');
   const DONE = '__TXPL_DONE__';
+  const prog = document.getElementById('n8n-progress');
+  const progBar = document.getElementById('n8n-progress-bar');
+  const progLabel = document.getElementById('n8n-progress-label');
+  prog.style.display = 'none'; progBar.style.width = '0%'; progLabel.textContent = '0%';
   wrap.style.display = 'block'; spinner.style.display = 'inline'; out.textContent = '';
   wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -1832,12 +1836,26 @@ async function n8nInstall() {
       let display = buffer;
       const idx = buffer.indexOf(DONE);
       if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
-      out.textContent = display; out.scrollTop = out.scrollHeight;
+      // Separar las líneas de progreso (__TXPL_PROGRESS__N) del texto de consola.
+      const PROG = '__TXPL_PROGRESS__';
+      let lastPct = null;
+      const textLines = [];
+      for (const ln of display.split('\n')) {
+        if (ln.startsWith(PROG)) { const n = parseInt(ln.slice(PROG.length), 10); if (!isNaN(n)) lastPct = n; }
+        else textLines.push(ln);
+      }
+      out.textContent = textLines.join('\n'); out.scrollTop = out.scrollHeight;
+      if (lastPct !== null) {
+        prog.style.display = 'block';
+        progBar.style.width = lastPct + '%';
+        progLabel.textContent = lastPct + '%';
+      }
     }
   } catch (e) {
     out.textContent += '\n✖ Error de conexión: ' + (e?.message || e);
   }
   spinner.style.display = 'none';
+  prog.style.display = 'none';
   toast(exitCode === 0 ? 'n8n instalado' : 'La instalación terminó con errores', exitCode === 0 ? 'success' : 'error');
   loadN8n();
 }
