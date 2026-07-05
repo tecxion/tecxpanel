@@ -273,7 +273,8 @@ function navigate(el) {
     dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
     websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
     files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
-    plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker'
+    plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker',
+    n8n: 'Workflows'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
@@ -288,6 +289,7 @@ function navigate(el) {
   if (page === 'plugins') loadPlugins();
   if (page === 'settings') loadSettings();
   if (page === 'docker') loadDockerContainers();
+  if (page === 'n8n') loadN8n();
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -1692,6 +1694,190 @@ async function streamPlugin(id, action, name) {
   loadPlugins();
 }
 
+// ── n8n (Workflows) ───────────────────────────────────────────
+// Carga el estado y pinta la vista adaptativa (instalar / conectar / dashboard).
+async function loadN8n() {
+  const body = document.getElementById('n8n-body');
+  body.innerHTML = '<div class="card"><p>Cargando estado de n8n...</p></div>';
+  const st = await req('GET', '/n8n/status');
+  if (!st) return;
+
+  if (!st.docker) {
+    body.innerHTML = `<div class="card">
+      <h3>Docker no está instalado</h3>
+      <p>n8n corre en un contenedor Docker. Instala Docker primero desde la sección Plugins.</p>
+      <button class="btn" onclick="navigate(document.querySelector('[data-page=plugins]'))">Ir a Plugins</button>
+    </div>`;
+    return;
+  }
+
+  if (st.state === 'not_installed') {
+    body.innerHTML = `<div class="card">
+      <h3>Instalar n8n</h3>
+      <p>Se creará un contenedor con volumen persistente. El dominio y el SSL son opcionales.</p>
+      <div class="form-row"><label>Puerto host</label><input id="n8n-port" type="number" value="5678"></div>
+      <div class="form-row"><label>Dominio (opcional)</label><input id="n8n-domain" type="text" placeholder="n8n.midominio.com"></div>
+      <div class="form-row"><label>Zona horaria</label><input id="n8n-tz" type="text" value="Europe/Madrid"></div>
+      <button class="btn btn-primary" onclick="n8nInstall()">Instalar n8n</button>
+    </div>`;
+    return;
+  }
+
+  if (st.state === 'stopped') {
+    body.innerHTML = `<div class="card">
+      <h3>n8n está parado</h3>
+      <button class="btn btn-primary" onclick="n8nAction('start')">Iniciar</button>
+      <button class="btn btn-danger" onclick="n8nUninstall()">Desinstalar</button>
+    </div>`;
+    return;
+  }
+
+  if (st.state === 'needs_config') {
+    const url = st.base_url || '';
+    body.innerHTML = `<div class="card">
+      <h3>Conectar con n8n</h3>
+      <ol>
+        <li>Abre n8n y crea tu cuenta de propietario.</li>
+        <li>Ve a <strong>Settings → API</strong> y genera tu API key.</li>
+        <li>Pégala aquí abajo.</li>
+      </ol>
+      <a class="btn" href="${url}" target="_blank" rel="noopener">Abrir n8n</a>
+      <div class="form-row"><label>URL base</label><input id="n8n-baseurl" type="text" value="${url}"></div>
+      <div class="form-row"><label>API key</label><input id="n8n-apikey" type="password" placeholder="n8n_api_..."></div>
+      <button class="btn btn-primary" onclick="n8nSaveConfig()">Conectar</button>
+    </div>`;
+    return;
+  }
+
+  // state === 'ready' → dashboard
+  body.innerHTML = `<div class="card">
+    <div class="card-actions">
+      <a class="btn" href="${st.base_url}" target="_blank" rel="noopener">Abrir en n8n</a>
+      <button class="btn" onclick="n8nAction('restart')">Reiniciar</button>
+      <button class="btn" onclick="n8nAction('stop')">Detener</button>
+      <button class="btn btn-danger" onclick="n8nUninstall()">Desinstalar</button>
+    </div>
+  </div>
+  <div class="card"><h3>Workflows</h3><div id="n8n-workflows">Cargando...</div></div>
+  <div class="card"><h3>Ejecuciones recientes</h3><div id="n8n-executions">Cargando...</div></div>`;
+
+  loadN8nWorkflows(st.base_url);
+  loadN8nExecutions();
+}
+
+async function loadN8nWorkflows(baseUrl) {
+  const el = document.getElementById('n8n-workflows');
+  const r = await req('GET', '/n8n/workflows');
+  if (!r || !r.workflows) { el.textContent = 'No pude cargar los workflows.'; return; }
+  if (r.workflows.length === 0) { el.textContent = 'Aún no hay workflows. Créalos en n8n.'; return; }
+  el.innerHTML = '<table class="tbl"><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
+    + r.workflows.map((w) => {
+      const toggle = w.active
+        ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow('${w.id}', true)">Desactivar</button>`
+        : `<button class="btn btn-sm btn-primary" onclick="n8nToggleWorkflow('${w.id}', false)">Activar</button>`;
+      const editUrl = `${baseUrl}/workflow/${w.id}`;
+      const webhook = w.webhookPath
+        ? `<br><small>webhook: <code>${baseUrl}/webhook/${w.webhookPath}</code></small>` : '';
+      return `<tr>
+        <td>${w.name}${webhook}</td>
+        <td>${w.tags.join(', ') || '—'}</td>
+        <td>${w.active ? '<span class="badge badge-ok">activo</span>' : '<span class="badge">inactivo</span>'}</td>
+        <td>${toggle} <a class="btn btn-sm" href="${editUrl}" target="_blank" rel="noopener">Abrir en n8n</a></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function loadN8nExecutions() {
+  const el = document.getElementById('n8n-executions');
+  const r = await req('GET', '/n8n/executions');
+  if (!r || !r.executions) { el.textContent = 'No pude cargar las ejecuciones.'; return; }
+  if (r.executions.length === 0) { el.textContent = 'Sin ejecuciones todavía.'; return; }
+  const icon = (s) => s === 'success' ? '✓' : (s === 'error' ? '✗' : '⏳');
+  el.innerHTML = '<table class="tbl"><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
+    + r.executions.map((e) => `<tr>
+        <td>${e.workflowName}</td>
+        <td>${icon(e.status)} ${e.status}</td>
+        <td>${e.startedAt ? new Date(e.startedAt).toLocaleString() : '—'}</td>
+      </tr>`).join('') + '</tbody></table>';
+}
+
+// Instalación por streaming (reutiliza el patrón de streamPlugin).
+async function n8nInstall() {
+  const host_port = document.getElementById('n8n-port').value;
+  const domain = document.getElementById('n8n-domain').value.trim();
+  const timezone = document.getElementById('n8n-tz').value.trim();
+  const wrap = document.getElementById('n8n-console');
+  const out = document.getElementById('n8n-console-output');
+  const spinner = document.getElementById('n8n-console-spinner');
+  const DONE = '__TXPL_DONE__';
+  wrap.style.display = 'block'; spinner.style.display = 'inline'; out.textContent = '';
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  let exitCode = 1;
+  try {
+    const r = await fetch(API + '/api/n8n/install', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host_port, domain, timezone }),
+    });
+    if (r.status === 401) { doLogout(); return; }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += dec.decode(value, { stream: true });
+      let display = buffer;
+      const idx = buffer.indexOf(DONE);
+      if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
+      out.textContent = display; out.scrollTop = out.scrollHeight;
+    }
+  } catch (e) {
+    out.textContent += '\n✖ Error de conexión: ' + (e?.message || e);
+  }
+  spinner.style.display = 'none';
+  toast(exitCode === 0 ? 'n8n instalado' : 'La instalación terminó con errores', exitCode === 0 ? 'success' : 'error');
+  loadN8n();
+}
+
+async function n8nSaveConfig() {
+  const base_url = document.getElementById('n8n-baseurl').value.trim();
+  const api_key = document.getElementById('n8n-apikey').value.trim();
+  const r = await req('POST', '/n8n/config', { base_url, api_key });
+  if (!r) return;
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast('n8n conectado', 'success');
+  loadN8n();
+}
+
+async function n8nAction(action) {
+  const r = await req('POST', '/n8n/' + action);
+  if (!r) return;
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast('n8n: ' + action, 'success');
+  loadN8n();
+}
+
+async function n8nToggleWorkflow(id, active) {
+  const path = `/n8n/workflows/${id}/${active ? 'deactivate' : 'activate'}`;
+  const r = await req('POST', path);
+  if (!r) return;
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(active ? 'Workflow desactivado' : 'Workflow activado', 'success');
+  loadN8nWorkflows((await req('GET', '/n8n/status')).base_url);
+}
+
+async function n8nUninstall() {
+  if (!confirm('¿Desinstalar n8n? El contenedor se elimina. ¿Borrar también el volumen con tus datos?')) return;
+  const removeVolume = confirm('Aceptar = BORRAR también los datos (volumen). Cancelar = conservar los datos.');
+  const r = await req('DELETE', '/n8n?volume=' + (removeVolume ? 'true' : 'false'));
+  if (!r) return;
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast('n8n desinstalado', 'success');
+  loadN8n();
+}
+
 // ── Utils ─────────────────────────────────────────────────────
 // copyText: copia un texto al portapapeles (con alternativa para conexiones sin HTTPS).
 function copyText(text) {
@@ -2161,7 +2347,7 @@ async function triggerGitPull() {
 async function loadTemplates() {
   const pages = [
     'dashboard', 'terminal', 'websites', 'apps', 'databases',
-    'docker', 'files', 'firewall', 'ssl', 'logs', 'plugins',
+    'docker', 'n8n', 'files', 'firewall', 'ssl', 'logs', 'plugins',
     'help', 'settings'
   ];
 
