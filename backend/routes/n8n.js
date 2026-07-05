@@ -18,7 +18,7 @@ const nginx = require('../lib/nginx');
 const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 const {
-  buildN8nContainerConfig, n8nApi, computeN8nStatus,
+  buildN8nContainerConfig, n8nApi, computeN8nStatus, accumulatePullProgress,
   N8N_CONTAINER, N8N_IMAGE, N8N_PORT,
 } = require('../lib/n8n');
 
@@ -41,6 +41,54 @@ function dockerRequest(method, path, body = null) {
     });
     req.on('error', reject);
     if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+// Descarga una imagen por el socket de Docker transmitiendo el progreso.
+// Lee las líneas JSON de /images/create, agrega el % con accumulatePullProgress
+// y llama a write('__TXPL_PROGRESS__<pct>\n') cuando el entero cambia.
+// Resuelve al terminar; rechaza con el mensaje real si hay error.
+function pullImageWithProgress(image, write) {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(DOCKER_SOCKET)) {
+      return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
+    }
+    const path = `/images/create?fromImage=${encodeURIComponent(image)}`;
+    const options = { socketPath: DOCKER_SOCKET, path, method: 'POST', headers: { Host: 'localhost' } };
+    const req = http.request(options, (res) => {
+      // Errores HTTP "duros" (auth, etc.): leer el cuerpo y rechazar.
+      if (res.statusCode >= 400) {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => reject(new Error(Buffer.concat(chunks).toString() || `HTTP ${res.statusCode}`)));
+        res.on('error', reject);
+        return;
+      }
+      const state = { layers: {} };
+      let lastPct = -1;
+      let buf = '';
+      let failed = null;
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        buf += chunk;
+        let nl;
+        // Procesar solo líneas completas; el resto queda en buf para el próximo chunk.
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let event;
+          try { event = JSON.parse(line); } catch (_) { continue; }
+          const p = accumulatePullProgress(state, event);
+          if (p.error) { failed = p.error; continue; }
+          if (p.pct !== lastPct) { lastPct = p.pct; write(`__TXPL_PROGRESS__${p.pct}\n`); }
+        }
+      });
+      res.on('end', () => (failed ? reject(new Error(failed)) : resolve()));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
     req.end();
   });
 }
@@ -144,8 +192,12 @@ router.post('/install', wrap(async (req, res) => {
 
     // 1. Descargar imagen.
     write(`⏳ Descargando imagen ${N8N_IMAGE}...\n`);
-    const pull = await dockerRequest('POST', `/images/create?fromImage=${encodeURIComponent(N8N_IMAGE)}`);
-    if (pull.statusCode >= 400) { write(`✖ Error al descargar la imagen: ${pull.body.toString()}\n`); return done(1); }
+    try {
+      await pullImageWithProgress(N8N_IMAGE, write);
+    } catch (e) {
+      write(`✖ Error al descargar la imagen: ${e.message}\n`);
+      return done(1);
+    }
     write('✓ Imagen lista.\n');
 
     // 2. Si ya existe un contenedor previo, borrarlo (mantiene el volumen).
