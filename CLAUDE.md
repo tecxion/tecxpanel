@@ -33,6 +33,7 @@ No test suite, no linter, no build step. The frontend is vanilla JS served as st
   - `apps.js` — Multi-step deploy pipeline: create (or git clone) → upload zip → extract → install deps → build → start via PM2 → setup Nginx proxy. Supports Node.js, Python, React, TypeScript.
   - `databases.js` — Create/delete MySQL and PostgreSQL databases + users. Passwords encrypted with AES-256-GCM. Also handles phpMyAdmin and Adminer status endpoints.
   - `docker.js` — Container CRUD via Docker UNIX socket (raw HTTP, no docker SDK). Supports Dockerfile builds and docker-compose.
+  - `n8n.js` — n8n (Workflows) integration. Lifecycle: install/start/stop/restart/uninstall n8n as a Docker container (`txpl-n8n`, image `n8nio/n8n`, persistent volume `n8n_data`, optional Nginx proxy) via streaming; store connection config (`base_url` + AES-encrypted API key) in the `n8n_config` table; `POST /config` validates the key against n8n before persisting. Orchestration: proxies n8n's Public API (`X-N8N-API-KEY`) to list workflows, activate/deactivate, and read recent executions. Editing workflows is a deep-link to n8n's own UI (no iframe); manual triggering is via a workflow's webhook URL (no generic `/execute`). Pure/testable helpers live in `lib/n8n.js` (`backend/test/n8n.test.js`).
   - `files.js` — File manager: browse, read, write, upload (binary streaming), mkdir, rename, delete, extract archives.
   - `firewall.js` — UFW rule management.
   - `plugins.js` — Install/uninstall server packages (Docker, phpMyAdmin, Adminer, Redis, Fail2Ban, Composer, Certbot) with streaming output.
@@ -42,6 +43,8 @@ No test suite, no linter, no build step. The frontend is vanilla JS served as st
 - `backend/lib/crypto.js` — AES-256-GCM encrypt/decrypt, TOTP implementation (RFC 6238), password generator.
 - `backend/lib/helpers.js` — `ok()`, `fail()`, `run()` (execFile wrapper), `runSafe()`, `wrap()` (async error handler).
 - `backend/lib/validators.js` — Whitelists, regexes, and validators for domains, ports, app names, DB names, IPs.
+- `backend/lib/nginx.js` — Nginx vhost builders (`buildProxy`, `buildSite`, `buildPhpFpmSite`), `enableSite`/`removeSite` (symlink + `nginx -t` + reload), and `installSsl` (Certbot). Reused by `websites.js`, `docker.js`, and `n8n.js`.
+- `backend/lib/n8n.js` — Pure n8n helpers (no DB/server state, unit-tested): `buildN8nContainerConfig` (Docker create config), `n8nApi` (HTTP client with injectable fetch), `computeN8nStatus` (not_installed/stopped/needs_config/ready).
 - `backend/lib/websocket.js` — Two WS endpoints: `/ws/stats` (real-time CPU/RAM/network push every 2s) and `/ws/terminal` (interactive shell via node-pty).
 
 **Frontend** — Single `frontend/index.html` + `frontend/js/app.js` (1700 lines vanilla JS) + `frontend/css/styles.css`. SPA routing via `navigate()` function that toggles page visibility. No framework, no bundler.
@@ -59,7 +62,8 @@ No test suite, no linter, no build step. The frontend is vanilla JS served as st
 - **File manager has path jail** — `safePath()` resolves paths via `path.resolve('/')` to prevent traversal.
 - **Apps directory guard** — `removeAppDir()` refuses to delete shallow or forbidden system paths.
 - **Audit trail** — `audit(user, ip, action, detail)` logs every mutating action to `audit_log` table.
-- **Plugin install streams output** — Uses `spawn` + chunked `res.write()` with `__TXPL_DONE__<code>` sentinel for completion.
+- **Plugin install streams output** — Uses `spawn` + chunked `res.write()` with `__TXPL_DONE__<code>` sentinel for completion. `n8n.js`'s `POST /install` reuses the same streaming sentinel.
+- **No hardcoded secrets (public repo)** — Since the repo is public, no operator secret is baked into code or installers. `txpl-setup.sh` generates fresh `JWT_SECRET`/`ADMIN_PASS` per install (`openssl rand`); the n8n API key is prompted in the UI and stored encrypted, never defaulted.
 
 ## Environment
 
