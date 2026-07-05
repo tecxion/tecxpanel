@@ -73,7 +73,33 @@ function computeN8nStatus({ containerExists, running, hasApiKey }) {
   return { state: 'ready', installed: true, running: true, configured: true };
 }
 
+// Acumula el progreso de un `docker pull` a partir de los eventos JSON que emite
+// la API de Docker (`/images/create`). Guarda {current,total} por capa en `state`
+// y devuelve el % global de descarga, la fase y un posible error.
+//  - state: acumulador { layers: { <id>: { current, total } } } (empezar en { layers: {} }).
+//  - event: un objeto JSON ya parseado de la respuesta de Docker.
+function accumulatePullProgress(state, event) {
+  if (event && event.error) return { pct: 0, phase: 'descarga', error: String(event.error) };
+  const status = (event && event.status) || '';
+  const phase = /^extract/i.test(status) ? 'extracción' : 'descarga';
+  if (/^downloading$/i.test(status) && event.id && event.progressDetail && event.progressDetail.total > 0) {
+    state.layers[event.id] = {
+      current: event.progressDetail.current || 0,
+      total: event.progressDetail.total,
+    };
+  }
+  let sumCurrent = 0, sumTotal = 0;
+  for (const id in state.layers) {
+    sumCurrent += state.layers[id].current;
+    sumTotal += state.layers[id].total;
+  }
+  let pct = sumTotal > 0 ? Math.floor((100 * sumCurrent) / sumTotal) : 0;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return { pct, phase, error: null };
+}
+
 module.exports = {
   N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_PORT,
-  buildN8nContainerConfig, n8nApi, computeN8nStatus,
+  buildN8nContainerConfig, n8nApi, computeN8nStatus, accumulatePullProgress,
 };

@@ -61,3 +61,43 @@ test('n8nApi: respuesta no-2xx lanza Error con .status', async () => {
     (e) => e.status === 401 && /401/.test(e.message)
   );
 });
+
+test('accumulatePullProgress: dos capas descargando => pct combinado', () => {
+  const state = { layers: {} };
+  n8n.accumulatePullProgress(state, { status: 'Downloading', id: 'a', progressDetail: { current: 50, total: 100 } });
+  const p = n8n.accumulatePullProgress(state, { status: 'Downloading', id: 'b', progressDetail: { current: 0, total: 100 } });
+  // (50 + 0) / (100 + 100) = 25%
+  assert.strictEqual(p.pct, 25);
+  assert.strictEqual(p.phase, 'descarga');
+  assert.strictEqual(p.error, null);
+});
+
+test('accumulatePullProgress: actualizar una capa recalcula el total combinado', () => {
+  const state = { layers: {} };
+  n8n.accumulatePullProgress(state, { status: 'Downloading', id: 'a', progressDetail: { current: 50, total: 100 } });
+  n8n.accumulatePullProgress(state, { status: 'Downloading', id: 'b', progressDetail: { current: 0, total: 100 } });
+  const p = n8n.accumulatePullProgress(state, { status: 'Downloading', id: 'b', progressDetail: { current: 100, total: 100 } });
+  // (50 + 100) / 200 = 75%
+  assert.strictEqual(p.pct, 75);
+});
+
+test('accumulatePullProgress: evento Extracting => fase extracción', () => {
+  const state = { layers: { a: { current: 100, total: 100 } } };
+  const p = n8n.accumulatePullProgress(state, { status: 'Extracting', id: 'a', progressDetail: { current: 10, total: 100 } });
+  assert.strictEqual(p.phase, 'extracción');
+});
+
+test('accumulatePullProgress: evento con error lo propaga', () => {
+  const state = { layers: {} };
+  const p = n8n.accumulatePullProgress(state, { error: 'toomanyrequests: rate limit' });
+  assert.strictEqual(p.error, 'toomanyrequests: rate limit');
+});
+
+test('accumulatePullProgress: sin totales => pct 0, nunca > 100', () => {
+  const state = { layers: {} };
+  const p0 = n8n.accumulatePullProgress(state, { status: 'Pulling fs layer', id: 'a' });
+  assert.strictEqual(p0.pct, 0);
+  const state2 = { layers: { a: { current: 999, total: 100 } } };
+  const p1 = n8n.accumulatePullProgress(state2, { status: 'Downloading', id: 'a', progressDetail: { current: 999, total: 100 } });
+  assert.ok(p1.pct <= 100);
+});
