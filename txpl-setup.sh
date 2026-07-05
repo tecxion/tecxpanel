@@ -56,9 +56,13 @@ step_begin() {
 }
 
 step_done() {
-    if [[ -t 1 ]]; then draw "$STEP" "$CUR_MSG" "✓"; printf "\n"
+    if [[ -t 1 ]]; then draw "$STEP" "$CUR_MSG" "✓"
     else printf "OK\n"; fi
 }
+
+# Cierra la barra de progreso con un único salto de línea (solo en TTY),
+# para que el resumen final empiece en una línea limpia.
+steps_end() { [[ -t 1 ]] && printf "\n"; }
 
 # Ejecuta un comando/función en segundo plano y anima el spinner mientras corre.
 # Toda la salida va a $LOGFILE. Devuelve el código de salida del comando.
@@ -288,6 +292,8 @@ if [[ -f "$SCRIPT_DIR/txpl-cli.sh" ]]; then
     cp "$SCRIPT_DIR/txpl-cli.sh" /usr/local/bin/txpl && chmod +x /usr/local/bin/txpl
 fi
 step_done
+
+steps_end
 
 # ════════════════════════════════════════════════════════════
 #  Resumen
