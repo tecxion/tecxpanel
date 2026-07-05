@@ -195,6 +195,82 @@ router.post('/install', wrap(async (req, res) => {
   }
 }));
 
+// Helper: responde 409 claro si n8n no está configurado; si no, ejecuta fn.
+async function withN8n(res, fn) {
+  let call;
+  try {
+    call = (method, apiPath, body) => module.exports.n8nApiCall(method, apiPath, body);
+    getConnectedConfig(); // lanza NO_CONFIG si falta
+  } catch (e) {
+    if (e.code === 'NO_CONFIG') return fail(res, 409, e.message);
+    throw e;
+  }
+  try {
+    return await fn(call);
+  } catch (e) {
+    return fail(res, e.status || 502, `n8n no respondió correctamente: ${e.message}`);
+  }
+}
+
+// GET /workflows — lista workflows con su estado y (si tiene) su ruta de webhook.
+router.get('/workflows', wrap(async (req, res) => {
+  await withN8n(res, async (call) => {
+    const data = await call('GET', '/api/v1/workflows');
+    const items = (data && data.data) || [];
+    const workflows = items.map((w) => {
+      // Detectar un nodo Webhook para exponer su ruta de producción.
+      let webhookPath = null;
+      for (const node of (w.nodes || [])) {
+        if (node.type && node.type.includes('webhook') && node.parameters && node.parameters.path) {
+          webhookPath = node.parameters.path;
+          break;
+        }
+      }
+      return {
+        id: w.id,
+        name: w.name,
+        active: !!w.active,
+        tags: (w.tags || []).map((t) => (typeof t === 'string' ? t : t.name)),
+        webhookPath,
+      };
+    });
+    ok(res, { workflows });
+  });
+}));
+
+// POST /workflows/:id/activate — activa un workflow.
+router.post('/workflows/:id/activate', wrap(async (req, res) => {
+  await withN8n(res, async (call) => {
+    await call('POST', `/api/v1/workflows/${encodeURIComponent(req.params.id)}/activate`);
+    audit(req.user.username, clientIp(req), 'n8n.workflow.activate', req.params.id);
+    ok(res);
+  });
+}));
+
+// POST /workflows/:id/deactivate — desactiva un workflow.
+router.post('/workflows/:id/deactivate', wrap(async (req, res) => {
+  await withN8n(res, async (call) => {
+    await call('POST', `/api/v1/workflows/${encodeURIComponent(req.params.id)}/deactivate`);
+    audit(req.user.username, clientIp(req), 'n8n.workflow.deactivate', req.params.id);
+    ok(res);
+  });
+}));
+
+// GET /executions — últimas ejecuciones con su estado.
+router.get('/executions', wrap(async (req, res) => {
+  await withN8n(res, async (call) => {
+    const data = await call('GET', '/api/v1/executions?limit=20&includeData=false');
+    const items = (data && data.data) || [];
+    const executions = items.map((e) => ({
+      id: e.id,
+      workflowName: (e.workflowData && e.workflowData.name) || e.workflowId || '—',
+      status: e.status || (e.finished ? 'success' : 'running'),
+      startedAt: e.startedAt || e.createdAt || null,
+    }));
+    ok(res, { executions });
+  });
+}));
+
 // POST /:action — start | stop | restart del contenedor.
 router.post('/:action', wrap(async (req, res) => {
   const action = req.params.action;
