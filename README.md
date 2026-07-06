@@ -25,13 +25,14 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 ## 🚀 Características Principales
 
 - 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
-- 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python o React a través de PM2. Soporta carga de archivos en `.zip`/`.tar.gz` y gestión de archivos `.env`.
+- 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python, React y TypeScript a través de PM2. Soporta carga en `.zip`/`.tar.gz` o **clonado desde Git con auto-deploy por webhook**, y gestión de archivos `.env`. En **Python** aísla cada app en su propio **virtualenv (`.venv`)** y distingue **servicio web** (con puerto y proxy) de **worker/bot** (sin puerto, p. ej. un bot de Telegram), con comando de arranque editable.
 - 🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
 - 🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
 - 🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
+- 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
 
 ---
@@ -135,6 +136,25 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 | `txpl backup`              | Crea una copia de seguridad empaquetada en `/opt/txpl/backups` |
 | `txpl backup:cron`         | Instala un cron job diario para backups a las 03:00 AM         |
 | `txpl backup:list`         | Lista todas las copias de seguridad disponibles                |
+
+---
+
+## 🐳 Contenedores Docker
+
+El panel incluye un módulo de **Docker** que habla directamente con el socket del daemon (sin depender de la CLI ni de un SDK), pensado tanto para quien domina Docker como para quien no.
+
+> [!NOTE]
+> Requiere **Docker** instalado. Si no lo está, instálalo con un clic desde la sección **Plugins**.
+
+**Qué puedes hacer:**
+
+- **Gestionar contenedores**: listarlos con su estado y puertos, arrancarlos, detenerlos, reiniciarlos, eliminarlos y ver sus **logs** (últimas líneas) en vivo.
+- **Crear un contenedor**: a partir de una imagen del registro o **compilando un Dockerfile** desde el panel (con la salida de compilación en directo), definiendo puertos, variables de entorno, **volúmenes persistentes** y, opcionalmente, un dominio con proxy Nginx + HTTPS.
+- **Desplegar desde código**: sube un `.zip`/`.tar.gz`, elige una plantilla (Node.js, Python, Dockerfile a medida) y el panel construye la imagen y levanta el contenedor.
+- **Editor de Dockerfile y docker-compose**: escribe tu `docker-compose.yml` o un `Dockerfile` global y despliégalo (`docker compose up -d`) sin salir del navegador.
+
+> [!TIP]
+> Esta es la misma base sobre la que corre la sección **Workflows (n8n)**: n8n se instala como un contenedor Docker gestionado automáticamente por el panel.
 
 ---
 
