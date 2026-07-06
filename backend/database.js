@@ -125,6 +125,19 @@ db.exec(`
     retention_days INTEGER NOT NULL DEFAULT 7,
     resources      TEXT NOT NULL DEFAULT '[]'
   );
+
+  CREATE TABLE IF NOT EXISTS cron_jobs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    command    TEXT NOT NULL,
+    minute     TEXT NOT NULL DEFAULT '*',
+    hour       TEXT NOT NULL DEFAULT '*',
+    dom        TEXT NOT NULL DEFAULT '*',
+    month      TEXT NOT NULL DEFAULT '*',
+    dow        TEXT NOT NULL DEFAULT '*',
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -269,6 +282,18 @@ const queries = {
     ON CONFLICT(id) DO UPDATE SET
       enabled = @enabled, frequency = @frequency, time = @time,
       retention_days = @retention_days, resources = @resources`),
+
+  // ── Cron jobs ──────────────────────────────────────────────────
+  listCronJobs: db.prepare('SELECT * FROM cron_jobs ORDER BY created_at DESC'),
+  getCronJob: db.prepare('SELECT * FROM cron_jobs WHERE id = ?'),
+  insertCronJob: db.prepare(`
+    INSERT INTO cron_jobs (name, command, minute, hour, dom, month, dow, enabled)
+    VALUES (@name, @command, @minute, @hour, @dom, @month, @dow, @enabled)`),
+  updateCronJob: db.prepare(`
+    UPDATE cron_jobs SET name=@name, command=@command, minute=@minute, hour=@hour,
+      dom=@dom, month=@month, dow=@dow, enabled=@enabled WHERE id=@id`),
+  setCronJobEnabled: db.prepare('UPDATE cron_jobs SET enabled=@enabled WHERE id=@id'),
+  deleteCronJob: db.prepare('DELETE FROM cron_jobs WHERE id = ?'),
 };
 
 function audit(user, ip, action, detail) {
