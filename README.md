@@ -31,7 +31,8 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
-- ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
+- 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
+- ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
 
@@ -45,18 +46,22 @@ El proyecto está estructurado de forma limpia y desacoplada:
 /opt/txpl/
 ├── backend/
 │   ├── server.js          # Punto de entrada de la API REST + WebSockets
-│   ├── database.js        # Capa de datos con SQLite (better-sqlite3)
-│   ├── routes/            # Enrutadores divididos por módulos (apps, webs, system, etc.)
-│   ├── lib/               # Librerías de websocket, criptografía y utilidades
-│   └── package.json       # Dependencias del backend
+│   ├── database.js        # Capa de datos con SQLite (better-sqlite3, WAL)
+│   ├── routes/            # Un router por dominio: apps, websites, docker, n8n, databases…
+│   ├── lib/               # Helpers: websocket, crypto (AES-256-GCM, TOTP), nginx, n8n, validators
+│   └── test/              # Tests unitarios (node:test)
 ├── frontend/
-│   ├── index.html         # SPA (Single Page Application) modularizada
+│   ├── index.html         # SPA modularizada (vanilla JS, sin bundler)
+│   ├── views/             # Plantillas HTML cargadas dinámicamente (sidebar, páginas)
 │   ├── css/
 │   │   └── styles.css     # Estilos CSS modernos
 │   └── js/
-│       └── app.js         # Lógica vanilla JS del lado del cliente
+│       └── app.js         # Lógica del cliente (~1700 líneas)
 ├── data/
 │   └── txpl.db            # Base de datos SQLite del panel (se crea en el arranque)
+├── txpl-setup.sh          # Aprovisionamiento completo del VPS (logo ASCII + progreso)
+├── txpl-cli.sh            # CLI de administración (txpl status/restart/logs/backup…)
+├── txpl-backup.sh         # Backup automático de DB + configs + sitios
 └── ecosystem.config.js    # Configuración de ejecución continua en PM2
 ```
 
@@ -64,7 +69,7 @@ El proyecto está estructurado de forma limpia y desacoplada:
 
 ## 💿 Instalación en un VPS limpio
 
-En un VPS limpio con **Ubuntu** o **Debian**, todo el proceso de aprovisionamiento se realiza mediante un script interactivo. Este instala Node.js, Nginx, PM2, UFW y Certbot, configura un `.env` seguro y arranca el panel.
+En un VPS limpio con **Ubuntu** o **Debian**, todo el proceso de aprovisionamiento se realiza mediante un script interactivo con **logo ASCII** y **barra de progreso** en tiempo real. Instala Node.js, Nginx, PM2, UFW y Certbot, configura un `.env` seguro con credenciales autogeneradas y arranca el panel.
 
 > [!WARNING]
 > **Instalación en servidor en producción:**
@@ -186,6 +191,9 @@ TecXPaneL integra **n8n** para que orquestes automatizaciones desde el mismo pan
 - **Cifrado Robusto**: Contraseñas del administrador hasheadas con `bcrypt` (12 rondas). Secretos de bases de datos guardados en la base de datos local con cifrado simétrico AES-256-GCM.
 - **Jaula de Rutas (Path Jail)**: Rutas del gestor de archivos validadas y resueltas para bloquear ataques de Path Traversal fuera del directorio base.
 - **Protección contra Ataques**: Cabeceras de seguridad configuradas mediante `helmet`, rate limiting de solicitudes por IP y protección contra fuerza bruta integrada.
+- **Recuperación de Contraseña**: Configura un email y una pregunta de seguridad desde el panel para poder recuperar el acceso en caso de olvido, sin depender de servicios externos.
+- **Autenticación 2FA (TOTP)**: Segundo factor de autenticación compatible con Google Authenticator, Authy y similares. Se activa/desactiva desde la configuración del usuario.
+- **Registro de Auditoría**: Cada acción relevante (login, creación/borrado de sitios, apps, bases de datos, cambios de firewall…) se registra con usuario, IP y timestamp en una tabla de auditoría consultable desde el panel.
 
 ---
 
