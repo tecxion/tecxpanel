@@ -23,6 +23,13 @@ function buildPullPath(image, tag) {
   return `/images/create?fromImage=${encodeURIComponent(image)}&tag=${encodeURIComponent(tag)}`;
 }
 
+// URL con la que el BACKEND del panel habla con n8n: siempre por loopback
+// (127.0.0.1 + el puerto host publicado del contenedor). No depende de la IP
+// pública ni del dominio, así que no falla por hairpin NAT ni por DNS/SSL.
+function buildLocalApiBase(hostPort) {
+  return `http://127.0.0.1:${hostPort || N8N_PORT}`;
+}
+
 // Construye la config que se envía a la Docker API para crear el contenedor n8n.
 //  - hostPort: puerto del VPS que se mapea al 5678 interno.
 //  - domain:   si hay dominio (proxy + SSL) => https y cookie segura; si no, http.
@@ -111,5 +118,6 @@ function accumulatePullProgress(state, event) {
 
 module.exports = {
   N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_TAG, N8N_PORT,
-  buildN8nContainerConfig, buildPullPath, n8nApi, computeN8nStatus, accumulatePullProgress,
+  buildN8nContainerConfig, buildPullPath, buildLocalApiBase,
+  n8nApi, computeN8nStatus, accumulatePullProgress,
 };

@@ -1696,6 +1696,12 @@ async function streamPlugin(id, action, name) {
 
 // ── n8n (Workflows) ───────────────────────────────────────────
 // Carga el estado y pinta la vista adaptativa (instalar / conectar / dashboard).
+// URL con la que el NAVEGADOR abre n8n: el dominio si lo hay, o la IP/host con
+// el que entraste al panel + el puerto de n8n (no "localhost", que sería tu PC).
+function n8nOpenBase(st) {
+  return st.domain ? st.base_url : `http://${location.hostname}:${st.host_port}`;
+}
+
 async function loadN8n() {
   const body = document.getElementById('n8n-body');
   body.innerHTML = '<div class="card"><p>Cargando estado de n8n...</p></div>';
@@ -1733,7 +1739,7 @@ async function loadN8n() {
   }
 
   if (st.state === 'needs_config') {
-    const url = st.base_url || '';
+    const openUrl = n8nOpenBase(st);
     body.innerHTML = `<div class="card">
       <h3>Conectar con n8n</h3>
       <ol>
@@ -1741,8 +1747,7 @@ async function loadN8n() {
         <li>Ve a <strong>Settings → API</strong> y genera tu API key.</li>
         <li>Pégala aquí abajo.</li>
       </ol>
-      <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Abrir n8n</a>
-      <div class="form-row"><label>URL base</label><input id="n8n-baseurl" type="text" value="${url}"></div>
+      <a class="btn" href="${esc(openUrl)}" target="_blank" rel="noopener">Abrir n8n</a>
       <div class="form-row"><label>API key</label><input id="n8n-apikey" type="password" placeholder="n8n_api_..."></div>
       <button class="btn btn-primary" onclick="n8nSaveConfig()">Conectar</button>
     </div>`;
@@ -1750,9 +1755,10 @@ async function loadN8n() {
   }
 
   // state === 'ready' → dashboard
+  const openUrl = n8nOpenBase(st);
   body.innerHTML = `<div class="card">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <a class="btn" href="${esc(st.base_url)}" target="_blank" rel="noopener">Abrir en n8n</a>
+      <a class="btn" href="${esc(openUrl)}" target="_blank" rel="noopener">Abrir en n8n</a>
       <button class="btn" onclick="n8nAction('restart')">Reiniciar</button>
       <button class="btn" onclick="n8nAction('stop')">Detener</button>
       <button class="btn btn-danger" onclick="n8nUninstall()">Desinstalar</button>
@@ -1761,7 +1767,7 @@ async function loadN8n() {
   <div class="card"><h3>Workflows</h3><div id="n8n-workflows">Cargando...</div></div>
   <div class="card"><h3>Ejecuciones recientes</h3><div id="n8n-executions">Cargando...</div></div>`;
 
-  loadN8nWorkflows(st.base_url);
+  loadN8nWorkflows(openUrl);
   loadN8nExecutions();
 }
 
@@ -1861,9 +1867,9 @@ async function n8nInstall() {
 }
 
 async function n8nSaveConfig() {
-  const base_url = document.getElementById('n8n-baseurl').value.trim();
   const api_key = document.getElementById('n8n-apikey').value.trim();
-  const r = await req('POST', '/n8n/config', { base_url, api_key });
+  if (!api_key) { toast('Pega tu API key de n8n', 'error'); return; }
+  const r = await req('POST', '/n8n/config', { api_key });
   if (!r) return;
   if (r.error) { toast(r.error, 'error'); return; }
   toast('n8n conectado', 'success');

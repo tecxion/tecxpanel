@@ -18,7 +18,8 @@ const nginx = require('../lib/nginx');
 const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 const {
-  buildN8nContainerConfig, buildPullPath, n8nApi, computeN8nStatus, accumulatePullProgress,
+  buildN8nContainerConfig, buildPullPath, buildLocalApiBase,
+  n8nApi, computeN8nStatus, accumulatePullProgress,
   N8N_CONTAINER, N8N_IMAGE, N8N_TAG, N8N_PORT,
 } = require('../lib/n8n');
 
@@ -117,12 +118,19 @@ async function inspectContainer() {
 // Devuelve la config de conexión con la API key descifrada, o lanza si falta.
 function getConnectedConfig() {
   const cfg = queries.getN8nConfig.get();
-  if (!cfg || !cfg.base_url || !cfg.api_key_enc) {
+  if (!cfg || !cfg.api_key_enc) {
     const err = new Error('n8n no está configurado. Conecta la API key primero.');
     err.code = 'NO_CONFIG';
     throw err;
   }
-  return { base_url: cfg.base_url, apiKey: decryptSecret(cfg.api_key_enc), domain: cfg.domain };
+  // El backend SIEMPRE llama a n8n por loopback (no por la IP pública/dominio):
+  // fiable y sin depender de hairpin NAT ni DNS.
+  return {
+    apiBase: buildLocalApiBase(cfg.host_port || N8N_PORT),
+    apiKey: decryptSecret(cfg.api_key_enc),
+    base_url: cfg.base_url,
+    domain: cfg.domain,
+  };
 }
 
 // GET /status — estado para que el frontend decida la vista.
@@ -140,31 +148,33 @@ router.get('/status', wrap(async (req, res) => {
   });
 }));
 
-// POST /config — guarda base_url + API key tras validarla contra n8n.
+// POST /config — guarda la API key tras validarla contra n8n. El backend usa
+// SIEMPRE loopback para hablar con n8n, así que no pedimos ninguna URL al usuario.
 router.post('/config', wrap(async (req, res) => {
-  const base_url = String((req.body && req.body.base_url) || '').trim();
   const apiKey = String((req.body && req.body.api_key) || '').trim();
-  if (!/^https?:\/\/.+/.test(base_url)) return fail(res, 400, 'La URL base debe empezar por http:// o https://');
   if (!apiKey) return fail(res, 400, 'Falta la API key de n8n. Genérala en n8n → Settings → API.');
 
-  // Validar la key llamando una vez a la API. Si falla, no guardamos nada.
+  const prev = queries.getN8nConfig.get() || {};
+  const hostPort = prev.host_port || N8N_PORT;
+  const apiBase = buildLocalApiBase(hostPort);
+
+  // Validar la key llamando una vez a la API (por loopback). Si falla, no guardamos.
   try {
-    await n8nApi(base_url, apiKey, 'GET', '/api/v1/workflows?limit=1');
+    await n8nApi(apiBase, apiKey, 'GET', '/api/v1/workflows?limit=1');
   } catch (e) {
     return fail(res, 400, `No pude validar la API key contra n8n: ${e.message}`);
   }
 
-  const prev = queries.getN8nConfig.get() || {};
   queries.saveN8nConfig.run({
-    base_url,
+    base_url: prev.base_url || apiBase,
     api_key_enc: encryptSecret(apiKey),
     container_id: prev.container_id || null,
     domain: prev.domain || null,
-    host_port: prev.host_port || N8N_PORT,
+    host_port: hostPort,
     status: 'configured',
     created_at: prev.created_at || new Date().toISOString(),
   });
-  audit(req.user.username, clientIp(req), 'n8n.config', base_url);
+  audit(req.user.username, clientIp(req), 'n8n.config', apiBase);
   ok(res);
 }));
 
@@ -361,6 +371,6 @@ router.delete('/', wrap(async (req, res) => {
 module.exports = router;
 module.exports.getConnectedConfig = getConnectedConfig;
 module.exports.n8nApiCall = (method, apiPath, body) => {
-  const { base_url, apiKey } = getConnectedConfig();
-  return n8nApi(base_url, apiKey, method, apiPath, body);
+  const { apiBase, apiKey } = getConnectedConfig();
+  return n8nApi(apiBase, apiKey, method, apiPath, body);
 };

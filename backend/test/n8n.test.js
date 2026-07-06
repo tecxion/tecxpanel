@@ -21,6 +21,13 @@ test('buildPullPath: incluye SIEMPRE el tag (no descarga todas las etiquetas)', 
   assert.ok(/[?&]tag=/.test(p), 'la ruta de pull debe llevar tag');
 });
 
+test('buildLocalApiBase: siempre loopback (127.0.0.1) con el puerto host', () => {
+  assert.strictEqual(n8n.buildLocalApiBase(5678), 'http://127.0.0.1:5678');
+  assert.strictEqual(n8n.buildLocalApiBase(9000), 'http://127.0.0.1:9000');
+  // Sin puerto cae al 5678 por defecto.
+  assert.strictEqual(n8n.buildLocalApiBase(), 'http://127.0.0.1:5678');
+});
+
 test('buildN8nContainerConfig: sin dominio => http, cookie insegura, puerto host', () => {
   const c = n8n.buildN8nContainerConfig({ hostPort: 5678, domain: null, timezone: 'Europe/Madrid' });
   assert.strictEqual(c.Image, 'n8nio/n8n:latest');
