@@ -2105,13 +2105,15 @@ function cronEdit(id) {
 }
 
 async function cronToggle(id) {
-  await req('POST', `/cron/${id}/toggle`);
+  const r = await req('POST', `/cron/${id}/toggle`);
+  if (r && r.error) toast(r.error, 'error');
   loadCron();
 }
 
 async function cronDelete(id) {
   if (!confirm('¿Borrar esta tarea programada?')) return;
-  await req('DELETE', `/cron/${id}`);
+  const r = await req('DELETE', `/cron/${id}`);
+  if (r && r.error) toast(r.error, 'error');
   loadCron();
 }
 
