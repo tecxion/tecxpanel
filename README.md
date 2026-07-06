@@ -32,6 +32,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
 - 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
+- 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
@@ -232,6 +233,29 @@ TecXPaneL integra **n8n** para que orquestes automatizaciones desde el mismo pan
 
 > [!TIP]
 > **Editar** workflows siempre se hace en la interfaz propia de n8n (enlace directo). El panel actúa como panel de control y monitorización, hablando con n8n de forma segura por *loopback*. Para instalar con dominio + HTTPS, indica el dominio al instalar y emite el certificado desde la sección **SSL**.
+
+---
+
+## 💾 Copias de Seguridad
+
+TecXPaneL gestiona las copias desde el panel, con restauración granular estilo Plesk.
+
+**Qué puedes respaldar (junto o por separado):**
+
+- **Bases de datos** MySQL/PostgreSQL (dump individual por BD).
+- **Sitios web** de `/var/www` con su configuración.
+- **Aplicaciones** (código + `.env` + PM2).
+- **Config del panel** (base de datos SQLite + `.env`).
+
+**Flujo de uso:**
+
+1.  Pulsa **Backup ahora** para un snapshot completo, o respalda un recurso concreto.
+2.  Cada backup se guarda como `.tar.gz` con un `manifest.json` que describe su contenido.
+3.  Para **restaurar**, elige todo el backup o una pieza suelta: el panel crea primero un **snapshot de seguridad** de lo que va a sobrescribir y luego aplica la restauración.
+4.  Configura la **programación** (diario/semanal, hora y retención): el panel instala una tarea de cron que ejecuta el backup automáticamente.
+
+> [!NOTE]
+> En la v1 los destinos son **local** (`/opt/txpl/backups`) y **descarga manual**. Los destinos remotos (S3/SFTP) llegarán en una versión posterior.
 
 ---
 
