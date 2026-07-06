@@ -257,6 +257,9 @@ TecXPaneL gestiona las copias desde el panel, con restauración granular estilo 
 > [!NOTE]
 > En la v1 los destinos son **local** (`/opt/txpl/backups`) y **descarga manual**. Los destinos remotos (S3/SFTP) llegarán en una versión posterior.
 
+> [!WARNING]
+> Los backups del panel incluyen el archivo `.env` (con `JWT_SECRET` y la clave de cifrado) y los dumps de tus bases de datos, **sin cifrar** dentro del `.tar.gz`. Guárdalos y transfiérelos por canales seguros. El cifrado del propio archivo de backup llegará en una versión posterior.
+
 ---
 
 ## 🛡️ Seguridad Aplicada

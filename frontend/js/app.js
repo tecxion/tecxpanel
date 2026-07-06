@@ -1997,15 +1997,17 @@ async function backupDelete(id) {
 }
 
 async function saveBackupSchedule() {
+  const r = await req('GET', '/backups/resources');
+  const all = r ? [...r.databases, ...r.sites, ...r.apps, ...r.panel] : [{ class: 'panel', name: 'panel' }];
   const body = {
     enabled: document.getElementById('bk-enabled').checked ? 1 : 0,
     frequency: document.getElementById('bk-frequency').value,
     time: document.getElementById('bk-time').value,
     retention_days: +document.getElementById('bk-retention').value,
-    resources: [{ class: 'panel', name: 'panel' }],
+    resources: all,
   };
-  const r = await req('POST', '/backups/schedule', body);
-  if (r) alert('Programación guardada');
+  const res = await req('POST', '/backups/schedule', body);
+  if (res) alert('Programación guardada');
 }
 
 // ── Utils ─────────────────────────────────────────────────────
