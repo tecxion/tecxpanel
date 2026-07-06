@@ -144,6 +144,59 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 ---
 
+## 🌐 Despliegue de Sitios Web
+
+La sección **Sitios Web** genera y activa el bloque Nginx por ti (crea el vhost, valida con `nginx -t` y recarga). Solo indicas el dominio y el tipo de sitio.
+
+**Tipos soportados:**
+
+- **HTML estático**: sirve directamente los archivos del directorio raíz del sitio. Ideal para landings o webs generadas (`build/` de cualquier herramienta).
+- **PHP (PHP-FPM)**: con **selector de versión** de PHP-FPM. Nginx enruta los `.php` al socket de la versión elegida.
+- **React / SPA**: sirve el `build` estático con *fallback* a `index.html` para el enrutado del lado del cliente.
+- **Node.js**: crea un **proxy inverso** de Nginx hacia el puerto donde escucha tu aplicación.
+- **Python**: igual que Node.js, proxy inverso al puerto de tu servicio (Gunicorn/Uvicorn/Flask, etc.).
+
+**Flujo de uso:**
+
+1.  Entra en **Sitios Web** → **Nuevo sitio**, escribe el dominio (apuntado por DNS a tu VPS) y elige el tipo.
+2.  Sube tus archivos con el **Gestor de Archivos** (o despliégalos con la sección **Aplicaciones** si necesitas build/PM2).
+3.  Emite el certificado **SSL** con un clic desde la sección **SSL** (Certbot) para forzar HTTPS.
+
+> [!TIP]
+> Para apps que necesitan un proceso vivo (Node.js/Python con build, reinicio y logs), usa la sección **Aplicaciones**: crea el sitio como proxy y gestiona el proceso con PM2. Para sitios puramente estáticos o PHP, **Sitios Web** es suficiente.
+
+---
+
+## 📦 Despliegue de Aplicaciones (Node.js · Python · React · TypeScript)
+
+La sección **Aplicaciones** es un pipeline de despliegue completo sobre **PM2**: crea el proyecto → sube el código → instala dependencias → compila → arranca → configura el proxy Nginx. Detecta automáticamente el tipo de proyecto y sugiere los comandos de `install`/`build`/`start`.
+
+**Cómo subir el código:**
+
+- **Archivo comprimido**: sube un `.zip`/`.tar.gz` y el panel lo extrae en el directorio de la app.
+- **Clonado desde Git**: indica el repositorio y la rama; el panel lo clona y genera un **webhook de auto-deploy**. Cada `git push` dispara `git pull → instalar → build → reinicio` automáticamente (el webhook usa un secreto único por app).
+
+**Por tecnología:**
+
+- **Node.js**: detecta el gestor (`npm`/`yarn`/`pnpm`), instala dependencias (incluidas las *devDependencies* necesarias para compilar) y arranca con `npm start` o el `entry` del `package.json`.
+- **TypeScript**: instala, compila y arranca el resultado transpilado.
+- **React / Next.js**: compila (`npm run build`) y sirve el resultado. Detecta Next.js y avisa si intentas arrancar sin haber compilado antes.
+- **Python**: aísla cada app en su propio **virtualenv (`.venv`)** y distingue dos modos:
+    - **Servicio web** (con puerto y proxy Nginx): p. ej. una API Flask/FastAPI.
+    - **Worker / bot** (sin puerto, no escucha en red): p. ej. un bot de Telegram. Puedes elegir el script `.py` de arranque y editar el comando.
+
+**Flujo de uso:**
+
+1.  Entra en **Aplicaciones** → **Nueva app**, elige la tecnología y el origen del código (zip o Git).
+2.  Revisa/edita los comandos de instalación, compilación y arranque que el panel detecta. Gestiona las variables de entorno en el archivo **`.env`** desde el propio panel.
+3.  El panel instala, compila, arranca con PM2 y configura el proxy Nginx (si es un servicio web con puerto y dominio).
+4.  Emite **SSL** con un clic y, si usas Git, cada push desplegará la nueva versión automáticamente.
+
+> [!NOTE]
+> El comando de arranque es **editable**: si el proceso no levanta, ábrelo en la consola integrada, corrige el comando y reinicia. En apps con Git, tu comando editado se **preserva** entre despliegues automáticos.
+
+---
+
 ## 🐳 Contenedores Docker
 
 El panel incluye un módulo de **Docker** que habla directamente con el socket del daemon (sin depender de la CLI ni de un SDK), pensado tanto para quien domina Docker como para quien no.
