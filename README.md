@@ -32,6 +32,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
+- 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
 
 ---
 
@@ -134,6 +135,25 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 | `txpl backup`              | Crea una copia de seguridad empaquetada en `/opt/txpl/backups` |
 | `txpl backup:cron`         | Instala un cron job diario para backups a las 03:00 AM         |
 | `txpl backup:list`         | Lista todas las copias de seguridad disponibles                |
+
+---
+
+## 🔗 Automatización con n8n (Workflows)
+
+TecXPaneL integra **n8n** para que orquestes automatizaciones desde el mismo panel, sin instalarlo ni administrarlo a mano.
+
+> [!NOTE]
+> La sección **Workflows** requiere **Docker**. Si no está instalado, el panel te llevará a instalarlo desde **Plugins** con un clic.
+
+**Flujo de uso:**
+
+1.  Entra en la sección **Workflows** y pulsa **Instalar n8n**. El panel descarga la imagen (`n8nio/n8n:latest`) y crea el contenedor `txpl-n8n` con volumen persistente `n8n_data`, mostrando el progreso de descarga en directo.
+2.  Abre n8n (botón **Abrir en n8n**, que apunta a la IP de tu servidor + puerto, o a tu dominio si lo configuraste), crea tu cuenta de propietario y genera tu **API key** en `Settings → API`.
+3.  Pega la API key en el asistente del panel. Se valida contra n8n y se guarda **cifrada** (AES-256-GCM). No necesitas indicar ninguna URL.
+4.  Desde el **dashboard de Workflows** puedes: ver tus workflows y su estado, **activarlos/desactivarlos**, revisar las **ejecuciones recientes**, ver la URL de webhook de un workflow y abrir el editor de n8n para editarlos.
+
+> [!TIP]
+> **Editar** workflows siempre se hace en la interfaz propia de n8n (enlace directo). El panel actúa como panel de control y monitorización, hablando con n8n de forma segura por *loopback*. Para instalar con dominio + HTTPS, indica el dominio al instalar y emite el certificado desde la sección **SSL**.
 
 ---
 
