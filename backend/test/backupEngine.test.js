@@ -41,3 +41,13 @@ test('createBackup(panel) genera un tar.gz con manifest + fichero', { skip: isWi
   fs.rmSync(workBase, { recursive: true, force: true });
   fs.rmSync(outDir, { recursive: true, force: true });
 });
+
+test('restoreItem rechaza item.path con traversal (path jail)', { skip: isWin }, async () => {
+  process.env.TXPL_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'txpl-env-'));
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'x'.repeat(40);
+  const engine = require('../lib/backupEngine');
+  await assert.rejects(
+    () => engine.restoreItem({ filename: 'backup-test.tar.gz', item: { class: 'panel', path: '../../etc/passwd' }, write: null }),
+    /Ruta de pieza inválida/
+  );
+});

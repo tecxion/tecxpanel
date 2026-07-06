@@ -80,8 +80,16 @@ async function dumpItem(item, stageDir, write) {
     await run(cmd, args, { maxBuffer: 64 * 1024 * 1024 });
   } else if (item.class === 'panel') {
     emit(write, '📋 Config del panel');
-    await runSafe('sqlite3', [PANEL_DB, `.backup ${dest}`]);
-    if (!fs.existsSync(dest)) fs.copyFileSync(PANEL_DB, dest);
+    const rb = await runSafe('sqlite3', [PANEL_DB, `.backup ${dest}`]);
+    if (!fs.existsSync(dest)) {
+      // Si sqlite3 no está instalado (ENOENT) caemos a copia directa; si falló por
+      // otra causa, abortamos: no queremos un backup del panel silenciosamente corrupto.
+      if (!rb.ok && !/ENOENT/.test(rb.stderr || '')) {
+        throw new Error(`sqlite3 .backup falló: ${(rb.stderr || '').trim().slice(0, 200)}`);
+      }
+      emit(write, '⚠️ sqlite3 no disponible; copia directa de la BD del panel (puede ser inconsistente en WAL)');
+      fs.copyFileSync(PANEL_DB, dest);
+    }
     if (fs.existsSync(PANEL_ENV)) fs.copyFileSync(PANEL_ENV, path.join(path.dirname(dest), 'txpl.env'));
   }
   return fs.existsSync(dest) ? fs.statSync(dest).size : 0;
@@ -132,6 +140,9 @@ async function readManifest(filename) {
 // Restaura una pieza concreta desde un backup. Recarga servicios según la clase.
 async function restoreItem({ filename, item, write }) {
   if (!B.isValidBackupFilename(filename)) throw new Error('Nombre de backup inválido');
+  if (typeof item.path !== 'string' || item.path.includes('..') || path.isAbsolute(item.path)) {
+    throw new Error('Ruta de pieza inválida');
+  }
   const archive = path.join(B.BACKUP_DIR, filename);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'txpl-restore-'));
   try {
@@ -160,6 +171,12 @@ async function restoreItem({ filename, item, write }) {
     } else if (item.class === 'panel') {
       emit(write, '📋 Restaurando config del panel');
       fs.copyFileSync(extracted, PANEL_DB);
+      // El .env del panel viaja en el mismo directorio del archivo; restaurarlo si está.
+      const envMember = path.posix.join(path.posix.dirname(item.path), 'txpl.env');
+      const exEnv = B.extractMemberArgs(archive, envMember, tmp);
+      const rEnv = await runSafe(exEnv.cmd, exEnv.args);
+      const envPath = path.join(tmp, envMember);
+      if (rEnv.ok && fs.existsSync(envPath)) { fs.copyFileSync(envPath, PANEL_ENV); emit(write, '📋 .env del panel restaurado'); }
     }
     emit(write, '✅ Restauración completada');
   } finally {
