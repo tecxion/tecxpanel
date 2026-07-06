@@ -274,7 +274,7 @@ function navigate(el) {
     websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
     files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
     plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker',
-    n8n: 'Workflows'
+    n8n: 'Workflows', backups: 'Copias de seguridad'
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
@@ -290,6 +290,7 @@ function navigate(el) {
   if (page === 'settings') loadSettings();
   if (page === 'docker') loadDockerContainers();
   if (page === 'n8n') loadN8n();
+  if (page === 'backups') loadBackups();
 }
 
 // ── Init ──────────────────────────────────────────────────────
@@ -1903,6 +1904,110 @@ async function n8nUninstall() {
   loadN8n();
 }
 
+// ── Copias de seguridad ───────────────────────────────────────
+// loadBackups: carga la programación guardada y la lista de backups disponibles.
+async function loadBackups() {
+  const data = await req('GET', '/backups');
+  if (!data) return;
+  const s = data.schedule || {};
+  document.getElementById('bk-enabled').checked = !!s.enabled;
+  document.getElementById('bk-frequency').value = s.frequency || 'daily';
+  document.getElementById('bk-time').value = s.time || '03:00';
+  document.getElementById('bk-retention').value = s.retention_days || 7;
+
+  const list = document.getElementById('backups-list');
+  if (!data.backups.length) { list.innerHTML = '<p class="muted">Aún no hay copias de seguridad.</p>'; return; }
+  list.innerHTML = '<table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Origen</th><th>Tamaño</th><th>Estado</th><th></th></tr></thead><tbody>' +
+    data.backups.map((b) => `<tr>
+      <td>${esc(b.created_at)}</td>
+      <td>${esc(b.kind)}</td>
+      <td>${esc(b.origin)}</td>
+      <td>${fmtBytes(b.size_bytes)}</td>
+      <td>${esc(b.status)}</td>
+      <td>
+        <button class="btn btn-sm" onclick="backupRestore(${b.id})"><i class="ti ti-restore"></i></button>
+        <button class="btn btn-sm" onclick="backupDownload(${b.id})"><i class="ti ti-download"></i></button>
+        <button class="btn btn-sm btn-danger" onclick="backupDelete(${b.id})"><i class="ti ti-trash"></i></button>
+      </td></tr>`).join('') + '</tbody></table>';
+}
+
+// Helper de streaming reutilizable (mismo patrón que n8nInstall): hace POST,
+// lee el cuerpo por chunks y vuelca a la consola hasta el centinela __TXPL_DONE__.
+async function streamConsole(path, body, el) {
+  const DONE = '__TXPL_DONE__';
+  const r = await fetch(API + '/api' + path, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) { doLogout(); return 1; }
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buffer = '', exitCode = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += dec.decode(value, { stream: true });
+    let display = buffer;
+    const idx = buffer.indexOf(DONE);
+    if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
+    el.textContent = display; el.scrollTop = el.scrollHeight;
+  }
+  return exitCode;
+}
+
+async function backupNow(kind) {
+  const r = await req('GET', '/backups/resources');
+  if (!r) return;
+  const all = [...r.databases, ...r.sites, ...r.apps, ...r.panel];
+  const con = document.getElementById('backups-console');
+  con.style.display = 'block'; con.textContent = '';
+  await streamConsole('/backups', { kind, resources: all }, con);
+  loadBackups();
+}
+
+async function backupRestore(id) {
+  const m = await req('GET', `/backups/${id}/manifest`);
+  if (!m) return;
+  if (!confirm('Se creará un snapshot de seguridad y luego se restaurará el backup completo. ¿Continuar?')) return;
+  const con = document.getElementById('backups-console');
+  con.style.display = 'block'; con.textContent = '';
+  await streamConsole(`/backups/${id}/restore`, { items: m.manifest.items }, con);
+  loadBackups();
+}
+
+async function backupDownload(id) {
+  // El middleware de auth solo acepta el header Authorization: Bearer, así que
+  // descargamos con fetch (enviando el token) y forzamos la descarga vía blob.
+  const res = await fetch(`${API}/api/backups/${id}/download`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  if (!res.ok) { alert('No se pudo descargar el backup'); return; }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const name = (cd.match(/filename="?([^"]+)"?/) || [])[1] || 'backup.tar.gz';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+}
+
+async function backupDelete(id) {
+  if (!confirm('¿Borrar esta copia de seguridad?')) return;
+  await req('DELETE', `/backups/${id}`);
+  loadBackups();
+}
+
+async function saveBackupSchedule() {
+  const body = {
+    enabled: document.getElementById('bk-enabled').checked ? 1 : 0,
+    frequency: document.getElementById('bk-frequency').value,
+    time: document.getElementById('bk-time').value,
+    retention_days: +document.getElementById('bk-retention').value,
+    resources: [{ class: 'panel', name: 'panel' }],
+  };
+  const r = await req('POST', '/backups/schedule', body);
+  if (r) alert('Programación guardada');
+}
+
 // ── Utils ─────────────────────────────────────────────────────
 // copyText: copia un texto al portapapeles (con alternativa para conexiones sin HTTPS).
 function copyText(text) {
@@ -2372,7 +2477,7 @@ async function triggerGitPull() {
 async function loadTemplates() {
   const pages = [
     'dashboard', 'terminal', 'websites', 'apps', 'databases',
-    'docker', 'n8n', 'files', 'firewall', 'ssl', 'logs', 'plugins',
+    'docker', 'n8n', 'backups', 'files', 'firewall', 'ssl', 'logs', 'plugins',
     'help', 'settings'
   ];
 

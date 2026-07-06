@@ -1,0 +1,26 @@
+<div class="page-header">
+  <h1><i class="ti ti-database-export"></i> Copias de seguridad</h1>
+  <div class="page-actions">
+    <button class="btn btn-primary" onclick="backupNow('full')"><i class="ti ti-player-record"></i> Backup ahora</button>
+  </div>
+</div>
+
+<div class="card" id="backups-schedule">
+  <h3><i class="ti ti-clock"></i> Programación</h3>
+  <div class="form-row">
+    <label><input type="checkbox" id="bk-enabled"> Activar backups automáticos</label>
+  </div>
+  <div class="form-row">
+    <select id="bk-frequency"><option value="daily">Diario</option><option value="weekly">Semanal</option></select>
+    <input type="time" id="bk-time" value="03:00">
+    <label>Retención (días): <input type="number" id="bk-retention" value="7" min="1" style="width:70px"></label>
+  </div>
+  <button class="btn" onclick="saveBackupSchedule()"><i class="ti ti-device-floppy"></i> Guardar programación</button>
+</div>
+
+<div class="card">
+  <h3><i class="ti ti-archive"></i> Backups disponibles</h3>
+  <div id="backups-list">Cargando…</div>
+</div>
+
+<div class="console" id="backups-console" style="display:none"></div>
