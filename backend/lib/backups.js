@@ -8,6 +8,8 @@
 //  constructores de argumentos de comandos. Testeables en aislado.
 // ============================================================
 
+const path = require('path');
+
 const BACKUP_DIR = '/opt/txpl/backups';
 const RESOURCE_CLASSES = ['db-mysql', 'db-pg', 'site', 'app', 'panel'];
 
@@ -56,8 +58,43 @@ function selectExpiredBackups(rows, retentionDays, now) {
     .map((r) => r.filename);
 }
 
+// Todos devuelven { cmd, args } listos para run(cmd, args). La contraseña de
+// MySQL se pasa como argumento explícito (no se interpola en una shell).
+function mysqldumpArgs(dbName, rootPassword) {
+  return {
+    cmd: 'mysqldump',
+    args: ['-u', 'root', `-p${rootPassword}`, '--single-transaction', '--routines', '--triggers', dbName],
+  };
+}
+
+function pgDumpArgs(dbName) {
+  return { cmd: 'sudo', args: ['-u', 'postgres', 'pg_dump', dbName] };
+}
+
+function siteTarArgs(domain, outPath, sitesDir) {
+  return { cmd: 'tar', args: ['-czf', outPath, '-C', sitesDir, domain] };
+}
+
+function appTarArgs(appPath, outPath) {
+  return { cmd: 'tar', args: ['-czf', outPath, '-C', path.dirname(appPath), path.basename(appPath)] };
+}
+
+function packageTarArgs(workDir, outPath) {
+  return { cmd: 'tar', args: ['-czf', outPath, '-C', workDir, '.'] };
+}
+
+function readManifestArgs(archivePath) {
+  return { cmd: 'tar', args: ['-xzOf', archivePath, './manifest.json'] };
+}
+
+function extractMemberArgs(archivePath, memberPath, destDir) {
+  return { cmd: 'tar', args: ['-xzf', archivePath, '-C', destDir, memberPath] };
+}
+
 module.exports = {
   BACKUP_DIR, RESOURCE_CLASSES, isValidResourceClass,
   buildManifest, parseManifest, isValidBackupFilename,
   buildCronLine, selectExpiredBackups,
+  mysqldumpArgs, pgDumpArgs, siteTarArgs, appTarArgs,
+  packageTarArgs, readManifestArgs, extractMemberArgs,
 };

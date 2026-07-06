@@ -56,3 +56,51 @@ test('selectExpiredBackups solo caduca los scheduled antiguos', () => {
   ];
   assert.deepStrictEqual(b.selectExpiredBackups(rows, 7, now), ['backup-a.tar.gz']);
 });
+
+test('mysqldumpArgs monta un dump seguro con la BD al final', () => {
+  const { cmd, args } = b.mysqldumpArgs('clientea', 'ROOTPW');
+  assert.strictEqual(cmd, 'mysqldump');
+  assert.ok(args.includes('--single-transaction'));
+  assert.ok(args.includes('-u') && args.includes('root'));
+  assert.ok(args.includes('-pROOTPW'));
+  assert.strictEqual(args[args.length - 1], 'clientea');
+});
+
+test('pgDumpArgs usa sudo -u postgres', () => {
+  assert.deepStrictEqual(b.pgDumpArgs('clienteb'), { cmd: 'sudo', args: ['-u', 'postgres', 'pg_dump', 'clienteb'] });
+});
+
+test('siteTarArgs comprime el directorio del sitio', () => {
+  assert.deepStrictEqual(
+    b.siteTarArgs('ejemplo.com', '/work/sites/ejemplo.com.tar.gz', '/var/www'),
+    { cmd: 'tar', args: ['-czf', '/work/sites/ejemplo.com.tar.gz', '-C', '/var/www', 'ejemplo.com'] }
+  );
+});
+
+test('appTarArgs separa dirname/basename del path de la app', () => {
+  assert.deepStrictEqual(
+    b.appTarArgs('/opt/txpl/apps/bot', '/work/apps/bot.tar.gz'),
+    { cmd: 'tar', args: ['-czf', '/work/apps/bot.tar.gz', '-C', '/opt/txpl/apps', 'bot'] }
+  );
+});
+
+test('packageTarArgs empaqueta el directorio de trabajo completo', () => {
+  assert.deepStrictEqual(
+    b.packageTarArgs('/work', '/out/backup-x.tar.gz'),
+    { cmd: 'tar', args: ['-czf', '/out/backup-x.tar.gz', '-C', '/work', '.'] }
+  );
+});
+
+test('readManifestArgs extrae manifest.json a stdout', () => {
+  assert.deepStrictEqual(
+    b.readManifestArgs('/out/backup-x.tar.gz'),
+    { cmd: 'tar', args: ['-xzOf', '/out/backup-x.tar.gz', './manifest.json'] }
+  );
+});
+
+test('extractMemberArgs saca un miembro concreto a un destino', () => {
+  assert.deepStrictEqual(
+    b.extractMemberArgs('/out/backup-x.tar.gz', 'db/mysql/clientea.sql.gz', '/tmp/rest'),
+    { cmd: 'tar', args: ['-xzf', '/out/backup-x.tar.gz', '-C', '/tmp/rest', 'db/mysql/clientea.sql.gz'] }
+  );
+});
