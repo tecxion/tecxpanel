@@ -33,6 +33,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
 - 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
 - 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`.
+- ⏰ **Tareas Programadas (Cron)**: Crea y gestiona tareas cron desde la UI con un **constructor guiado** (cada minuto/hora/día/semana/mes o modo avanzado), actívalas/desactívalas, edítalas y consulta el **log de salida de cada tarea**. El panel gestiona solo sus propias tareas sin tocar el resto del crontab.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
@@ -259,6 +260,26 @@ TecXPaneL gestiona las copias desde el panel, con restauración granular estilo 
 
 > [!WARNING]
 > Los backups del panel incluyen el archivo `.env` (con `JWT_SECRET` y la clave de cifrado) y los dumps de tus bases de datos, **sin cifrar** dentro del `.tar.gz`. Guárdalos y transfiérelos por canales seguros. El cifrado del propio archivo de backup llegará en una versión posterior.
+
+---
+
+## ⏰ Tareas Programadas (Cron)
+
+Gestiona el `cron` del servidor desde el panel, sin editar el crontab a mano.
+
+**Qué puedes hacer:**
+
+- Crear tareas con un **comando** y una **programación guiada** (presets "cada
+  hora", "cada día a las HH:MM", "cada semana", "cada mes", o modo avanzado con
+  los cinco campos cron).
+- **Activar/desactivar** una tarea sin borrarla, **editarla** y **borrarla**.
+- Consultar el **log de salida** de cada tarea (se guarda en
+  `/var/log/txpl/cron/<id>.log`).
+
+> [!NOTE]
+> El panel gestiona **solo las tareas creadas desde aquí** (marcadas internamente
+> en el crontab). Las líneas que hayas puesto a mano o las de otros módulos (como
+> la programación de backups) se respetan y no se muestran ni se modifican.
 
 ---
 
