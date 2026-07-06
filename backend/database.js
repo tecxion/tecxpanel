@@ -104,6 +104,27 @@ db.exec(`
     status       TEXT,
     created_at   TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS backups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename    TEXT NOT NULL UNIQUE,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    size_bytes  INTEGER NOT NULL DEFAULT 0,
+    kind        TEXT NOT NULL DEFAULT 'full',
+    scope       TEXT NOT NULL DEFAULT '[]',
+    origin      TEXT NOT NULL DEFAULT 'manual',
+    status      TEXT NOT NULL DEFAULT 'running',
+    notes       TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS backup_schedule (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled        INTEGER NOT NULL DEFAULT 0,
+    frequency      TEXT NOT NULL DEFAULT 'daily',
+    time           TEXT NOT NULL DEFAULT '03:00',
+    retention_days INTEGER NOT NULL DEFAULT 7,
+    resources      TEXT NOT NULL DEFAULT '[]'
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -231,6 +252,23 @@ const queries = {
       host_port = excluded.host_port,
       status = excluded.status`),
   clearN8nConfig: db.prepare('DELETE FROM n8n_config WHERE id = 1'),
+
+  // ── Backups ───────────────────────────────────────────────────
+  listBackups: db.prepare('SELECT * FROM backups ORDER BY created_at DESC'),
+  getBackup: db.prepare('SELECT * FROM backups WHERE id = ?'),
+  getBackupByFilename: db.prepare('SELECT * FROM backups WHERE filename = ?'),
+  insertBackup: db.prepare(`
+    INSERT INTO backups (filename, created_at, size_bytes, kind, scope, origin, status, notes)
+    VALUES (@filename, @created_at, @size_bytes, @kind, @scope, @origin, @status, @notes)`),
+  updateBackupStatus: db.prepare('UPDATE backups SET status = @status, size_bytes = @size_bytes, notes = @notes WHERE id = @id'),
+  deleteBackup: db.prepare('DELETE FROM backups WHERE id = ?'),
+  getSchedule: db.prepare('SELECT * FROM backup_schedule WHERE id = 1'),
+  saveSchedule: db.prepare(`
+    INSERT INTO backup_schedule (id, enabled, frequency, time, retention_days, resources)
+    VALUES (1, @enabled, @frequency, @time, @retention_days, @resources)
+    ON CONFLICT(id) DO UPDATE SET
+      enabled = @enabled, frequency = @frequency, time = @time,
+      retention_days = @retention_days, resources = @resources`),
 };
 
 function audit(user, ip, action, detail) {
