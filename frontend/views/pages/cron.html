@@ -1,0 +1,55 @@
+<div class="page-header">
+  <h1><i class="ti ti-clock-play"></i> Tareas programadas</h1>
+</div>
+
+<div class="card">
+  <h3 id="cron-form-title"><i class="ti ti-plus"></i> Nueva tarea</h3>
+  <input type="hidden" id="cron-id" value="">
+  <div class="form-row">
+    <input type="text" id="cron-name" placeholder="Nombre (ej. Limpiar temporales)">
+  </div>
+  <div class="form-row">
+    <input type="text" id="cron-command" placeholder="Comando (ej. rm -rf /tmp/cache/*)" style="width:100%">
+  </div>
+  <div class="form-row">
+    <label>Frecuencia:
+      <select id="cron-preset" onchange="cronPresetChange()">
+        <option value="minute">Cada minuto</option>
+        <option value="hour">Cada hora</option>
+        <option value="day" selected>Cada día</option>
+        <option value="week">Cada semana</option>
+        <option value="month">Cada mes</option>
+        <option value="custom">Personalizado</option>
+      </select>
+    </label>
+    <label id="cron-time-wrap">Hora: <input type="time" id="cron-time" value="03:00"></label>
+    <label id="cron-dow-wrap" style="display:none">Día:
+      <select id="cron-dow-sel">
+        <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option>
+        <option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
+      </select>
+    </label>
+    <label id="cron-dom-wrap" style="display:none">Día del mes: <input type="number" id="cron-dom-num" min="1" max="31" value="1" style="width:70px"></label>
+  </div>
+  <div class="form-row" id="cron-custom-wrap" style="display:none">
+    <input type="text" id="cron-f-min" placeholder="min" value="*" style="width:60px">
+    <input type="text" id="cron-f-hour" placeholder="hora" value="*" style="width:60px">
+    <input type="text" id="cron-f-dom" placeholder="día mes" value="*" style="width:70px">
+    <input type="text" id="cron-f-month" placeholder="mes" value="*" style="width:60px">
+    <input type="text" id="cron-f-dow" placeholder="día sem" value="*" style="width:70px">
+  </div>
+  <div class="form-row">
+    <button class="btn btn-primary" onclick="cronSave()"><i class="ti ti-device-floppy"></i> Guardar</button>
+    <button class="btn" onclick="cronResetForm()">Limpiar</button>
+  </div>
+</div>
+
+<div class="card">
+  <h3><i class="ti ti-list"></i> Tareas</h3>
+  <div id="cron-list">Cargando…</div>
+</div>
+
+<div class="card" id="cron-log-card" style="display:none">
+  <h3><i class="ti ti-file-text"></i> Log de la tarea</h3>
+  <pre class="console" id="cron-log-output"></pre>
+</div>
