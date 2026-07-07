@@ -149,6 +149,16 @@ db.exec(`
     dkim_public   TEXT,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS dns_config (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    api_key_enc TEXT,
+    ns1         TEXT,
+    ns2         TEXT,
+    server_ip   TEXT,
+    status      TEXT DEFAULT 'not_installed',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -286,6 +296,15 @@ const queries = {
       hostname = @hostname, domain = @domain, container_id = @container_id,
       status = @status, dkim_selector = @dkim_selector, dkim_public = @dkim_public`),
   clearMailConfig: db.prepare('DELETE FROM mail_config WHERE id = 1'),
+
+  // ── DNS (PowerDNS) ───────────────────────────────────────
+  getDnsConfig: db.prepare('SELECT * FROM dns_config WHERE id = 1'),
+  saveDnsConfig: db.prepare(`
+    INSERT INTO dns_config (id, api_key_enc, ns1, ns2, server_ip, status, created_at)
+    VALUES (1, @api_key_enc, @ns1, @ns2, @server_ip, @status, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      api_key_enc = @api_key_enc, ns1 = @ns1, ns2 = @ns2,
+      server_ip = @server_ip, status = @status`),
 
   // ── Backups ───────────────────────────────────────────────────
   listBackups: db.prepare('SELECT * FROM backups ORDER BY created_at DESC'),
