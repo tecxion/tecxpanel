@@ -15,6 +15,10 @@ const { queries, audit } = require('../database');
 const nginx = require('../lib/nginx');
 const {
   MAIL_CONTAINER, MAIL_IMAGE, MAIL_TAG, MAIL_PORTS, buildMailContainerConfig, isValidMailDomain,
+  isValidEmail, isValidMailPassword,
+  setupEmailAddArgs, setupEmailDelArgs, setupEmailUpdateArgs, setupEmailListArgs,
+  setupAliasAddArgs, setupAliasDelArgs, setupAliasListArgs, setupDkimArgs,
+  parseEmailList, parseAliasList, buildDnsRecords,
 } = require('../lib/mail');
 
 const router = express.Router();
@@ -220,6 +224,108 @@ router.delete('/', wrap(async (req, res) => {
   queries.clearMailConfig.run();
   audit(req.user?.username || 'system', clientIp(req), 'mail.uninstall', MAIL_CONTAINER);
   ok(res);
+}));
+
+// Ejecuta un comando `setup` dentro del contenedor en marcha. Devuelve la salida.
+async function runSetup(cmd) {
+  const insp = await inspectContainer();
+  if (!insp.exists) { const e = new Error('El correo no está instalado.'); e.http = 400; throw e; }
+  if (!insp.running) { const e = new Error('El contenedor de correo está parado.'); e.http = 409; throw e; }
+  const { exitCode, output } = await dockerExec(insp.id, cmd);
+  if (exitCode !== 0) { const e = new Error(output.trim() || `setup salió con código ${exitCode}`); e.http = 500; throw e; }
+  return output;
+}
+
+// ── Buzones ──────────────────────────────────────────────────
+router.get('/mailboxes', wrap(async (req, res) => {
+  const out = await runSetup(setupEmailListArgs());
+  ok(res, { mailboxes: parseEmailList(out) });
+}));
+
+router.post('/mailboxes', wrap(async (req, res) => {
+  const address = String((req.body && req.body.address) || '').trim().toLowerCase();
+  const password = String((req.body && req.body.password) || '');
+  if (!isValidEmail(address)) return fail(res, 400, 'Dirección de correo inválida.');
+  if (!isValidMailPassword(password)) return fail(res, 400, 'Contraseña inválida (mínimo 6 caracteres, sin espacios).');
+  await runSetup(setupEmailAddArgs(address, password));
+  audit(req.user?.username || 'system', clientIp(req), 'mail.mailbox.add', address);
+  ok(res);
+}));
+
+router.put('/mailboxes', wrap(async (req, res) => {
+  const address = String((req.body && req.body.address) || '').trim().toLowerCase();
+  const password = String((req.body && req.body.password) || '');
+  if (!isValidEmail(address)) return fail(res, 400, 'Dirección de correo inválida.');
+  if (!isValidMailPassword(password)) return fail(res, 400, 'Contraseña inválida (mínimo 6 caracteres, sin espacios).');
+  await runSetup(setupEmailUpdateArgs(address, password));
+  audit(req.user?.username || 'system', clientIp(req), 'mail.mailbox.password', address);
+  ok(res);
+}));
+
+router.delete('/mailboxes', wrap(async (req, res) => {
+  const address = String((req.body && req.body.address) || '').trim().toLowerCase();
+  if (!isValidEmail(address)) return fail(res, 400, 'Dirección de correo inválida.');
+  await runSetup(setupEmailDelArgs(address));
+  audit(req.user?.username || 'system', clientIp(req), 'mail.mailbox.del', address);
+  ok(res);
+}));
+
+// ── Alias ────────────────────────────────────────────────────
+router.get('/aliases', wrap(async (req, res) => {
+  const out = await runSetup(setupAliasListArgs());
+  ok(res, { aliases: parseAliasList(out) });
+}));
+
+router.post('/aliases', wrap(async (req, res) => {
+  const source = String((req.body && req.body.source) || '').trim().toLowerCase();
+  const destination = String((req.body && req.body.destination) || '').trim().toLowerCase();
+  if (!isValidEmail(source) || !isValidEmail(destination)) return fail(res, 400, 'Origen o destino inválidos.');
+  await runSetup(setupAliasAddArgs(source, destination));
+  audit(req.user?.username || 'system', clientIp(req), 'mail.alias.add', `${source} -> ${destination}`);
+  ok(res);
+}));
+
+router.delete('/aliases', wrap(async (req, res) => {
+  const source = String((req.body && req.body.source) || '').trim().toLowerCase();
+  const destination = String((req.body && req.body.destination) || '').trim().toLowerCase();
+  if (!isValidEmail(source) || !isValidEmail(destination)) return fail(res, 400, 'Origen o destino inválidos.');
+  await runSetup(setupAliasDelArgs(source, destination));
+  audit(req.user?.username || 'system', clientIp(req), 'mail.alias.del', `${source} -> ${destination}`);
+  ok(res);
+}));
+
+// ── DKIM ─────────────────────────────────────────────────────
+router.post('/dkim', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get();
+  if (!cfg || !cfg.domain) return fail(res, 400, 'Configura el hostname del correo primero.');
+  await runSetup(setupDkimArgs(cfg.domain));
+  // Leer la clave pública generada del volumen de config (rspamd).
+  const insp = await inspectContainer();
+  const selector = cfg.dkim_selector || 'mail';
+  let pub = '';
+  try {
+    const r = await dockerExec(insp.id, ['sh', '-c', `cat /tmp/docker-mailserver/rspamd/dkim/*.public.dkim.txt 2>/dev/null | tr -d '\\n\\t"' `]);
+    pub = (r.output || '').replace(/.*p=/, 'v=DKIM1; k=rsa; p=').trim();
+  } catch (_) { pub = ''; }
+  queries.saveMailConfig.run({
+    hostname: cfg.hostname, domain: cfg.domain, container_id: insp.id, status: cfg.status || 'ready',
+    dkim_selector: selector, dkim_public: pub || null,
+  });
+  audit(req.user?.username || 'system', clientIp(req), 'mail.dkim', cfg.domain);
+  ok(res, { dkim_public: pub || null });
+}));
+
+// ── Registros DNS a mostrar ──────────────────────────────────
+router.get('/dns', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get();
+  if (!cfg || !cfg.hostname || !cfg.domain) return fail(res, 400, 'Configura el hostname del correo primero.');
+  const ipR = await runSafe('bash', ['-c', "curl -s https://api.ipify.org || hostname -I | awk '{print $1}'"]);
+  const serverIp = (ipR.stdout || '').trim();
+  const records = buildDnsRecords({
+    domain: cfg.domain, hostname: cfg.hostname, serverIp,
+    dkimPublic: cfg.dkim_public, dkimSelector: cfg.dkim_selector || 'mail',
+  });
+  ok(res, { records });
 }));
 
 module.exports = router;
