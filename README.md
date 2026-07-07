@@ -34,6 +34,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
 - 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`.
 - ⏰ **Tareas Programadas (Cron)**: Crea y gestiona tareas cron desde la UI con un **constructor guiado** (cada minuto/hora/día/semana/mes o modo avanzado), actívalas/desactívalas, edítalas y consulta el **log de salida de cada tarea**. El panel gestiona solo sus propias tareas sin tocar el resto del crontab.
+- 📧 **Correo Electrónico**: Servidor de correo autohospedado con **docker-mailserver** (Postfix + Dovecot + Rspamd + DKIM) en un solo contenedor. Instálalo desde el panel, configura el hostname con **TLS automático** (Certbot), gestiona **buzones** y **alias**, genera **DKIM** y consulta los **registros DNS** (MX/SPF/DKIM/DMARC) a añadir.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
@@ -280,6 +281,33 @@ Gestiona el `cron` del servidor desde el panel, sin editar el crontab a mano.
 > El panel gestiona **solo las tareas creadas desde aquí** (marcadas internamente
 > en el crontab). Las líneas que hayas puesto a mano o las de otros módulos (como
 > la programación de backups) se respetan y no se muestran ni se modifican.
+
+---
+
+## 📧 Correo Electrónico
+
+TecXPaneL integra **docker-mailserver** (un contenedor ligero: Postfix, Dovecot,
+Rspamd, DKIM) gestionado desde el panel — sin editar ficheros de configuración.
+
+> [!NOTE]
+> Requiere **Docker** (desde Plugins) y ~1 GB de RAM para el contenedor.
+
+**Flujo de uso:**
+
+1.  En **Correo** pulsa **Instalar**: el panel descarga docker-mailserver, crea el
+    contenedor y abre los puertos SMTP/IMAP (25/465/587/143/993) en el firewall.
+2.  Indica el **hostname** del correo (ej. `mail.tudominio.com`); el panel emite el
+    **certificado TLS** con Certbot y lo monta en el contenedor.
+3.  Crea **buzones** (con contraseña) y **alias** desde la UI.
+4.  Genera el **DKIM** y añade en tu proveedor DNS los registros que el panel te
+    muestra: **MX**, **SPF**, **DKIM**, **DMARC** (y el **PTR/rDNS** en tu proveedor
+    de VPS).
+
+> [!WARNING]
+> El correo autohospedado **no funciona hasta que el DNS esté correcto** (sobre
+> todo MX y el PTR/rDNS). Además, enviar a Gmail/Outlook desde una IP de VPS nueva
+> puede acabar en spam hasta que la IP gane reputación. El cifrado del propio
+> tráfico y la autenticación (SPF/DKIM/DMARC) mitigan esto una vez configurados.
 
 ---
 

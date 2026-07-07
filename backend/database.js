@@ -138,6 +138,17 @@ db.exec(`
     enabled    INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS mail_config (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    hostname      TEXT,
+    domain        TEXT,
+    container_id  TEXT,
+    status        TEXT DEFAULT 'not_installed',
+    dkim_selector TEXT DEFAULT 'mail',
+    dkim_public   TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -265,6 +276,16 @@ const queries = {
       host_port = excluded.host_port,
       status = excluded.status`),
   clearN8nConfig: db.prepare('DELETE FROM n8n_config WHERE id = 1'),
+
+  // ── Correo (docker-mailserver) ───────────────────────────────
+  getMailConfig: db.prepare('SELECT * FROM mail_config WHERE id = 1'),
+  saveMailConfig: db.prepare(`
+    INSERT INTO mail_config (id, hostname, domain, container_id, status, dkim_selector, dkim_public, created_at)
+    VALUES (1, @hostname, @domain, @container_id, @status, @dkim_selector, @dkim_public, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      hostname = @hostname, domain = @domain, container_id = @container_id,
+      status = @status, dkim_selector = @dkim_selector, dkim_public = @dkim_public`),
+  clearMailConfig: db.prepare('DELETE FROM mail_config WHERE id = 1'),
 
   // ── Backups ───────────────────────────────────────────────────
   listBackups: db.prepare('SELECT * FROM backups ORDER BY created_at DESC'),

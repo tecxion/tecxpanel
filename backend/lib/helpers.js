@@ -51,7 +51,12 @@ async function runSafe(cmd, args = [], opts = {}) {
 // (en vez de dejar la petición colgada o tumbar el proceso).
 const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
   console.error(`[api] ${req.method} ${req.path}:`, e.message);
-  if (!res.headersSent) fail(res, 500, 'Error interno del servidor');
+  if (!res.headersSent) {
+    // Errores con un código HTTP explícito (e.http) exponen su mensaje al cliente;
+    // el resto se tratan como error interno genérico.
+    if (e.http) fail(res, e.http, e.message);
+    else fail(res, 500, 'Error interno del servidor');
+  }
 });
 
 module.exports = { ok, fail, clientIp, run, runSafe, wrap };
