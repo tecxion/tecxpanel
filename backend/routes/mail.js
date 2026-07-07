@@ -216,11 +216,14 @@ router.post('/:action(start|stop|restart)', wrap(async (req, res) => {
 
 // ── Desinstalar (conserva los volúmenes de datos) ────────────
 router.delete('/', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get();
   const insp = await inspectContainer();
   if (insp.exists) {
     await dockerRequest('POST', `/containers/${insp.id}/stop`);
     await dockerRequest('DELETE', `/containers/${insp.id}?force=1`);
   }
+  // Limpia el vhost de Nginx creado para emitir el certificado TLS del correo.
+  if (cfg && cfg.hostname) { try { await nginx.removeSite(cfg.hostname); } catch (_) {} }
   queries.clearMailConfig.run();
   audit(req.user?.username || 'system', clientIp(req), 'mail.uninstall', MAIL_CONTAINER);
   ok(res);
@@ -304,8 +307,12 @@ router.post('/dkim', wrap(async (req, res) => {
   const selector = cfg.dkim_selector || 'mail';
   let pub = '';
   try {
+    // NOTA: la ruta/formato del fichero de clave pública DKIM depende de la versión
+    // de docker-mailserver (Rspamd); leemos cualquier *.public.dkim.txt y normalizamos.
     const r = await dockerExec(insp.id, ['sh', '-c', `cat /tmp/docker-mailserver/rspamd/dkim/*.public.dkim.txt 2>/dev/null | tr -d '\\n\\t"' `]);
-    pub = (r.output || '').replace(/.*p=/, 'v=DKIM1; k=rsa; p=').trim();
+    const raw = (r.output || '').replace(/.*p=/, 'v=DKIM1; k=rsa; p=').trim();
+    // Solo guardar si parece un registro DKIM real (evita persistir ruido/errores).
+    if (/p=[A-Za-z0-9+/]{20,}/.test(raw)) pub = raw;
   } catch (_) { pub = ''; }
   queries.saveMailConfig.run({
     hostname: cfg.hostname, domain: cfg.domain, container_id: insp.id, status: cfg.status || 'ready',
