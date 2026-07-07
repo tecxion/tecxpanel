@@ -10,7 +10,7 @@
 const http = require('http');
 const fs = require('fs');
 const express = require('express');
-const { ok, fail, clientIp, run, runSafe, wrap } = require('../lib/helpers');
+const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const nginx = require('../lib/nginx');
 const {
