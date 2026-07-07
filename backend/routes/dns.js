@@ -196,4 +196,88 @@ router.post('/config', wrap(async (req, res) => {
   ok(res, { ns1, ns2, server_ip: serverIp });
 }));
 
+// Valida que :zone sea un dominio y devuelve su forma canónica para la API.
+function zoneId(param) {
+  const z = String(param || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!D.isValidDnsDomain(z)) { const e = new Error('Zona inválida.'); e.http = 400; throw e; }
+  return { z, id: encodeURIComponent(D.canonical(z)) };
+}
+
+// ── Zonas ────────────────────────────────────────────────────
+router.get('/zones', wrap(async (req, res) => {
+  const { apiKey } = getConnectedConfig();
+  const r = await pdnsApi('GET', '/zones', apiKey);
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  ok(res, { zones: D.parseZones(r.json) });
+}));
+
+router.post('/zones', wrap(async (req, res) => {
+  const { apiKey, ns1, ns2 } = getConnectedConfig();
+  if (!ns1 || !ns2) return fail(res, 400, 'Configura los nameservers primero.');
+  const domain = String((req.body && req.body.domain) || '').trim().toLowerCase();
+  if (!D.isValidDnsDomain(domain)) return fail(res, 400, 'Dominio inválido.');
+  const r = await pdnsApi('POST', '/zones', apiKey, D.buildZonePayload({ domain, ns1, ns2 }));
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  audit(req.user?.username || 'system', clientIp(req), 'dns.zone.add', domain);
+  ok(res);
+}));
+
+router.delete('/zones/:zone', wrap(async (req, res) => {
+  const { apiKey } = getConnectedConfig();
+  const { z, id } = zoneId(req.params.zone);
+  const r = await pdnsApi('DELETE', `/zones/${id}`, apiKey);
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  audit(req.user?.username || 'system', clientIp(req), 'dns.zone.del', z);
+  ok(res);
+}));
+
+// ── Registros ────────────────────────────────────────────────
+router.get('/zones/:zone/records', wrap(async (req, res) => {
+  const { apiKey } = getConnectedConfig();
+  const { id } = zoneId(req.params.zone);
+  const r = await pdnsApi('GET', `/zones/${id}`, apiKey);
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  ok(res, { records: D.parseRecords(r.json) });
+}));
+
+router.post('/zones/:zone/records', wrap(async (req, res) => {
+  const { apiKey } = getConnectedConfig();
+  const { z, id } = zoneId(req.params.zone);
+  const { name, type, value, ttl = 3600, priority = 10 } = req.body || {};
+  if (!D.SUPPORTED_TYPES.includes(type)) return fail(res, 400, 'Tipo de registro no soportado.');
+  if (!D.isValidDnsDomain(String(name || '').replace(/\.$/, ''))) return fail(res, 400, 'Nombre de registro inválido.');
+  if (!D.isValidRecord(type, value)) return fail(res, 400, 'Valor de registro inválido para el tipo ' + type + '.');
+  if (type === 'MX' && !D.isValidPriority(+priority)) return fail(res, 400, 'Prioridad MX inválida (0-65535).');
+  const content = D.buildRecordContent(type, value, +priority);
+  const patch = D.buildRrsetPatch({ name, type, contents: [content], ttl: +ttl || 3600, changetype: 'REPLACE' });
+  const r = await pdnsApi('PATCH', `/zones/${id}`, apiKey, patch);
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  audit(req.user?.username || 'system', clientIp(req), 'dns.record.add', `${z}: ${type} ${name}`);
+  ok(res);
+}));
+
+router.delete('/zones/:zone/records', wrap(async (req, res) => {
+  const { apiKey } = getConnectedConfig();
+  const { z, id } = zoneId(req.params.zone);
+  const { name, type } = req.body || {};
+  if (!D.SUPPORTED_TYPES.includes(type)) return fail(res, 400, 'Tipo de registro no soportado.');
+  const patch = D.buildRrsetPatch({ name, type, contents: [], ttl: 3600, changetype: 'DELETE' });
+  const r = await pdnsApi('PATCH', `/zones/${id}`, apiKey, patch);
+  if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
+  audit(req.user?.username || 'system', clientIp(req), 'dns.record.del', `${z}: ${type} ${name}`);
+  ok(res);
+}));
+
+// ── Delegación (glue + verificación por DNS público) ─────────
+router.get('/zones/:zone/delegation', wrap(async (req, res) => {
+  const { ns1, ns2, server_ip } = getConnectedConfig();
+  const { z } = zoneId(req.params.zone);
+  const glue = D.buildGlueRecords({ ns1, ns2, serverIp: server_ip });
+  // Consulta el DNS público para ver a qué NS está delegado el dominio.
+  const dig = await runSafe('dig', ['+short', 'NS', z]);
+  const nsFound = (dig.stdout || '').split('\n').map((s) => s.trim().replace(/\.$/, '')).filter(Boolean);
+  const delegated = nsFound.includes(ns1) && nsFound.includes(ns2);
+  ok(res, { glue, delegated, ns_found: nsFound });
+}));
+
 module.exports = router;
