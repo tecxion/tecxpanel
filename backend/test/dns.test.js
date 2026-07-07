@@ -44,3 +44,52 @@ test('isValidPriority', () => {
   assert.strictEqual(d.isValidPriority(70000), false);
   assert.strictEqual(d.isValidPriority('10'), false);
 });
+
+test('buildRecordContent por tipo', () => {
+  assert.strictEqual(d.buildRecordContent('A', '1.2.3.4'), '1.2.3.4');
+  assert.strictEqual(d.buildRecordContent('AAAA', '2001:db8::1'), '2001:db8::1');
+  assert.strictEqual(d.buildRecordContent('CNAME', 'destino.ejemplo.com'), 'destino.ejemplo.com.');
+  assert.strictEqual(d.buildRecordContent('MX', 'mail.ejemplo.com', 10), '10 mail.ejemplo.com.');
+  assert.strictEqual(d.buildRecordContent('TXT', 'v=spf1 mx ~all'), '"v=spf1 mx ~all"');
+  assert.strictEqual(d.buildRecordContent('TXT', '"ya-con-comillas"'), '"ya-con-comillas"');
+});
+
+test('buildZonePayload', () => {
+  const p = d.buildZonePayload({ domain: 'ejemplo.com', ns1: 'ns1.mio.com', ns2: 'ns2.mio.com' });
+  assert.strictEqual(p.name, 'ejemplo.com.');
+  assert.strictEqual(p.kind, 'Native');
+  assert.deepStrictEqual(p.nameservers, ['ns1.mio.com.', 'ns2.mio.com.']);
+});
+
+test('buildRrsetPatch REPLACE y DELETE', () => {
+  const rep = d.buildRrsetPatch({ name: 'www.ejemplo.com', type: 'A', contents: ['1.2.3.4'], ttl: 3600, changetype: 'REPLACE' });
+  assert.deepStrictEqual(rep, { rrsets: [{ name: 'www.ejemplo.com.', type: 'A', ttl: 3600, changetype: 'REPLACE', records: [{ content: '1.2.3.4', disabled: false }] }] });
+  const del = d.buildRrsetPatch({ name: 'www.ejemplo.com', type: 'A', contents: [], ttl: 3600, changetype: 'DELETE' });
+  assert.strictEqual(del.rrsets[0].changetype, 'DELETE');
+  assert.deepStrictEqual(del.rrsets[0].records, []);
+});
+
+test('buildGlueRecords', () => {
+  const g = d.buildGlueRecords({ ns1: 'ns1.mio.com', ns2: 'ns2.mio.com', serverIp: '1.2.3.4' });
+  assert.deepStrictEqual(g, [
+    { type: 'A', name: 'ns1.mio.com', value: '1.2.3.4' },
+    { type: 'A', name: 'ns2.mio.com', value: '1.2.3.4' },
+  ]);
+});
+
+test('parseZones', () => {
+  const out = d.parseZones([{ id: 'ejemplo.com.', name: 'ejemplo.com.', kind: 'Native' }, { name: 'otro.io.' }]);
+  assert.deepStrictEqual(out, [{ name: 'ejemplo.com' }, { name: 'otro.io' }]);
+});
+
+test('parseRecords aplana rrsets', () => {
+  const zoneJson = { rrsets: [
+    { name: 'ejemplo.com.', type: 'A', ttl: 3600, records: [{ content: '1.2.3.4', disabled: false }] },
+    { name: 'ejemplo.com.', type: 'MX', ttl: 3600, records: [{ content: '10 mail.ejemplo.com.', disabled: false }] },
+  ] };
+  const out = d.parseRecords(zoneJson);
+  assert.deepStrictEqual(out, [
+    { name: 'ejemplo.com', type: 'A', ttl: 3600, content: '1.2.3.4' },
+    { name: 'ejemplo.com', type: 'MX', ttl: 3600, content: '10 mail.ejemplo.com.' },
+  ]);
+});

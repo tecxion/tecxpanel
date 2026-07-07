@@ -57,7 +57,67 @@ function isValidPriority(p) {
   return Number.isInteger(p) && p >= 0 && p <= 65535;
 }
 
+// Contenido del registro tal como lo espera PowerDNS.
+function buildRecordContent(type, value, priority) {
+  if (type === 'CNAME') return canonical(value);
+  if (type === 'MX') return `${priority} ${canonical(value)}`;
+  if (type === 'TXT') {
+    const v = String(value);
+    return v.startsWith('"') && v.endsWith('"') ? v : `"${v}"`;
+  }
+  return String(value); // A, AAAA
+}
+
+// Cuerpo para crear una zona en la API de PowerDNS. PowerDNS crea el SOA y los
+// registros NS automáticamente a partir de `nameservers`.
+function buildZonePayload({ domain, ns1, ns2 }) {
+  return {
+    name: canonical(domain),
+    kind: 'Native',
+    nameservers: [canonical(ns1), canonical(ns2)],
+  };
+}
+
+// Cuerpo PATCH para crear/reemplazar (REPLACE) o borrar (DELETE) un rrset.
+function buildRrsetPatch({ name, type, contents, ttl, changetype }) {
+  return {
+    rrsets: [{
+      name: canonical(name),
+      type,
+      ttl,
+      changetype,
+      records: (contents || []).map((c) => ({ content: c, disabled: false })),
+    }],
+  };
+}
+
+// Registros que el operador debe crear en su REGISTRADOR (glue): ns1/ns2 -> IP.
+function buildGlueRecords({ ns1, ns2, serverIp }) {
+  return [
+    { type: 'A', name: ns1, value: serverIp },
+    { type: 'A', name: ns2, value: serverIp },
+  ];
+}
+
+const stripDot = (s) => String(s || '').replace(/\.$/, '');
+
+function parseZones(json) {
+  return (Array.isArray(json) ? json : []).map((z) => ({ name: stripDot(z.name) }));
+}
+
+function parseRecords(zoneJson) {
+  const out = [];
+  for (const rr of (zoneJson && zoneJson.rrsets) || []) {
+    for (const rec of rr.records || []) {
+      out.push({ name: stripDot(rr.name), type: rr.type, ttl: rr.ttl, content: rec.content });
+    }
+  }
+  return out;
+}
+
 module.exports = {
   SUPPORTED_TYPES, canonical, isValidDnsDomain, isValidIpv4, isValidIpv6,
   isValidHostname, isValidRecord, isValidPriority,
+  buildRecordContent, buildZonePayload, buildRrsetPatch, buildGlueRecords,
+  parseZones, parseRecords,
 };
