@@ -261,6 +261,7 @@ router.delete('/zones/:zone/records', wrap(async (req, res) => {
   const { z, id } = zoneId(req.params.zone);
   const { name, type } = req.body || {};
   if (!D.SUPPORTED_TYPES.includes(type)) return fail(res, 400, 'Tipo de registro no soportado.');
+  if (!D.isValidDnsDomain(String(name || '').replace(/\.$/, ''))) return fail(res, 400, 'Nombre de registro inválido.');
   const patch = D.buildRrsetPatch({ name, type, contents: [], ttl: 3600, changetype: 'DELETE' });
   const r = await pdnsApi('PATCH', `/zones/${id}`, apiKey, patch);
   if (r.statusCode >= 400) return fail(res, 502, 'PowerDNS: ' + JSON.stringify(r.json));
