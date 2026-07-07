@@ -35,6 +35,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`.
 - ⏰ **Tareas Programadas (Cron)**: Crea y gestiona tareas cron desde la UI con un **constructor guiado** (cada minuto/hora/día/semana/mes o modo avanzado), actívalas/desactívalas, edítalas y consulta el **log de salida de cada tarea**. El panel gestiona solo sus propias tareas sin tocar el resto del crontab.
 - 📧 **Correo Electrónico**: Servidor de correo autohospedado con **docker-mailserver** (Postfix + Dovecot + Rspamd + DKIM) en un solo contenedor. Instálalo desde el panel, configura el hostname con **TLS automático** (Certbot), gestiona **buzones** y **alias**, genera **DKIM** y consulta los **registros DNS** (MX/SPF/DKIM/DMARC) a añadir.
+- 🌐 **DNS Autoritativo**: Convierte el VPS en servidor DNS con **PowerDNS**. Configura tus nameservers (ns1/ns2), crea **zonas** (dominios) y gestiona **registros** (A, AAAA, CNAME, MX, TXT) desde el panel. Incluye los **glue records** a poner en tu registrador y una **verificación de delegación**.
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
@@ -308,6 +309,33 @@ Rspamd, DKIM) gestionado desde el panel — sin editar ficheros de configuració
 > todo MX y el PTR/rDNS). Además, enviar a Gmail/Outlook desde una IP de VPS nueva
 > puede acabar en spam hasta que la IP gane reputación. El cifrado del propio
 > tráfico y la autenticación (SPF/DKIM/DMARC) mitigan esto una vez configurados.
+
+---
+
+## 🌐 DNS Autoritativo (PowerDNS)
+
+TecXPaneL puede convertir tu VPS en un **servidor DNS autoritativo** con PowerDNS
+—como hace Hostinger/Plesk— para gestionar el DNS de tus dominios desde el panel.
+
+> [!NOTE]
+> PowerDNS se instala de forma nativa (apt), corre como servicio y escucha en el
+> puerto 53. El panel lo gestiona por su API HTTP local con una clave cifrada.
+
+**Flujo de uso:**
+
+1.  En **DNS** pulsa **Instalar PowerDNS**: se instala, se abre el puerto 53 y
+    arranca el servicio.
+2.  Configura tus **nameservers** `ns1.tudominio.com` y `ns2.tudominio.com` (ambos
+    apuntando a la IP de este VPS).
+3.  Añade tus **dominios** (zonas) y gestiona sus **registros** (A/AAAA/CNAME/MX/TXT).
+4.  En tu **registrador**, crea los **glue records** que el panel te muestra y
+    cambia los **NS** del dominio a los tuyos. El panel **verifica** si la
+    delegación ya está activa.
+
+> [!WARNING]
+> Crear los glue records y cambiar los nameservers en el **registrador** del
+> dominio siempre lo haces tú (es externo al VPS). Hasta que la delegación esté
+> propagada, el DNS del panel no responderá para ese dominio en Internet.
 
 ---
 
