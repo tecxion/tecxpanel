@@ -149,6 +149,10 @@ router.post('/install', wrap(async (req, res) => {
       "  SCHEMA=$(find /usr/share -name 'schema.sqlite3.sql' 2>/dev/null | head -1)",
       `  [ -n "$SCHEMA" ] && sqlite3 ${PDNS_DB} < "$SCHEMA"`,
       'fi',
+      // Neutraliza cualquier local-address del pdns.conf base para que txpl.conf mande.
+      "if [ -f /etc/powerdns/pdns.conf ]; then sed -i 's/^[[:space:]]*local-address/#local-address/' /etc/powerdns/pdns.conf; fi",
+      // Asegura que PowerDNS incluye el directorio pdns.d (donde va txpl.conf).
+      "grep -q '^include-dir=/etc/powerdns/pdns.d' /etc/powerdns/pdns.conf 2>/dev/null || echo 'include-dir=/etc/powerdns/pdns.d' >> /etc/powerdns/pdns.conf",
       `chown -R pdns:pdns /var/lib/powerdns || true`,
     ].join('\n');
     const initR = await runSafe('bash', ['-c', initScript]);
@@ -166,6 +170,13 @@ router.post('/install', wrap(async (req, res) => {
     const restart = await runSafe('systemctl', ['restart', 'pdns']);
     if (!restart.ok) { res.write('[error] No arrancó el servicio: ' + (restart.stderr || '').slice(0, 200) + '\n'); return done(1); }
     await runSafe('systemctl', ['enable', 'pdns']);
+
+    res.write('🔎 Verificando el bind del puerto 53...\n');
+    const ssR = await runSafe('bash', ['-c', "ss -lnH 'sport = :53' 2>/dev/null || true"]);
+    const bound = ssR.stdout || '';
+    if (bound && !bound.includes(serverIp) && !bound.includes('0.0.0.0') && !bound.includes('*:53')) {
+      res.write(`⚠️ Aviso: el puerto 53 no parece bindeado a ${serverIp}. Revisa que PowerDNS escuche en la IP pública (systemd-resolved).\n`);
+    }
 
     queries.saveDnsConfig.run({ api_key_enc: encryptSecret(apiKey), ns1: null, ns2: null, server_ip: serverIp, status: 'needs_config' });
     res.write('✅ PowerDNS instalado. Configura tus nameservers (ns1/ns2).\n');
@@ -189,7 +200,8 @@ router.post('/config', wrap(async (req, res) => {
   // Si cambia la IP, reescribir local-address y reiniciar.
   if (prev.server_ip !== serverIp) {
     fs.writeFileSync(PDNS_CONF, pdnsConfContent(decryptSecret(prev.api_key_enc), serverIp));
-    await runSafe('systemctl', ['restart', 'pdns']);
+    const rs = await runSafe('systemctl', ['restart', 'pdns']);
+    if (!rs.ok) return fail(res, 500, 'Se actualizó la IP pero PowerDNS no reinició: ' + (rs.stderr || '').slice(0, 200));
   }
   queries.saveDnsConfig.run({ api_key_enc: prev.api_key_enc, ns1, ns2, server_ip: serverIp, status: 'ready' });
   audit(req.user?.username || 'system', clientIp(req), 'dns.config', `${ns1}, ${ns2}`);
