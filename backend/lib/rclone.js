@@ -51,7 +51,38 @@ function effectiveRemote(encryptEnabled, remotePath) {
   return `${RCLONE_REMOTE}:${remotePath || ''}`;
 }
 
+// Env para un remoto `crypt` que envuelve al remoto de almacenamiento.
+// La passphrase debe venir YA obscurecida por `rclone obscure` (el ejecutor
+// lo hace en tiempo real, ver lib/backupRemote.js). El nombre de fichero
+// también se cifra ('standard'), así el remoto no revela los backups por su nombre.
+function buildCryptEnv({ passphraseObscured, remotePath } = {}) {
+  return {
+    RCLONE_CONFIG_TXPLCRYPT_TYPE: 'crypt',
+    RCLONE_CONFIG_TXPLCRYPT_REMOTE: `${RCLONE_REMOTE}:${remotePath || ''}`,
+    RCLONE_CONFIG_TXPLCRYPT_FILENAME_ENCRYPTION: 'standard',
+    RCLONE_CONFIG_TXPLCRYPT_PASSWORD: passphraseObscured,
+  };
+}
+
+function copyArgs(local, remote) { return ['copy', local, remote, '--s3-no-check-bucket']; }
+function lsjsonArgs(remote) { return ['lsjson', remote]; }
+function deleteArgs(remote) { return ['deletefile', remote]; }
+function checkRemoteArgs(remote) { return ['lsd', remote]; }
+function obscureArgs(pass) { return ['obscure', pass]; }
+
+// Parsea la salida de `rclone lsjson`. Ignora directorios y entradas malformadas.
+function parseLsjson(text) {
+  let arr;
+  try { arr = JSON.parse(String(text || '')); } catch (_) { return []; }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((it) => it && it.IsDir === false && typeof it.Name === 'string')
+    .map((it) => ({ name: it.Name, size: typeof it.Size === 'number' ? it.Size : 0, modTime: it.ModTime || null }));
+}
+
 module.exports = {
   RCLONE_REMOTE, RCLONE_CRYPT,
   buildS3Env, buildSftpEnv, effectiveRemote,
+  buildCryptEnv, copyArgs, lsjsonArgs, deleteArgs, checkRemoteArgs, obscureArgs,
+  parseLsjson,
 };

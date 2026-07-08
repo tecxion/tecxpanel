@@ -41,3 +41,34 @@ test('effectiveRemote', () => {
   assert.strictEqual(r.effectiveRemote(false, 'ruta/x'), 'txpl:ruta/x');
   assert.strictEqual(r.effectiveRemote(false, ''), 'txpl:');
 });
+
+test('buildCryptEnv monta txplcrypt sobre txpl:<remotePath>', () => {
+  const env = r.buildCryptEnv({ passphraseObscured: 'OBSC', remotePath: 'mi-bucket/dir' });
+  assert.strictEqual(env.RCLONE_CONFIG_TXPLCRYPT_TYPE, 'crypt');
+  assert.strictEqual(env.RCLONE_CONFIG_TXPLCRYPT_REMOTE, 'txpl:mi-bucket/dir');
+  assert.strictEqual(env.RCLONE_CONFIG_TXPLCRYPT_FILENAME_ENCRYPTION, 'standard');
+  assert.strictEqual(env.RCLONE_CONFIG_TXPLCRYPT_PASSWORD, 'OBSC');
+});
+
+test('copyArgs / lsjsonArgs / deleteArgs / checkRemoteArgs / obscureArgs', () => {
+  assert.deepStrictEqual(r.copyArgs('/tmp/a.tar.gz', 'txpl:x'), ['copy', '/tmp/a.tar.gz', 'txpl:x', '--s3-no-check-bucket']);
+  assert.deepStrictEqual(r.lsjsonArgs('txpl:x'), ['lsjson', 'txpl:x']);
+  assert.deepStrictEqual(r.deleteArgs('txpl:x/a.tar.gz'), ['deletefile', 'txpl:x/a.tar.gz']);
+  assert.deepStrictEqual(r.checkRemoteArgs('txpl:x'), ['lsd', 'txpl:x']);
+  assert.deepStrictEqual(r.obscureArgs('secreta'), ['obscure', 'secreta']);
+});
+
+test('parseLsjson extrae name/size/modTime', () => {
+  const j = JSON.stringify([
+    { Name: 'backup-a.tar.gz', Size: 1024, ModTime: '2026-07-01T00:00:00Z', IsDir: false },
+    { Name: 'sub', Size: -1, ModTime: '2026-07-02T00:00:00Z', IsDir: true },
+  ]);
+  const out = r.parseLsjson(j);
+  assert.deepStrictEqual(out, [{ name: 'backup-a.tar.gz', size: 1024, modTime: '2026-07-01T00:00:00Z' }]);
+});
+
+test('parseLsjson tolera basura y vacío', () => {
+  assert.deepStrictEqual(r.parseLsjson(''), []);
+  assert.deepStrictEqual(r.parseLsjson('no-json'), []);
+  assert.deepStrictEqual(r.parseLsjson('[]'), []);
+});
