@@ -21,12 +21,27 @@ const { queries } = require('../database');
 
 const execFileP = promisify(execFile);
 
+// Env mínimo para el proceso hijo: solo lo imprescindible del host (PATH/HOME/LANG)
+// y el extraEnv que arma buildEnv(). Evita que RCLONE_*/AWS_* del sistema se filtren
+// o pisen la config del panel.
 function runRclone(args, extraEnv = {}) {
+  const base = {
+    PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    HOME: process.env.HOME || '/root',
+    LANG: process.env.LANG || 'C.UTF-8',
+  };
   return execFileP('rclone', args, {
-    env: { ...process.env, ...extraEnv },
+    env: { ...base, ...extraEnv },
     maxBuffer: 64 * 1024 * 1024,
     timeout: 0,
   });
+}
+
+// Une el remoto (`txplcrypt:` o `txpl:<path>`) con un filename evitando dobles barras
+// y el ambiguo `txplcrypt:/x` (que puede tratarse como ruta absoluta en algunos backends).
+function joinRemote(remote, filename) {
+  if (remote.endsWith(':')) return `${remote}${filename}`;
+  return `${remote.replace(/\/$/, '')}/${filename}`;
 }
 
 async function obscurePassword(pass) {
@@ -95,7 +110,7 @@ async function downloadArchive({ filename }) {
   const { env, cleanup, remote } = await buildEnv();
   try {
     // rclone copy `<remote>/<filename>` `<BACKUP_DIR>` deposita el archivo dentro.
-    await runRclone(R.copyArgs(`${remote.replace(/\/$/, '')}/${filename}`, B.BACKUP_DIR), env);
+    await runRclone(R.copyArgs(joinRemote(remote, filename), B.BACKUP_DIR), env);
     return { ok: true };
   } catch (e) {
     return { ok: false, message: (e.stderr || e.message || '').toString().slice(0, 300) };
@@ -106,7 +121,7 @@ async function deleteRemote({ filename }) {
   if (!B.isValidBackupFilename(filename)) return { ok: false, message: 'Nombre de backup inválido' };
   const { env, cleanup, remote } = await buildEnv();
   try {
-    await runRclone(R.deleteArgs(`${remote.replace(/\/$/, '')}/${filename}`), env);
+    await runRclone(R.deleteArgs(joinRemote(remote, filename)), env);
     return { ok: true };
   } catch (e) {
     return { ok: false, message: (e.stderr || e.message || '').toString().slice(0, 300) };

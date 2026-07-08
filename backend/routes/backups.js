@@ -13,7 +13,7 @@ const { ok, fail, clientIp, run, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const B = require('../lib/backups');
 const engine = require('../lib/backupEngine');
-const { encryptSecret, decryptSecret } = require('../lib/crypto');
+const { encryptSecret } = require('../lib/crypto');
 const remote = require('../lib/backupRemote');
 
 const router = express.Router();
@@ -166,9 +166,11 @@ router.post('/remote', wrap(async (req, res) => {
     if (!endpoint || !region || !accessKey || !secretKey) return fail(res, 400, 'Credenciales S3 incompletas.');
     creds = { endpoint, region, accessKey, secretKey };
   } else {
-    const { host, port, user, password, keyContent } = b;
-    if (!host || !port || !user || (!password && !keyContent)) return fail(res, 400, 'Credenciales SFTP incompletas.');
-    creds = { host, port: +port, user, password: password || null, keyContent: keyContent || null };
+    const { host, user, password, keyContent } = b;
+    const port = +b.port;
+    if (!host || !user || (!password && !keyContent)) return fail(res, 400, 'Credenciales SFTP incompletas.');
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return fail(res, 400, 'Puerto SFTP inválido (1-65535).');
+    creds = { host, port, user, password: password || null, keyContent: keyContent || null };
   }
 
   let crypt_pass_enc = null;
@@ -178,20 +180,33 @@ router.post('/remote', wrap(async (req, res) => {
     crypt_pass_enc = encryptSecret(pass);
   }
 
-  // Guardar temporalmente para poder probar con la config nueva.
-  queries.saveBackupRemote.run({
+  // Snapshot de la config actual para poder restaurarla si el test falla.
+  const prev = queries.getBackupRemote.get();
+  const cfgRow = {
     type, config_enc: encryptSecret(JSON.stringify(creds)),
     remote_path, encrypt_enabled, crypt_pass_enc,
     auto_upload, retention_days, status: 'unconfigured',
-  });
+  };
+  // Guardar temporalmente para que testConnection pueda leerla.
+  queries.saveBackupRemote.run(cfgRow);
   const t = await remote.testConnection();
-  queries.saveBackupRemote.run({
-    type, config_enc: encryptSecret(JSON.stringify(creds)),
-    remote_path, encrypt_enabled, crypt_pass_enc,
-    auto_upload, retention_days, status: t.ok ? 'ok' : 'error',
-  });
-  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.config', `${type} ${t.ok ? 'ok' : 'error'}`);
-  if (!t.ok) return fail(res, 502, 'La conexión con el remoto falló: ' + t.message);
+  if (!t.ok) {
+    // Restaurar la config anterior; si no había, limpiar.
+    if (prev) {
+      queries.saveBackupRemote.run({
+        type: prev.type, config_enc: prev.config_enc, remote_path: prev.remote_path,
+        encrypt_enabled: prev.encrypt_enabled, crypt_pass_enc: prev.crypt_pass_enc,
+        auto_upload: prev.auto_upload, retention_days: prev.retention_days, status: prev.status,
+      });
+    } else {
+      queries.clearBackupRemote.run();
+    }
+    audit(req.user?.username || 'system', clientIp(req), 'backup.remote.config', `${type} error`);
+    return fail(res, 502, 'La conexión con el remoto falló: ' + t.message);
+  }
+  // Éxito: persistir con status 'ok'.
+  queries.saveBackupRemote.run({ ...cfgRow, status: 'ok' });
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.config', `${type} ok`);
   ok(res, { status: 'ok' });
 }));
 
