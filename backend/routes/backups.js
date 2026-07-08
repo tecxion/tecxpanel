@@ -13,6 +13,8 @@ const { ok, fail, clientIp, run, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const B = require('../lib/backups');
 const engine = require('../lib/backupEngine');
+const { encryptSecret, decryptSecret } = require('../lib/crypto');
+const remote = require('../lib/backupRemote');
 
 const router = express.Router();
 const RUNNER_PATH = path.resolve(process.env.TXPL_DIR || '/opt/txpl', 'backend', 'backup-runner.js');
@@ -49,7 +51,20 @@ router.post('/', (req, res) => {
   audit(req.user?.username || 'system', clientIp(req), 'backup.create', `${kind} (${items.length} piezas)`);
   startStream(res);
   engine.createBackup({ items, kind, origin: 'manual', write: (t) => res.write(t) })
-    .then(() => res.end('\n__TXPL_DONE__0'))
+    .then(async (created) => {
+      // Auto-subida best-effort: si hay remoto configurado con auto_upload,
+      // sube el archivo recién creado sin bloquear el resultado del backup local.
+      try {
+        const rcfg = queries.getBackupRemote.get();
+        if (rcfg && rcfg.auto_upload && created && created.filename) {
+          res.write('☁️  Subiendo al destino remoto...\n');
+          const up = await remote.uploadArchive({ filename: created.filename });
+          res.write(up.ok ? '   ↳ subido\n' : `   ↳ [aviso] no se pudo subir: ${up.message}\n`);
+          audit(req.user?.username || 'system', clientIp(req), 'backup.remote.autoupload', `${created.filename} ${up.ok ? 'ok' : 'error'}`);
+        }
+      } catch (_) { /* la subida no debe tumbar el backup local */ }
+      res.end('\n__TXPL_DONE__0');
+    })
     .catch(() => res.end('\n__TXPL_DONE__1'));
 });
 
@@ -120,6 +135,130 @@ router.post('/schedule', wrap(async (req, res) => {
   try { await run('crontab', [tmpCron]); } finally { fs.rmSync(tmpCron, { force: true }); }
   audit(req.user?.username || 'system', clientIp(req), 'backup.schedule', enabled ? `${frequency} ${time}` : 'desactivado');
   ok(res, { enabled: !!enabled });
+}));
+
+// ── Destino remoto (config) ──────────────────────────────────
+function stripSecrets(cfg) {
+  if (!cfg) return null;
+  return {
+    type: cfg.type, remote_path: cfg.remote_path,
+    encrypt_enabled: !!cfg.encrypt_enabled, auto_upload: !!cfg.auto_upload,
+    retention_days: cfg.retention_days, status: cfg.status,
+  };
+}
+
+router.get('/remote', (req, res) => {
+  ok(res, { remote: stripSecrets(queries.getBackupRemote.get()) });
+});
+
+router.post('/remote', wrap(async (req, res) => {
+  const b = req.body || {};
+  const type = String(b.type || '').toLowerCase();
+  if (!['s3', 'sftp'].includes(type)) return fail(res, 400, 'Tipo de remoto inválido (s3 | sftp).');
+  const remote_path = String(b.remote_path || '').trim();
+  const auto_upload = b.auto_upload ? 1 : 0;
+  const retention_days = Number.isInteger(+b.retention_days) && +b.retention_days > 0 ? +b.retention_days : 30;
+  const encrypt_enabled = b.encrypt_enabled ? 1 : 0;
+
+  let creds;
+  if (type === 's3') {
+    const { endpoint, region, accessKey, secretKey } = b;
+    if (!endpoint || !region || !accessKey || !secretKey) return fail(res, 400, 'Credenciales S3 incompletas.');
+    creds = { endpoint, region, accessKey, secretKey };
+  } else {
+    const { host, port, user, password, keyContent } = b;
+    if (!host || !port || !user || (!password && !keyContent)) return fail(res, 400, 'Credenciales SFTP incompletas.');
+    creds = { host, port: +port, user, password: password || null, keyContent: keyContent || null };
+  }
+
+  let crypt_pass_enc = null;
+  if (encrypt_enabled) {
+    const pass = String(b.crypt_pass || '');
+    if (pass.length < 8) return fail(res, 400, 'La passphrase de cifrado debe tener al menos 8 caracteres.');
+    crypt_pass_enc = encryptSecret(pass);
+  }
+
+  // Guardar temporalmente para poder probar con la config nueva.
+  queries.saveBackupRemote.run({
+    type, config_enc: encryptSecret(JSON.stringify(creds)),
+    remote_path, encrypt_enabled, crypt_pass_enc,
+    auto_upload, retention_days, status: 'unconfigured',
+  });
+  const t = await remote.testConnection();
+  queries.saveBackupRemote.run({
+    type, config_enc: encryptSecret(JSON.stringify(creds)),
+    remote_path, encrypt_enabled, crypt_pass_enc,
+    auto_upload, retention_days, status: t.ok ? 'ok' : 'error',
+  });
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.config', `${type} ${t.ok ? 'ok' : 'error'}`);
+  if (!t.ok) return fail(res, 502, 'La conexión con el remoto falló: ' + t.message);
+  ok(res, { status: 'ok' });
+}));
+
+router.post('/remote/test', wrap(async (req, res) => {
+  const t = await remote.testConnection();
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.test', t.ok ? 'ok' : 'error');
+  ok(res, t);
+}));
+
+router.delete('/remote', wrap(async (req, res) => {
+  queries.clearBackupRemote.run();
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.clear', '');
+  ok(res);
+}));
+
+// ── Subir un backup local al remoto ──────────────────────────
+router.post('/:id/upload', wrap(async (req, res) => {
+  const row = queries.getBackup.get(+req.params.id);
+  if (!row) return fail(res, 404, 'Backup no encontrado');
+  const r = await remote.uploadArchive({ filename: row.filename });
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.upload', `${row.filename} ${r.ok ? 'ok' : 'error'}`);
+  if (!r.ok) return fail(res, 502, r.message || 'Subida fallida');
+  ok(res);
+}));
+
+// ── Listar backups del remoto ────────────────────────────────
+router.get('/remote/list', wrap(async (req, res) => {
+  const r = await remote.listRemote();
+  if (!r.ok) return fail(res, 502, r.message || 'No se pudo listar el remoto');
+  ok(res, { items: r.items });
+}));
+
+// ── Restaurar un backup del remoto ───────────────────────────
+router.post('/remote/:filename/restore', wrap(async (req, res) => {
+  const filename = String(req.params.filename || '');
+  if (!B.isValidBackupFilename(filename)) return fail(res, 400, 'Nombre de backup inválido');
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.restore', filename);
+  startStream(res);
+  try {
+    res.write('☁️  Descargando desde el remoto...\n');
+    const d = await remote.downloadArchive({ filename });
+    if (!d.ok) { res.write('[error] ' + (d.message || 'descarga fallida') + '\n'); return res.end('\n__TXPL_DONE__1'); }
+    // Cataloga (si aún no está) para que la UI lo vea local.
+    if (!queries.getBackupByFilename.get(filename)) {
+      const size = require('fs').statSync(require('path').join(B.BACKUP_DIR, filename)).size;
+      queries.insertBackup.run({ filename, created_at: new Date().toISOString(), size_bytes: size, kind: 'full', scope: '[]', origin: 'remote-restore', status: 'ok', notes: null });
+    }
+    // Snapshot pre-restore + restaurar TODAS las piezas del manifest.
+    const manifest = await engine.readManifest(filename);
+    res.write('🛟 Creando snapshot de seguridad antes de restaurar...\n');
+    await engine.createBackup({ items: manifest.items.map((i) => ({ class: i.class, name: i.name })), kind: 'resource', origin: 'pre-restore', write: (t) => res.write(t) });
+    for (const it of manifest.items) await engine.restoreItem({ filename, item: it, write: (t) => res.write(t) });
+    res.end('\n__TXPL_DONE__0');
+  } catch (e) {
+    res.write('[error] ' + e.message + '\n');
+    res.end('\n__TXPL_DONE__1');
+  }
+}));
+
+// ── Borrar un backup del remoto ──────────────────────────────
+router.delete('/remote/:filename', wrap(async (req, res) => {
+  const filename = String(req.params.filename || '');
+  if (!B.isValidBackupFilename(filename)) return fail(res, 400, 'Nombre de backup inválido');
+  const r = await remote.deleteRemote({ filename });
+  audit(req.user?.username || 'system', clientIp(req), 'backup.remote.delete', `${filename} ${r.ok ? 'ok' : 'error'}`);
+  if (!r.ok) return fail(res, 502, r.message || 'Borrado fallido');
+  ok(res);
 }));
 
 module.exports = router;
