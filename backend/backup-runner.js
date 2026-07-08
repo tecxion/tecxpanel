@@ -33,6 +33,29 @@ async function main() {
     if (row) queries.deleteBackup.run(row.id);
     console.log(`[backup-runner] retención: borrado ${filename}`);
   }
+
+  // Retención REMOTA (best-effort, independiente de la local): borra los
+  // `scheduled` del remoto que sean más antiguos que retention_days del remoto.
+  try {
+    const rcfg = queries.getBackupRemote.get();
+    if (rcfg && rcfg.retention_days > 0) {
+      const remote = require('./lib/backupRemote');
+      const list = await remote.listRemote();
+      if (list.ok && list.items.length) {
+        const rows = list.items
+          .filter((it) => B.isValidBackupFilename(it.name))
+          .map((it) => ({ filename: it.name, origin: 'scheduled', created_at: it.modTime }));
+        const expiredR = B.selectExpiredBackups(rows, rcfg.retention_days, new Date());
+        for (const filename of expiredR) {
+          const r = await remote.deleteRemote({ filename });
+          console.log(`[backup-runner] retención remota: ${filename} ${r.ok ? 'borrado' : 'error: ' + r.message}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[backup-runner] retención remota:', e.message);
+  }
+
   console.log('[backup-runner] completado');
 }
 
