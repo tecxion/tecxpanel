@@ -32,7 +32,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, comprimir, extraer, eliminar y subir archivos (con soporte drag-and-drop y barra de progreso) en `/var/www`.
 - 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
-- 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`.
+- 💾 **Copias de Seguridad Gestionadas**: Crea backups completos o por recurso (bases de datos, sitios, apps, config del panel) desde la UI, con **restauración granular** y **snapshot de seguridad automático** antes de sobrescribir. Programación por cron (diario/semanal + retención) y descarga directa del `.tar.gz`. Con destinos remotos opcionales (**S3-compatible o SFTP** vía `rclone`) y **cifrado** opcional con passphrase del usuario.
 - ⏰ **Tareas Programadas (Cron)**: Crea y gestiona tareas cron desde la UI con un **constructor guiado** (cada minuto/hora/día/semana/mes o modo avanzado), actívalas/desactívalas, edítalas y consulta el **log de salida de cada tarea**. El panel gestiona solo sus propias tareas sin tocar el resto del crontab.
 - 📧 **Correo Electrónico**: Servidor de correo autohospedado con **docker-mailserver** (Postfix + Dovecot + Rspamd + DKIM) en un solo contenedor. Instálalo desde el panel, configura el hostname con **TLS automático** (Certbot), gestiona **buzones** y **alias**, genera **DKIM** y consulta los **registros DNS** (MX/SPF/DKIM/DMARC) a añadir.
 - 🌐 **DNS Autoritativo**: Convierte el VPS en servidor DNS con **PowerDNS**. Configura tus nameservers (ns1/ns2), crea **zonas** (dominios) y gestiona **registros** (A, AAAA, CNAME, MX, TXT) desde el panel. Incluye los **glue records** a poner en tu registrador y una **verificación de delegación**.
@@ -262,6 +262,26 @@ TecXPaneL gestiona las copias desde el panel, con restauración granular estilo 
 
 > [!WARNING]
 > Los backups del panel incluyen el archivo `.env` (con `JWT_SECRET` y la clave de cifrado) y los dumps de tus bases de datos, **sin cifrar** dentro del `.tar.gz`. Guárdalos y transfiérelos por canales seguros. El cifrado del propio archivo de backup llegará en una versión posterior.
+
+### Destinos remotos (S3-compatible / SFTP)
+
+Con **rclone** puedes replicar los backups fuera del VPS (S3, Backblaze B2, Wasabi,
+MinIO, DigitalOcean Spaces, SFTP…). Configúralo en la tarjeta **Destino remoto**:
+
+- Elige tipo (**S3-compatible** o **SFTP**) y rellena las credenciales.
+- Activa **cifrado** para que los archivos viajen y se guarden cifrados con tu
+  passphrase (modo `crypt` de rclone).
+- Activa **subida automática** para replicar cada backup nuevo.
+
+> [!WARNING]
+> Si activas el cifrado, guarda la passphrase **fuera del VPS**. Sin ella no podrás
+> descifrar los backups remotos si pierdes el servidor por completo (es un caso
+> típico de "huevo y gallina" en la recuperación ante desastres).
+
+> [!NOTE]
+> `rclone` se instala desde **Plugins**. Las credenciales se guardan **cifradas** y
+> se pasan al proceso de rclone por variables de entorno (nunca por `rclone.conf`
+> en disco ni en la línea de comandos).
 
 ---
 
