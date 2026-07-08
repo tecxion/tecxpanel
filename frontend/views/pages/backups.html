@@ -23,4 +23,51 @@
   <div id="backups-list">Cargando…</div>
 </div>
 
+<div class="card">
+  <h3><i class="ti ti-cloud-upload"></i> Destino remoto</h3>
+  <div id="remote-summary" class="muted">Cargando…</div>
+  <div class="form-row">
+    <label>Tipo:
+      <select id="rm-type" onchange="backupRemoteTypeChange()">
+        <option value="s3">S3-compatible</option>
+        <option value="sftp">SFTP</option>
+      </select>
+    </label>
+    <label>Ruta remota: <input type="text" id="rm-path" placeholder="mi-bucket/prefijo o /ruta/absoluta" style="width:240px"></label>
+  </div>
+  <div id="rm-s3" class="form-row">
+    <input type="text" id="rm-endpoint" placeholder="Endpoint (ej. https://s3.eu-west-1.amazonaws.com)" style="width:280px">
+    <input type="text" id="rm-region" placeholder="Región (ej. eu-west-1)" style="width:140px">
+    <input type="text" id="rm-akey" placeholder="Access Key" style="width:160px">
+    <input type="password" id="rm-skey" placeholder="Secret Key" style="width:160px">
+  </div>
+  <div id="rm-sftp" class="form-row" style="display:none">
+    <input type="text" id="rm-host" placeholder="host" style="width:180px">
+    <input type="number" id="rm-port" placeholder="22" value="22" style="width:70px">
+    <input type="text" id="rm-user" placeholder="usuario" style="width:140px">
+    <input type="password" id="rm-pass" placeholder="contraseña (o clave abajo)" style="width:180px">
+    <textarea id="rm-key" placeholder="Clave privada SSH (opcional, prevalece sobre contraseña)" style="width:100%;height:60px"></textarea>
+  </div>
+  <div class="form-row">
+    <label><input type="checkbox" id="rm-encrypt" onchange="backupRemoteEncryptToggle()"> Cifrar los backups en el remoto</label>
+    <input type="password" id="rm-cryptpass" placeholder="Passphrase de cifrado (mínimo 8)" style="width:280px;display:none">
+  </div>
+  <div class="form-row">
+    <label><input type="checkbox" id="rm-auto"> Subir automáticamente tras cada backup</label>
+    <label>Retención remota (días): <input type="number" id="rm-retention" value="30" min="1" style="width:80px"></label>
+  </div>
+  <div class="form-row">
+    <button class="btn btn-primary" onclick="backupRemoteSave()"><i class="ti ti-device-floppy"></i> Guardar</button>
+    <button class="btn" onclick="backupRemoteTest()"><i class="ti ti-plug"></i> Probar conexión</button>
+    <button class="btn btn-danger" onclick="backupRemoteClear()"><i class="ti ti-trash"></i> Desconectar</button>
+  </div>
+  <p class="muted"><b>Aviso:</b> si activas el cifrado, guarda tu passphrase fuera del VPS. Sin ella no podrás descifrar los backups remotos si pierdes el servidor.</p>
+</div>
+
+<div class="card">
+  <h3><i class="ti ti-cloud"></i> Backups remotos</h3>
+  <div class="form-row"><button class="btn" onclick="loadRemoteBackups()"><i class="ti ti-refresh"></i> Actualizar</button></div>
+  <div id="remote-list">—</div>
+</div>
+
 <div class="console" id="backups-console" style="display:none"></div>
