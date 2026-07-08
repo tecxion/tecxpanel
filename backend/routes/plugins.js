@@ -92,6 +92,12 @@ const PLUGINS = {
     install: ['apt-get', ['install', '-y', 'certbot', 'python3-certbot-nginx']],
     uninstall: ['apt-get', ['remove', '-y', 'certbot', 'python3-certbot-nginx']],
   },
+  rclone: {
+    name: 'rclone', category: 'Backups', icon: 'cloud-upload', desc: 'Cliente para copiar backups a S3/SFTP/etc.',
+    check: ['rclone', ['version']],
+    install: ['bash', ['-c', 'DEBIAN_FRONTEND=noninteractive apt-get install -y rclone']],
+    uninstall: ['apt-get', ['remove', '-y', 'rclone']],
+  },
 };
 
 // GET /api/plugins — Lista los plugins y si están instalados (ejecuta cada "check").
