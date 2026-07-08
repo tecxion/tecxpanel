@@ -22,7 +22,7 @@ npm install
 
 ```bash
 # Tests unitarios (node:test, sin dependencias externas)
-npm test             # ejecuta todos los backend/test/*.test.js (79 tests actualmente)
+npm test             # ejecuta todos los backend/test/**/*.test.js (cubre los helpers puros de cada feature)
 ```
 
 Sin linter ni build step. El frontend es vanilla JS servido como estático.
@@ -56,6 +56,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 - `backend/lib/nginx.js` — Nginx vhost builders (`buildProxy`, `buildSite`, `buildPhpFpmSite`), `enableSite`/`removeSite` (symlink + `nginx -t` + reload), and `installSsl` (Certbot). Reused by `websites.js`, `docker.js`, and `n8n.js`.
 - `backend/lib/backups.js` — Helpers puros de backups (manifest, validación de nombres, retención, línea de cron, constructores de argumentos de dump/tar), unit-tested en `backend/test/backups.test.js`.
 - `backend/lib/backupEngine.js` — Motor de backups: `createBackup`, `restoreItem`, `readManifest`. Usa los helpers puros + `run`/`runSafe` + `queries`.
+- `backend/lib/appdeploy.js` — Helpers puros del pipeline de despliegue de apps (detección de modo Python web/worker por frameworks en `requirements.txt`, entrypoints reconocidos, etc.). Unit-tested en `backend/test/appdeploy.test.js`.
 - `backend/lib/rclone.js` — Helpers puros de rclone (env por tipo S3/SFTP, montaje del remoto crypt, args de copy/lsjson/deletefile/lsd/obscure, parseo de lsjson), unit-tested en `backend/test/rclone.test.js`.
 - `backend/lib/backupRemote.js` — Ejecutor de rclone: sube/lista/descarga/borra archivos de backup en un remoto (S3/SFTP) leyendo `backup_remote`. Descifra credenciales y las inyecta por env vars del proceso hijo; materializa temporalmente la clave SSH en 0600 si aplica.
 - `backend/lib/cron.js` — Helpers puros de cron (validación de campos y de comando, construcción de las líneas de una tarea, reconstrucción del crontab preservando líneas ajenas), unit-tested en `backend/test/cron.test.js`.
@@ -68,9 +69,12 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 
 **Shell scripts** (for VPS, not for dev):
 - `txpl-setup.sh` — Full VPS provisioner (Node, Nginx, PM2, UFW, Certbot, optional MySQL/PG).
+- `txpl-update.sh` — Actualización in-place del panel en el VPS (pull + reinstalación de deps + reload PM2).
 - `txpl-cli.sh` — Terminal CLI (`txpl status`, `txpl restart`, `txpl logs`, etc.).
 - `txpl-backup.sh` — Backup script for DB + configs + sites.
 - `txpl-nginx.conf` — Nginx reverse proxy config template for the panel.
+
+**Static assets** — `public/` sirve los logotipos (`logo1.png`, `logo2.png`, `txpanel_logo.png`) usados por el frontend y el login.
 
 ## Key Patterns
 
