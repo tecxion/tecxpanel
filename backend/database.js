@@ -159,6 +159,19 @@ db.exec(`
     status      TEXT DEFAULT 'not_installed',
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS backup_remote (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    type            TEXT NOT NULL,
+    config_enc      TEXT NOT NULL,
+    remote_path     TEXT NOT NULL DEFAULT '',
+    encrypt_enabled INTEGER NOT NULL DEFAULT 0,
+    crypt_pass_enc  TEXT,
+    auto_upload     INTEGER NOT NULL DEFAULT 0,
+    retention_days  INTEGER NOT NULL DEFAULT 30,
+    status          TEXT NOT NULL DEFAULT 'unconfigured',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -305,6 +318,17 @@ const queries = {
     ON CONFLICT(id) DO UPDATE SET
       api_key_enc = @api_key_enc, ns1 = @ns1, ns2 = @ns2,
       server_ip = @server_ip, status = @status`),
+
+  // ── Backups: destino remoto ──────────────────────────────
+  getBackupRemote: db.prepare('SELECT * FROM backup_remote WHERE id = 1'),
+  saveBackupRemote: db.prepare(`
+    INSERT INTO backup_remote (id, type, config_enc, remote_path, encrypt_enabled, crypt_pass_enc, auto_upload, retention_days, status, created_at)
+    VALUES (1, @type, @config_enc, @remote_path, @encrypt_enabled, @crypt_pass_enc, @auto_upload, @retention_days, @status, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      type = @type, config_enc = @config_enc, remote_path = @remote_path,
+      encrypt_enabled = @encrypt_enabled, crypt_pass_enc = @crypt_pass_enc,
+      auto_upload = @auto_upload, retention_days = @retention_days, status = @status`),
+  clearBackupRemote: db.prepare('DELETE FROM backup_remote WHERE id = 1'),
 
   // ── Backups ───────────────────────────────────────────────────
   listBackups: db.prepare('SELECT * FROM backups ORDER BY created_at DESC'),
