@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is TecXPaneL
 
-A self-hosted, lightweight VPS control panel for Ubuntu/Debian servers. Manages websites (Nginx), apps (PM2), databases (MySQL/PostgreSQL), Docker containers, firewall (UFW), SSL (Certbot), file browsing, and SSH terminal — all from a single web UI consuming <30 MB RAM.
+A self-hosted, lightweight VPS control panel for Ubuntu/Debian servers. Manages websites (Nginx), apps (PM2), databases (MySQL/PostgreSQL), Docker containers, firewall (UFW), SSL (Certbot), file browsing, SSH terminal, workflows (n8n), backups (con destinos remotos S3/SFTP), tareas programadas (cron), correo (docker-mailserver) y DNS autoritativo (PowerDNS) — todo desde una única UI web con consumo bajo de RAM.
 
 ## Commands
 
@@ -20,7 +20,13 @@ pm2 reload txpl-panel
 npm install
 ```
 
-No test suite, no linter, no build step. The frontend is vanilla JS served as static files.
+```bash
+# Tests unitarios (node:test, sin dependencias externas)
+npm test             # ejecuta todos los backend/test/*.test.js (79 tests actualmente)
+```
+
+Sin linter ni build step. El frontend es vanilla JS servido como estático.
+El script `test` de `package.json` usa la forma glob `node --test "backend/test/**/*.test.js"` para recoger automáticamente cualquier `*.test.js` nuevo.
 
 ## Architecture
 
@@ -69,12 +75,33 @@ No test suite, no linter, no build step. The frontend is vanilla JS served as st
 ## Key Patterns
 
 - **Shell commands always use `execFile` with argument arrays** (never string interpolation) to prevent command injection. Use `run()` or `runSafe()` from `helpers.js`.
+- **`execFile` no soporta stdin.** Para pasar datos por stdin (restaurar SQL con `mysql`/`psql`, escribir la clave crypt en `rclone`, etc.) usar un helper `runInput` basado en `spawn`, o escribir a un fichero temporal y pasar la ruta como argumento (patrón usado con `crontab <file>`). NO usar `run(..., { input })` — ignora el input.
+- **`run()` tiene timeout por defecto de 30 s.** Para procesos largos (dumps, tar, pull de imágenes, restore) pasar `{ timeout: 0, maxBuffer: N }`; si no, se matan a mitad de camino. El motor de backups aprendió esto por las malas.
+- **Arquitectura de 3 capas para features nuevas:** `lib/<feature>.js` (helpers PUROS testeables, sin estado ni DB) + `lib/<feature>Engine.js` o `Executor.js` (efectos: `execFile`, DB, filesystem) + `routes/<feature>.js` (HTTP, JWT ya aplicado). Fila única de config cifrada en su propia tabla (patrón `n8n_config` / `mail_config` / `dns_config` / `backup_remote`).
 - **Secrets are encrypted at rest** with AES-256-GCM (`encryptSecret`/`decryptSecret` in `crypto.js`). The encryption key derives from `TXPL_SECRET_KEY` or `JWT_SECRET` via scrypt.
+- **Env-vars, no fichero de config, no argv** para pasar secretos a procesos hijos externos (patrón `rclone`): monta `env: { PATH, HOME, LANG, ...RCLONE_CONFIG_TXPL_* }`. Envs mínimos (no heredar `process.env` completo) para no dejar que `RCLONE_*`/`AWS_*` del host pisen la config del panel.
+- **Docker socket directo** (`/var/run/docker.sock`) con `http` nativo (patrón de `docker.js`, `n8n.js`, `mail.js`): `dockerRequest(method, path, body)` para la API y `dockerExec(id, cmd)` para el `exec` API (crear exec → start → leer stdout Tty → GET /json para exit code). Sin dependencias de SDK. **Al descargar una imagen**: SIEMPRE pasar `&tag=<version>` a `/images/create` (sin él descarga TODAS las etiquetas del repositorio — decenas de GB).
+- **Streaming en respuestas largas** — cabeceras `Content-Type: text/plain`, `X-Accel-Buffering: no`, `res.flushHeaders()`; escribir chunks con `res.write()`; terminar SIEMPRE con `__TXPL_DONE__<code>` (0=éxito). El frontend usa el mismo centinela para saber que acabó. Aplicable a instalar plugins, n8n, mail, dns, restore, subir a remoto.
+- **`wrap()` en `helpers.js` honra `e.http`**: si un handler lanza un error con `err.http = 400|409|502|…`, la respuesta usa ese código y expone `err.message` (útil para mensajes de negocio como "El correo no está instalado."). Sin `e.http`, se responde `500 { error: 'Error interno del servidor' }` (no filtra internals).
 - **File manager has path jail** — `safePath()` resolves paths via `path.resolve('/')` to prevent traversal.
+- **Backups y logs: valida el filename ANTES de tocar disco.** `isValidBackupFilename(name)` (regex + rechaza `..`/`/`/`\\`) se aplica en download, delete, restore, ver-log-de-tarea; luego `path.join(BASE_DIR, name).startsWith(BASE_DIR + path.sep)` como defensa en profundidad. `restoreItem` valida además `item.path` extraído del manifest.
 - **Apps directory guard** — `removeAppDir()` refuses to delete shallow or forbidden system paths.
-- **Audit trail** — `audit(user, ip, action, detail)` logs every mutating action to `audit_log` table.
-- **Plugin install streams output** — Uses `spawn` + chunked `res.write()` with `__TXPL_DONE__<code>` sentinel for completion. `n8n.js`'s `POST /install` reuses the same streaming sentinel.
-- **No hardcoded secrets (public repo)** — Since the repo is public, no operator secret is baked into code or installers. `txpl-setup.sh` generates fresh `JWT_SECRET`/`ADMIN_PASS` per install (`openssl rand`); the n8n API key is prompted in the UI and stored encrypted, never defaulted.
+- **Audit trail** — `audit(user, ip, action, detail)` logs every mutating action to `audit_log` table. Nunca pasar secretos como `detail`.
+- **No hardcoded secrets (public repo)** — Since the repo is public, no operator secret is baked into code or installers. `txpl-setup.sh` generates fresh `JWT_SECRET`/`ADMIN_PASS` per install (`openssl rand`); las API keys/passphrases/tokens se piden en la UI y se guardan cifradas, nunca por defecto.
+- **Convivencia con el crontab de root:** cada módulo que escribe crontab **solo elimina SUS propias líneas** al reescribir y conserva el resto. Backups filtra por `backup-runner.js`; cron filtra por el marcador `# txpl-cron:<id>` (más su línea siguiente). Invariante verificado en ambos sentidos.
+- **DB como fuente de la verdad** en features donde una config viva vive fuera del panel (crontab, PowerDNS zones, dockermailserver mailboxes, rclone destino): la DB del panel guarda la config *canónica* y cada mutación **proyecta** ese estado al sistema externo. Excepción: docker-mailserver es la fuente para las contraseñas de buzón (nunca se persisten en la DB del panel).
+
+## Cómo añadir una feature nueva
+
+Este repo usa un flujo **spec → plan → implementación por subagentes** con revisiones intermedias y una revisión final (docs bajo `docs/superpowers/`). Recomendado para toda feature no trivial:
+
+1. **Brainstorm + spec** en `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`: motor, decisiones clave, alcance de la fase, avisos honestos al usuario.
+2. **Plan TDD** en `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`: tareas bite-sized, código completo por paso, tests con `node:test`, sin placeholders.
+3. **Rama `feat/<nombre>`** (nunca en `main`), subagentes por tarea + revisor por tarea + revisor final de rama.
+4. **Docs**: actualizar `README.md` y este `CLAUDE.md` como parte del plan (última tarea).
+5. **Fusionar a `main` local**, verificar tests, borrar rama, push.
+
+El `docs/` está en `.gitignore` pero los specs/plans ya trackeados se siguen actualizando con `git add -f` cuando son nuevos.
 
 ## Environment
 
