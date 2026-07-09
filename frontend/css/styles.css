@@ -66,6 +66,15 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
   font-family:var(--font);font-size:14px;outline:none;transition:border var(--transition);
 }
 .login-field input:focus{border-color:var(--accent)}
+.pass-wrap{position:relative}
+.pass-wrap input{padding-right:42px}
+.pass-toggle{
+  position:absolute;top:0;right:0;height:100%;width:40px;
+  display:flex;align-items:center;justify-content:center;
+  background:none;border:none;color:var(--text-secondary);
+  cursor:pointer;font-size:16px;transition:color var(--transition);
+}
+.pass-toggle:hover{color:var(--text-primary)}
 .login-btn{
   width:100%;background:var(--accent);color:#0C0D0F;border:none;
   padding:11px;border-radius:var(--radius-sm);font-size:14px;font-weight:700;

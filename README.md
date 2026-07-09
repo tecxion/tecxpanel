@@ -22,6 +22,25 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 ---
 
+## 🖼️ Vista previa
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/capturas/panel_1.png" alt="Dashboard con métricas en tiempo real" /><p align="center"><sub><b>Dashboard</b> — CPU, RAM, disco y red en tiempo real, servicios y procesos top.</sub></p></td>
+    <td width="50%"><img src="docs/capturas/panel_2.png" alt="Gestión de aplicaciones PM2" /><p align="center"><sub><b>Aplicaciones</b> — despliegue y gestión de apps sobre PM2 (Node, Python, React…).</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/capturas/panel_3.png" alt="Gestión de contenedores Docker" /><p align="center"><sub><b>Docker</b> — contenedores, imágenes, puertos y logs sin usar la CLI.</sub></p></td>
+    <td width="50%"><img src="docs/capturas/panel_4.png" alt="Workflows con n8n" /><p align="center"><sub><b>Workflows (n8n)</b> — activa flujos y revisa las ejecuciones recientes.</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/capturas/panel_5.png" alt="Gestor de archivos web" /><p align="center"><sub><b>Gestor de archivos</b> — navega, edita y sube archivos con drag-and-drop.</sub></p></td>
+    <td width="50%"><img src="docs/capturas/panel_6.png" alt="Instalador de plugins del servidor" /><p align="center"><sub><b>Plugins</b> — instala Docker, phpMyAdmin, Redis, Fail2Ban, rclone… en un clic.</sub></p></td>
+  </tr>
+</table>
+
+---
+
 ## 🚀 Características Principales
 
 - 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
@@ -63,7 +82,9 @@ El proyecto está estructurado de forma limpia y desacoplada:
 │       └── app.js         # Lógica del cliente (~1700 líneas)
 ├── data/
 │   └── txpl.db            # Base de datos SQLite del panel (se crea en el arranque)
+├── public/                # Assets estáticos (logotipos servidos por el panel)
 ├── txpl-setup.sh          # Aprovisionamiento completo del VPS (logo ASCII + progreso)
+├── txpl-update.sh         # Actualización in-place del panel en el VPS (pull + deps + reload PM2)
 ├── txpl-cli.sh            # CLI de administración (txpl status/restart/logs/backup…)
 ├── txpl-backup.sh         # Backup automático de DB + configs + sitios
 └── ecosystem.config.js    # Configuración de ejecución continua en PM2
@@ -86,6 +107,16 @@ git clone https://github.com/TU_USUARIO/tecxpanel.git && cd tecxpanel && sudo ba
 ```
 
 Al terminar, la consola imprimirá la dirección de acceso y las credenciales de administrador autogeneradas.
+
+### 🔄 Actualizar el panel
+
+Para actualizar TecXPaneL a la última versión en un VPS ya instalado, ejecuta desde el directorio del proyecto:
+
+```bash
+sudo bash txpl-update.sh
+```
+
+El script hace `git pull`, reinstala dependencias si cambiaron y recarga el panel con PM2 sin pérdida de servicio.
 
 ### ⚙️ Instalación Personalizada
 
@@ -257,11 +288,8 @@ TecXPaneL gestiona las copias desde el panel, con restauración granular estilo 
 3.  Para **restaurar**, elige todo el backup o una pieza suelta: el panel crea primero un **snapshot de seguridad** de lo que va a sobrescribir y luego aplica la restauración.
 4.  Configura la **programación** (diario/semanal, hora y retención): el panel instala una tarea de cron que ejecuta el backup automáticamente.
 
-> [!NOTE]
-> En la v1 los destinos son **local** (`/opt/txpl/backups`) y **descarga manual**. Los destinos remotos (S3/SFTP) llegarán en una versión posterior.
-
 > [!WARNING]
-> Los backups del panel incluyen el archivo `.env` (con `JWT_SECRET` y la clave de cifrado) y los dumps de tus bases de datos, **sin cifrar** dentro del `.tar.gz`. Guárdalos y transfiérelos por canales seguros. El cifrado del propio archivo de backup llegará en una versión posterior.
+> Los backups locales incluyen el archivo `.env` (con `JWT_SECRET` y la clave de cifrado) y los dumps de tus bases de datos, **sin cifrar** dentro del `.tar.gz`. Guárdalos y transfiérelos por canales seguros, o usa un **destino remoto con cifrado** (ver más abajo) para que viajen y se guarden cifrados fuera del VPS.
 
 ### Destinos remotos (S3-compatible / SFTP)
 

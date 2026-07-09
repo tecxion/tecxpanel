@@ -39,7 +39,10 @@
     </div>
     <div class="login-field">
       <label>Contraseña</label>
-      <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
+      <div class="pass-wrap">
+        <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
+        <button type="button" class="pass-toggle" onclick="togglePassVis(this)" tabindex="-1" aria-label="Mostrar u ocultar contraseña"><i class="ti ti-eye"></i></button>
+      </div>
     </div>
     <div class="login-field" id="login-2fa-field" style="display:none">
       <label>Código 2FA</label>
@@ -86,7 +89,10 @@
       </div>
       <div class="login-field">
         <label>Nueva contraseña</label>
-        <input type="password" id="reset-new-pass" placeholder="Mínimo 8 caracteres">
+        <div class="pass-wrap">
+          <input type="password" id="reset-new-pass" placeholder="Mínimo 8 caracteres">
+          <button type="button" class="pass-toggle" onclick="togglePassVis(this)" tabindex="-1" aria-label="Mostrar u ocultar contraseña"><i class="ti ti-eye"></i></button>
+        </div>
       </div>
       <button class="login-btn" onclick="submitResetPassword()">Restablecer contraseña</button>
       <div style="margin-top:14px;text-align:center">

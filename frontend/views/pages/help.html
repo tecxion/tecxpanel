@@ -10,6 +10,9 @@
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Terminal</h3>
     <p>Una terminal SSH real dentro del navegador. Puedes ejecutar cualquier comando como si estuvieras conectado por SSH. Pulsa <strong>Conectar</strong> para abrir la sesi&oacute;n. Soporta colores, autocompletado y todo lo que har&iacute;as en una terminal normal.</p>
 
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-file-text" style="color:var(--accent)"></i> Logs del sistema</h3>
+    <p>Consulta en vivo los registros de Nginx y del sistema, y el <strong>registro de auditor&iacute;a</strong> del panel: cada acci&oacute;n relevante (inicios de sesi&oacute;n, creaci&oacute;n o borrado de sitios, apps, bases de datos, cambios de firewall&hellip;) queda anotada con usuario, IP y fecha. &Uacute;til para diagnosticar errores y revisar qui&eacute;n hizo qu&eacute;.</p>
+
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios web</h3>
     <p>Crea y gestiona sitios web alojados en tu VPS. Puedes crear sitios de tipo:</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
@@ -24,14 +27,66 @@
     <p>Despliega aplicaciones Node.js, Python, TypeScript o React gestionadas por PM2. El panel se encarga de mantenerlas vivas y reiniciarlas si se caen.</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li><strong>Ruta del proyecto:</strong> la carpeta donde est&aacute; tu c&oacute;digo (ej: <code>/var/www/mi-api</code>).</li>
-      <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>).</li>
+      <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>). Es <strong>editable</strong>: si la app no levanta, corrige el comando y reinicia.</li>
       <li><strong>Puerto:</strong> en qu&eacute; puerto escucha tu app (informativo, para configurar el proxy).</li>
     </ul>
+    <p><strong>Origen del c&oacute;digo:</strong> sube un <code>.zip</code>/<code>.tar.gz</code> o <strong>clona desde Git</strong>. Si usas Git, el panel genera un <strong>webhook de auto-deploy</strong>: cada <code>git push</code> dispara autom&aacute;ticamente <code>pull &rarr; instalar &rarr; build &rarr; reinicio</code>.</p>
+    <p><strong>Python:</strong> cada app se a&iacute;sla en su propio <strong>virtualenv (<code>.venv</code>)</strong>. El panel distingue un <strong>servicio web</strong> (Flask/FastAPI con puerto y proxy Nginx) de un <strong>worker/bot</strong> sin puerto (p.&nbsp;ej. un bot de Telegram), donde eliges el script <code>.py</code> de arranque.</p>
+    <p><strong>Variables de entorno:</strong> gestiona el archivo <code>.env</code> de la app desde el propio panel.</p>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-database" style="color:var(--accent)"></i> Bases de datos</h3>
     <p>Crea bases de datos MySQL (MariaDB) o PostgreSQL con un clic. El panel genera autom&aacute;ticamente un usuario y contrase&ntilde;a seguros. Las contrase&ntilde;as se almacenan cifradas y puedes copiarlas con el bot&oacute;n de copiar.</p>
     <p><strong>Requisito:</strong> el motor de BD debe estar instalado. Si no lo instalaste durante el setup, puedes hacerlo desde <strong>Plugins</strong>.</p>
     <p><strong>phpMyAdmin:</strong> para gestionar tus bases de datos visualmente, instala phpMyAdmin desde Plugins. Estar&aacute; accesible en el puerto 8081.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-docker" style="color:var(--accent)"></i> Docker</h3>
+    <p>Gestiona contenedores Docker sin usar la terminal: l&iacute;stalos con su estado y puertos, arr&aacute;ncalos, det&eacute;nlos, rein&iacute;cialos, elim&iacute;nalos y consulta sus <strong>logs</strong> en vivo.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Crear un contenedor</strong> desde una imagen del registro o <strong>compilando un Dockerfile</strong>, con mapeo de puertos, variables de entorno, <strong>vol&uacute;menes persistentes</strong> y proxy Nginx + SSL opcional por dominio.</li>
+      <li><strong>Editor de Dockerfile y docker-compose</strong> con despliegue en un clic (<code>docker compose up -d</code>).</li>
+    </ul>
+    <p><strong>Requisito:</strong> Docker instalado (un clic desde <strong>Plugins</strong>). Es la misma base sobre la que corren Workflows y Correo.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-sitemap" style="color:var(--accent)"></i> Workflows (n8n)</h3>
+    <p>Automatiza flujos con <strong>n8n</strong> sin instalarlo a mano. Pulsa <strong>Instalar n8n</strong> y el panel lo levanta como contenedor Docker (con volumen persistente y proxy Nginx opcional), mostrando el progreso de descarga.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>Abre n8n, crea tu cuenta y genera tu <strong>API key</strong> en <em>Settings &rarr; API</em>; p&eacute;gala en el panel (se guarda cifrada).</li>
+      <li>Desde el panel: lista tus workflows, act&iacute;valos/desact&iacute;valos, revisa las <strong>ejecuciones recientes</strong> y abre el editor de n8n con un clic.</li>
+    </ul>
+    <p><strong>Requisito:</strong> Docker instalado.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-database-export" style="color:var(--accent)"></i> Copias de seguridad</h3>
+    <p>Crea backups completos o por recurso (<strong>bases de datos</strong>, <strong>sitios</strong>, <strong>apps</strong>, <strong>config del panel</strong>). Cada backup se guarda como <code>.tar.gz</code> con un <code>manifest.json</code> y puedes descargarlo.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Restauraci&oacute;n granular:</strong> restaura todo el backup o una pieza suelta. Antes de sobrescribir, el panel crea un <strong>snapshot de seguridad</strong> de lo que va a reemplazar.</li>
+      <li><strong>Programaci&oacute;n:</strong> backups autom&aacute;ticos por cron (diario/semanal, hora y retenci&oacute;n).</li>
+      <li><strong>Destinos remotos (opcional):</strong> replica los backups fuera del VPS en <strong>S3-compatible</strong> (Backblaze&nbsp;B2, Wasabi, MinIO, Spaces&hellip;) o <strong>SFTP</strong> v&iacute;a rclone, con <strong>cifrado</strong> opcional mediante tu passphrase.</li>
+    </ul>
+    <p><strong>Aviso:</strong> los backups locales incluyen el <code>.env</code> y los dumps de tus bases de datos sin cifrar. Gu&aacute;rdalos por canales seguros o usa un destino remoto con cifrado. Si activas el cifrado, guarda la passphrase <strong>fuera del VPS</strong>.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-clock-play" style="color:var(--accent)"></i> Tareas programadas (Cron)</h3>
+    <p>Crea y gestiona tareas cron desde la UI con un <strong>constructor guiado</strong> (cada hora, cada d&iacute;a a las HH:MM, cada semana, cada mes, o modo avanzado con los cinco campos cron).</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Activa/desactiva</strong> una tarea sin borrarla, ed&iacute;tala y consulta el <strong>log de salida</strong> de cada una.</li>
+      <li>El panel gestiona <strong>solo sus propias tareas</strong>: las l&iacute;neas que pusiste a mano o las de backups se respetan.</li>
+    </ul>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-mail" style="color:var(--accent)"></i> Correo</h3>
+    <p>Servidor de correo autohospedado con <strong>docker-mailserver</strong> (Postfix + Dovecot + Rspamd + DKIM) en un contenedor, gestionado desde el panel.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>Pulsa <strong>Instalar</strong>, indica el <strong>hostname</strong> (ej. <code>mail.tudominio.com</code>) y el panel emite el <strong>certificado TLS</strong> con Certbot.</li>
+      <li>Crea <strong>buzones</strong> y <strong>alias</strong>, genera el <strong>DKIM</strong> y consulta los registros DNS a a&ntilde;adir: <strong>MX</strong>, <strong>SPF</strong>, <strong>DKIM</strong>, <strong>DMARC</strong> (y el <strong>PTR/rDNS</strong> en tu proveedor de VPS).</li>
+    </ul>
+    <p><strong>Aviso:</strong> el correo no funciona hasta que el DNS sea correcto (sobre todo MX y PTR). Requiere Docker y ~1&nbsp;GB de RAM para el contenedor.</p>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> DNS autoritativo</h3>
+    <p>Convierte tu VPS en un servidor DNS autoritativo con <strong>PowerDNS</strong> para gestionar el DNS de tus dominios desde el panel.</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>Pulsa <strong>Instalar PowerDNS</strong> (abre el puerto 53) y configura tus <strong>nameservers</strong> (<code>ns1</code>/<code>ns2</code>) apuntando a la IP del VPS.</li>
+      <li>A&ntilde;ade tus <strong>dominios</strong> (zonas) y gestiona sus <strong>registros</strong> (A, AAAA, CNAME, MX, TXT).</li>
+      <li>El panel te muestra los <strong>glue records</strong> a crear en tu registrador y <strong>verifica</strong> si la delegaci&oacute;n ya est&aacute; activa.</li>
+    </ul>
+    <p><strong>Aviso:</strong> crear los glue records y cambiar los nameservers en el registrador del dominio lo haces t&uacute; (es externo al VPS).</p>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-folders" style="color:var(--accent)"></i> Gestor de archivos</h3>
     <p>Navega, crea, edita y elimina archivos y carpetas del sistema. Ideal para subir o editar el c&oacute;digo de tus sitios web directamente desde el navegador.</p>
@@ -54,6 +109,10 @@
     </ul>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes</h3>
-    <p>Cambia tu contrase&ntilde;a de acceso al panel. La contrase&ntilde;a debe tener al menos 8 caracteres.</p>
+    <p>Cambia tu contrase&ntilde;a de acceso al panel (m&iacute;nimo 8 caracteres) y protege tu cuenta:</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>2FA (TOTP):</strong> activa un segundo factor compatible con Google Authenticator, Authy y similares escaneando un c&oacute;digo QR. Al iniciar sesi&oacute;n se te pedir&aacute; el c&oacute;digo de 6 d&iacute;gitos.</li>
+      <li><strong>Recuperaci&oacute;n de contrase&ntilde;a:</strong> configura un email y una pregunta de seguridad para poder recuperar el acceso si la olvidas, sin depender de servicios externos.</li>
+    </ul>
   </div>
 </div>

@@ -102,6 +102,15 @@ async function doLogin() {
   }
 }
 
+// togglePassVis: muestra/oculta la contraseña del campo hermano (icono del ojo).
+function togglePassVis(btn) {
+  const input = btn.parentElement.querySelector('input');
+  const icon = btn.querySelector('i');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  icon.className = show ? 'ti ti-eye-off' : 'ti ti-eye';
+}
+
 document.getElementById('login-pass').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
