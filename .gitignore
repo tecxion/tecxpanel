@@ -24,4 +24,7 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Web corporativa (no se sube a GitHub)
+web/
+
 
