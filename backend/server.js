@@ -106,6 +106,11 @@ app.get('*', (req, res) => {
 const server = http.createServer(app);
 setupWebSockets(server, verifyToken);
 
+// Monitor de notificaciones (disco/servicios/contenedores, cada 60 s).
+// Sin config guardada no hace nada; ver lib/monitor.js.
+const { startMonitor } = require('./lib/monitor');
+startMonitor();
+
 // Escuchamos SOLO en 127.0.0.1: el panel no se expone directo a internet,
 // nginx hace de proxy hacia aquí (más seguro).
 server.listen(PORT, '127.0.0.1', () => {
