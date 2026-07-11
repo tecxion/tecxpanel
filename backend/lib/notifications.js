@@ -90,6 +90,65 @@ function applyTick(prev, currentStatus, now) {
   return { next: { ...prev, pending_status: currentStatus, pending_count: count }, event: null };
 }
 
+// ── Constructores de eventos y mensajes ──────────────────────────
+
+const EVENT_EMOJI = { down: '🔴', recovered: '✅', security: '🛡️', test: '🔔' };
+
+// Marca temporal legible; los tests no asertan el formato exacto
+// (depende del ICU del sistema), solo que aparece tras "Desde:".
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleString('es-ES', { hour12: false }); }
+  catch (_) { return String(iso); }
+}
+
+// Evento de estado a partir de la clave de recurso.
+function buildStatusEvent({ key, event, hostname, since, detail }) {
+  const [type, name] = key.includes(':') ? key.split(':') : [key, null];
+  let title;
+  if (type === 'disk') {
+    title = event === 'down' ? 'Disco por encima del umbral' : 'Disco de nuevo bajo el umbral';
+  } else if (type === 'service') {
+    title = `Servicio ${name} ${event === 'down' ? 'caído' : 'recuperado'}`;
+  } else {
+    title = `Contenedor ${name} ${event === 'down' ? 'caído' : 'recuperado'}`;
+  }
+  return { kind: event, hostname, title, detail: detail || null, since: since || null };
+}
+
+// Evento puntual de seguridad (sin estado ni recuperación).
+function buildSecurityEvent(hostname, title, detail) {
+  return { kind: 'security', hostname, title, detail: detail || null, since: null };
+}
+
+// Evento del botón "Enviar prueba".
+function buildTestEvent(hostname) {
+  return {
+    kind: 'test',
+    hostname,
+    title: 'Notificación de prueba de TecXPaneL',
+    detail: 'Si lees esto, el canal funciona correctamente.',
+    since: null,
+  };
+}
+
+function buildTelegramMessage(ev) {
+  const emoji = EVENT_EMOJI[ev.kind] || '🔔';
+  let text = `${emoji} [${ev.hostname}] ${ev.title}`;
+  if (ev.detail) text += `\n${ev.detail}`;
+  if (ev.since) text += `\nDesde: ${fmtTime(ev.since)}`;
+  return text;
+}
+
+function buildEmailMessage(ev) {
+  const emoji = EVENT_EMOJI[ev.kind] || '🔔';
+  const subject = `${emoji} [${ev.hostname}] ${ev.title}`;
+  const lines = [ev.title];
+  if (ev.detail) lines.push(ev.detail);
+  if (ev.since) lines.push(`Desde: ${fmtTime(ev.since)}`);
+  lines.push('', '— TecXPaneL');
+  return { subject, text: lines.join('\n') };
+}
+
 module.exports = {
   CONFIRM_TICKS,
   isValidTelegramToken,
@@ -97,4 +156,9 @@ module.exports = {
   isValidSmtpConfig,
   resourceKey,
   applyTick,
+  buildStatusEvent,
+  buildSecurityEvent,
+  buildTestEvent,
+  buildTelegramMessage,
+  buildEmailMessage,
 };

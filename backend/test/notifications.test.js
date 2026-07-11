@@ -123,3 +123,55 @@ test('applyTick: al confirmar el cambio, since se actualiza al now del tick', ()
   const t2 = ntf.applyTick(t1.next, 'down', LATER);
   assert.strictEqual(t2.next.since, LATER);
 });
+
+// ── Constructores de eventos y mensajes ──────────────────────────
+
+test('buildStatusEvent: servicio caído y recuperado', () => {
+  const down = ntf.buildStatusEvent({ key: 'service:nginx', event: 'down', hostname: 'mi-vps', since: NOW, detail: null });
+  assert.strictEqual(down.kind, 'down');
+  assert.strictEqual(down.hostname, 'mi-vps');
+  assert.strictEqual(down.title, 'Servicio nginx caído');
+  const up = ntf.buildStatusEvent({ key: 'service:nginx', event: 'recovered', hostname: 'mi-vps', since: NOW, detail: null });
+  assert.strictEqual(up.title, 'Servicio nginx recuperado');
+});
+
+test('buildStatusEvent: contenedor y disco', () => {
+  const c = ntf.buildStatusEvent({ key: 'container:txpl-n8n', event: 'down', hostname: 'vps', since: NOW, detail: null });
+  assert.strictEqual(c.title, 'Contenedor txpl-n8n caído');
+  const d = ntf.buildStatusEvent({ key: 'disk', event: 'down', hostname: 'vps', since: NOW, detail: 'Uso: 93% (umbral 90%)' });
+  assert.strictEqual(d.title, 'Disco por encima del umbral');
+  assert.strictEqual(d.detail, 'Uso: 93% (umbral 90%)');
+  const dr = ntf.buildStatusEvent({ key: 'disk', event: 'recovered', hostname: 'vps', since: NOW, detail: null });
+  assert.strictEqual(dr.title, 'Disco de nuevo bajo el umbral');
+});
+
+test('buildSecurityEvent y buildTestEvent', () => {
+  const s = ntf.buildSecurityEvent('vps', 'Bloqueo por fuerza bruta', 'IP 1.2.3.4 bloqueada 15 min');
+  assert.strictEqual(s.kind, 'security');
+  assert.strictEqual(s.title, 'Bloqueo por fuerza bruta');
+  assert.strictEqual(s.since, null);
+  const t = ntf.buildTestEvent('vps');
+  assert.strictEqual(t.kind, 'test');
+  assert.ok(t.title.length > 0);
+});
+
+test('buildTelegramMessage: emoji + hostname + título + detalle + desde', () => {
+  const ev = ntf.buildStatusEvent({ key: 'service:nginx', event: 'down', hostname: 'mi-vps', since: NOW, detail: null });
+  const text = ntf.buildTelegramMessage(ev);
+  assert.ok(text.startsWith('🔴 [mi-vps] Servicio nginx caído'), text);
+  assert.ok(text.includes('Desde:'), 'incluye la marca temporal');
+  const up = ntf.buildTelegramMessage({ ...ev, kind: 'recovered', title: 'Servicio nginx recuperado' });
+  assert.ok(up.startsWith('✅ '));
+  const sec = ntf.buildTelegramMessage(ntf.buildSecurityEvent('vps', 'IP nueva', 'admin desde 1.2.3.4'));
+  assert.ok(sec.startsWith('🛡️ [vps] IP nueva'));
+  assert.ok(sec.includes('admin desde 1.2.3.4'));
+  assert.ok(!sec.includes('Desde:'), 'los eventos puntuales no llevan "Desde:"');
+});
+
+test('buildEmailMessage: subject = línea de Telegram, body multilínea con firma', () => {
+  const ev = ntf.buildStatusEvent({ key: 'disk', event: 'down', hostname: 'vps', since: NOW, detail: 'Uso: 93% (umbral 90%)' });
+  const { subject, text } = ntf.buildEmailMessage(ev);
+  assert.strictEqual(subject, '🔴 [vps] Disco por encima del umbral');
+  assert.ok(text.includes('Uso: 93% (umbral 90%)'));
+  assert.ok(text.includes('— TecXPaneL'));
+});
