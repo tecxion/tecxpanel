@@ -16,7 +16,12 @@ const { buildTelegramMessage, buildEmailMessage } = require('./notifications');
 const TG_TIMEOUT_MS = 10_000;
 
 function safeDecrypt(v) {
-  try { return decryptSecret(v); } catch (_) { return null; }
+  try {
+    const plain = decryptSecret(v);
+    return plain === '(no descifrable)' ? null : plain;
+  } catch (_) {
+    return null;
+  }
 }
 
 // Config efectiva con secretos descifrados (o null si no hay fila).
@@ -63,33 +68,38 @@ async function sendEmail(cfg, subject, text) {
 // dispatch(ev): envía a todos los canales activos. Devuelve true si al menos
 // uno entregó. Nunca lanza: el que llama no debe romperse por un canal caído.
 async function dispatch(ev) {
-  const cfg = loadConfig();
-  if (!cfg) return false;
-  let delivered = false;
+  try {
+    const cfg = loadConfig();
+    if (!cfg) return false;
+    let delivered = false;
 
-  if (cfg.telegram_enabled && cfg.telegram_token && cfg.telegram_chat_id) {
-    try {
-      await sendTelegram({ token: cfg.telegram_token, chatId: cfg.telegram_chat_id }, buildTelegramMessage(ev));
-      delivered = true;
-    } catch (e) {
-      console.error('[notify] telegram:', e.message);
+    if (cfg.telegram_enabled && cfg.telegram_token && cfg.telegram_chat_id) {
+      try {
+        await sendTelegram({ token: cfg.telegram_token, chatId: cfg.telegram_chat_id }, buildTelegramMessage(ev));
+        delivered = true;
+      } catch (e) {
+        console.error('[notify] telegram:', e.message);
+      }
     }
-  }
 
-  if (cfg.smtp_enabled && cfg.smtp_host && cfg.smtp_to) {
-    const { subject, text } = buildEmailMessage(ev);
-    try {
-      await sendEmail({
-        host: cfg.smtp_host, port: cfg.smtp_port, secure: cfg.smtp_secure,
-        user: cfg.smtp_user, pass: cfg.smtp_pass, from: cfg.smtp_from, to: cfg.smtp_to,
-      }, subject, text);
-      delivered = true;
-    } catch (e) {
-      console.error('[notify] email:', e.message);
+    if (cfg.smtp_enabled && cfg.smtp_host && cfg.smtp_to) {
+      const { subject, text } = buildEmailMessage(ev);
+      try {
+        await sendEmail({
+          host: cfg.smtp_host, port: cfg.smtp_port, secure: cfg.smtp_secure,
+          user: cfg.smtp_user, pass: cfg.smtp_pass, from: cfg.smtp_from, to: cfg.smtp_to,
+        }, subject, text);
+        delivered = true;
+      } catch (e) {
+        console.error('[notify] email:', e.message);
+      }
     }
-  }
 
-  return delivered;
+    return delivered;
+  } catch (e) {
+    console.error('[notify] dispatch:', e.message);
+    return false;
+  }
 }
 
 // detectChatId(token): tras pulsar /start en el bot, getUpdates trae el chat.
