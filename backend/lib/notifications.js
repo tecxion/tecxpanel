@@ -42,10 +42,59 @@ const resourceKey = {
   container: (name) => `container:${name}`,
 };
 
+// ── Transiciones de estado (anti-flapping + reintento) ───────────
+//
+// applyTick(prev, currentStatus, now) → { next, event }
+//   - prev: fila de notify_state (o null si el recurso es nuevo).
+//   - currentStatus: 'ok' | 'down' según el chequeo de este tick.
+//   - event: null | 'down' | 'recovered'. Si emite, next.notified=0 y
+//     el monitor lo pondrá a 1 cuando algún canal entregue.
+//
+// Reglas:
+//   1. Recurso nuevo: adopta el estado sin notificar (evita spam en
+//      instalaciones con servicios parados a propósito).
+//   2. Cambio de estado: exige CONFIRM_TICKS ticks consecutivos
+//      (anti-flapping: reiniciar nginx desde el panel no notifica).
+//   3. Estado estable con notified=0: re-emite (la entrega falló en
+//      un tick anterior y no se puede perder el aviso).
+
+function applyTick(prev, currentStatus, now) {
+  // 1. Primer avistamiento
+  if (!prev) {
+    return {
+      next: { status: currentStatus, pending_status: null, pending_count: 0, since: now, notified: 1 },
+      event: null,
+    };
+  }
+
+  if (currentStatus === prev.status) {
+    // 3. Reintento de entrega pendiente
+    if (!prev.notified) {
+      return { next: { ...prev, notified: 0 }, event: prev.status === 'down' ? 'down' : 'recovered' };
+    }
+    // Flapping suprimido: había un cambio a medio confirmar que no se consolidó
+    if (prev.pending_status) {
+      return { next: { ...prev, pending_status: null, pending_count: 0 }, event: null };
+    }
+    return { next: prev, event: null };
+  }
+
+  // 2. Cambio respecto al estado confirmado: contar confirmaciones
+  const count = prev.pending_status === currentStatus ? prev.pending_count + 1 : 1;
+  if (count >= CONFIRM_TICKS) {
+    return {
+      next: { status: currentStatus, pending_status: null, pending_count: 0, since: now, notified: 0 },
+      event: currentStatus === 'down' ? 'down' : 'recovered',
+    };
+  }
+  return { next: { ...prev, pending_status: currentStatus, pending_count: count }, event: null };
+}
+
 module.exports = {
   CONFIRM_TICKS,
   isValidTelegramToken,
   isValidChatId,
   isValidSmtpConfig,
   resourceKey,
+  applyTick,
 };
