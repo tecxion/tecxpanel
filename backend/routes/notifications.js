@@ -40,9 +40,9 @@ function resolveSmtpPass(bodyPass) {
 // GET /config — config actual SIN secretos (solo flags de "hay secreto").
 router.get('/config', wrap(async (req, res) => {
   const row = queries.getNotifyConfig.get();
-  if (!row) return ok(res, { configured: false });
+  if (!row) return ok(res, { success: true, configured: false });
   const { telegram_token_enc, smtp_pass_enc, ...pub } = row;
-  ok(res, { configured: true, ...pub, telegram_token_set: !!telegram_token_enc, smtp_pass_set: !!smtp_pass_enc });
+  ok(res, { success: true, configured: true, ...pub, telegram_token_set: !!telegram_token_enc, smtp_pass_set: !!smtp_pass_enc });
 }));
 
 // POST /config — valida y guarda. Token/contraseña vacíos = conservar los guardados.
@@ -87,7 +87,7 @@ router.post('/config', wrap(async (req, res) => {
     ev_security_enabled: b.ev_security_enabled ? 1 : 0,
   });
   audit(req.user.username, clientIp(req), 'notify.config', null); // sin secretos en el detalle
-  ok(res, { saved: true });
+  ok(res, { success: true, saved: true });
 }));
 
 // POST /test/telegram — envía la notificación de prueba con la config del body.
@@ -101,7 +101,7 @@ router.post('/test/telegram', wrap(async (req, res) => {
   } catch (e) {
     return fail(res, 502, 'Telegram: ' + e.message);
   }
-  ok(res, { sent: true });
+  ok(res, { success: true, sent: true });
 }));
 
 // POST /test/email — ídem por SMTP.
@@ -119,7 +119,7 @@ router.post('/test/email', wrap(async (req, res) => {
   } catch (e) {
     return fail(res, 502, 'SMTP: ' + e.message);
   }
-  ok(res, { sent: true });
+  ok(res, { success: true, sent: true });
 }));
 
 // POST /telegram/detect-chat — autodetecta el chat_id tras pulsar /start.
@@ -127,7 +127,7 @@ router.post('/telegram/detect-chat', wrap(async (req, res) => {
   const token = resolveToken(req.body?.telegram_token);
   if (!token || !isValidTelegramToken(token)) return fail(res, 400, 'Introduce primero el token del bot');
   const r = await detectChatId(token); // lanza con e.http (404/502) que wrap respeta
-  ok(res, r);
+  ok(res, { success: true, ...r });
 }));
 
 module.exports = router;
