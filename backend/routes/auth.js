@@ -22,6 +22,18 @@ const bcrypt = require('bcryptjs');
 const { queries, audit } = require('../database');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { base32Encode, totpVerify } = require('../lib/crypto');
+const os = require('os');
+const { buildSecurityEvent } = require('../lib/notifications');
+const { dispatch } = require('../lib/notifyExecutor');
+
+// Notificación puntual de seguridad: fire-and-forget, nunca bloquea el login.
+function notifySecurity(title, detail) {
+  try {
+    const cfg = queries.getNotifyConfig.get();
+    if (!cfg || !cfg.ev_security_enabled || (!cfg.telegram_enabled && !cfg.smtp_enabled)) return;
+    dispatch(buildSecurityEvent(os.hostname(), title, detail)).catch(() => {});
+  } catch (_) { /* la notificación jamás tumba el login */ }
+}
 
 // Es una "fábrica": server.js la llama pasándole el secreto JWT, la duración
 // del token y el limitador de login, y devuelve el router + utilidades de auth.
@@ -37,6 +49,9 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
   function recordLoginFail(ip) {
     const e = loginFails.get(ip) || { count: 0, until: 0 };
     e.count++;
+    if (e.count === LOGIN_MAX_FAILS) {
+      notifySecurity('Bloqueo por fuerza bruta', `IP ${ip} bloqueada 15 min tras ${LOGIN_MAX_FAILS} intentos fallidos de login`);
+    }
     if (e.count >= LOGIN_MAX_FAILS) e.until = Date.now() + LOGIN_LOCK_MS;
     loginFails.set(ip, e);
   }
@@ -75,8 +90,13 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
       if (!totpVerify(user.totp_secret, code)) { recordLoginFail(ip); audit(user.username, ip, 'login.2fa.fail', null); return res.status(401).json({ error: 'Código 2FA incorrecto', twofa: true }); }
     }
     clearLoginFails(ip);
+    // ¿Primera vez que esta IP inicia sesión con éxito? (consultar ANTES del audit)
+    const ipConocida = queries.hasLoginFromIp.get(ip).c > 0;
     const token = jwt.sign({ uid: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: TOKEN_TTL });
     audit(user.username, ip, 'login.ok', null);
+    if (!ipConocida) {
+      notifySecurity('Inicio de sesión desde IP nueva', `Usuario ${user.username} desde ${ip}`);
+    }
     ok(res, { token, user: { username: user.username, role: user.role } });
   }));
 

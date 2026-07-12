@@ -58,6 +58,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - ⚡ **Plugins del Servidor**: Instalador no interactivo de dependencias críticas: **Docker**, **phpMyAdmin** (puerto 8081), **Adminer** (puerto 8082, gestiona MySQL y PostgreSQL), **Redis**, **Fail2Ban**, **Composer** y **Certbot**.
 - 🐳 **Contenedores Docker**: Gestión completa de Docker sin usar la CLI: lista, arranca, detén, reinicia y elimina contenedores, y consulta sus **logs** en vivo. Crea contenedores desde una imagen del registro o **compilando un Dockerfile**, con mapeo de puertos, variables de entorno, **volúmenes persistentes** y proxy Nginx + SSL opcional por dominio. Incluye editor de **Dockerfile** y de **docker-compose** con despliegue en un clic.
 - 🔗 **Workflows (n8n)**: Integración nativa de **n8n** para automatización de flujos. Instala n8n como contenedor Docker (volumen persistente y proxy Nginx opcional) desde el propio panel, con **barra de progreso de descarga en vivo**. Conecta tu API key (cifrada en reposo) y gestiona tus workflows sin salir de TecXPaneL: lístalos, actívalos/desactívalos, consulta las ejecuciones recientes y abre el editor de n8n con un clic.
+- 🔔 **Notificaciones**: Avisos por **Telegram** (tu propio bot, sin desplegar nada) y **email (SMTP)** cuando algo va mal: disco por encima del umbral, servicio o contenedor caído (con aviso de recuperación y anti-flapping) y eventos de seguridad (bloqueo por fuerza bruta, login desde IP nueva). Credenciales cifradas en reposo y botón de prueba por canal.
 
 ---
 

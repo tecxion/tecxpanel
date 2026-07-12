@@ -25,6 +25,54 @@
     <button class="btn btn-primary" onclick="saveRecovery()"><i class="ti ti-device-floppy"></i> Guardar recuperación</button>
   </div>
 </div>
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-bell"></i> Notificaciones</div>
+  </div>
+  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:0.75rem">
+    Recibe un aviso cuando algo va mal: disco lleno, servicio caído o eventos de seguridad.
+    Un mensaje al aparecer el problema y otro al recuperarse.
+  </p>
+  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
+    <i class="ti ti-alert-triangle" style="color:var(--accent)"></i>
+    Si el VPS entero se cae, nada dentro de él puede avisarte: para eso usa un monitor
+    externo (UptimeRobot, o un Uptime Kuma en otro servidor).
+  </p>
+
+  <h4 style="font-size:13px;margin:0.75rem 0 0.5rem"><i class="ti ti-brand-telegram"></i> Telegram</h4>
+  <div class="form-group"><label><input type="checkbox" id="ntf-tg-enabled"> Activar avisos por Telegram</label></div>
+  <div class="form-group">
+    <label>Token del bot (créalo con @BotFather en 2 min)</label>
+    <input type="password" id="ntf-tg-token" placeholder="123456:ABC…" autocomplete="off">
+  </div>
+  <div class="form-group">
+    <label>Chat ID (pulsa /start en tu bot y usa Detectar)</label>
+    <input type="text" id="ntf-tg-chat" placeholder="123456789">
+  </div>
+  <button class="btn btn-sm" onclick="detectTgChat()"><i class="ti ti-radar-2"></i> Detectar chat</button>
+  <button class="btn btn-sm" onclick="testNotify('telegram')"><i class="ti ti-send"></i> Enviar prueba</button>
+
+  <h4 style="font-size:13px;margin:1.25rem 0 0.5rem"><i class="ti ti-mail"></i> Email (SMTP)</h4>
+  <div class="form-group"><label><input type="checkbox" id="ntf-smtp-enabled"> Activar avisos por email</label></div>
+  <div class="form-group"><label>Servidor SMTP</label><input type="text" id="ntf-smtp-host" placeholder="smtp.ejemplo.com (o 127.0.0.1 si usas el módulo Correo)"></div>
+  <div class="form-group"><label>Puerto</label><input type="number" id="ntf-smtp-port" value="587" min="1" max="65535"></div>
+  <div class="form-group"><label><input type="checkbox" id="ntf-smtp-secure"> Conexión TLS directa (puerto 465)</label></div>
+  <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="ntf-smtp-user" autocomplete="off"></div>
+  <div class="form-group"><label>Contraseña (en Gmail: contraseña de aplicación)</label><input type="password" id="ntf-smtp-pass" autocomplete="new-password"></div>
+  <div class="form-group"><label>Remitente</label><input type="email" id="ntf-smtp-from" placeholder="panel@midominio.com"></div>
+  <div class="form-group"><label>Destinatario</label><input type="email" id="ntf-smtp-to" placeholder="admin@midominio.com"></div>
+  <button class="btn btn-sm" onclick="testNotify('email')"><i class="ti ti-send"></i> Enviar prueba</button>
+
+  <h4 style="font-size:13px;margin:1.25rem 0 0.5rem"><i class="ti ti-bell-ringing"></i> Eventos</h4>
+  <div class="form-group">
+    <label><input type="checkbox" id="ntf-ev-disk"> Disco por encima del umbral</label>
+    <input type="number" id="ntf-ev-disk-th" value="90" min="50" max="99" style="width:80px;margin-left:8px"> %
+  </div>
+  <div class="form-group"><label><input type="checkbox" id="ntf-ev-services"> Servicio o contenedor caído (y recuperado)</label></div>
+  <div class="form-group"><label><input type="checkbox" id="ntf-ev-security"> Seguridad: fuerza bruta e IP nueva</label></div>
+
+  <button class="btn btn-primary" onclick="saveNotifyConfig()"><i class="ti ti-device-floppy"></i> Guardar notificaciones</button>
+</div>
 <div class="card mt-2">
   <div class="card-header">
     <div class="card-title"><i class="ti ti-info-circle"></i> Acerca de TecXPaneL</div>

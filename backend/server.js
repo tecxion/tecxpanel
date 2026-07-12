@@ -88,6 +88,7 @@ app.use('/api/backups', require('./routes/backups'));
 app.use('/api/cron', require('./routes/cron'));
 app.use('/api/mail', require('./routes/mail'));
 app.use('/api/dns', require('./routes/dns'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 // ── Frontend estático ─────────────────────────────────────────
 // Servimos los archivos del panel (HTML, JS, CSS).
@@ -105,6 +106,11 @@ app.get('*', (req, res) => {
 // Creamos el servidor HTTP a mano para poder añadirle los WebSockets encima.
 const server = http.createServer(app);
 setupWebSockets(server, verifyToken);
+
+// Monitor de notificaciones (disco/servicios/contenedores, cada 60 s).
+// Sin config guardada no hace nada; ver lib/monitor.js.
+const { startMonitor } = require('./lib/monitor');
+startMonitor();
 
 // Escuchamos SOLO en 127.0.0.1: el panel no se expone directo a internet,
 // nginx hace de proxy hacia aquí (más seguro).
