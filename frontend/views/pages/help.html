@@ -113,7 +113,23 @@
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li><strong>2FA (TOTP):</strong> activa un segundo factor compatible con Google Authenticator, Authy y similares escaneando un c&oacute;digo QR. Al iniciar sesi&oacute;n se te pedir&aacute; el c&oacute;digo de 6 d&iacute;gitos.</li>
       <li><strong>Recuperaci&oacute;n de contrase&ntilde;a:</strong> configura un email y una pregunta de seguridad para poder recuperar el acceso si la olvidas, sin depender de servicios externos.</li>
-      <li><strong>Notificaciones:</strong> conecta un bot de Telegram (creado con @BotFather) y/o un SMTP para recibir avisos de disco lleno, servicios ca&iacute;dos y eventos de seguridad, con mensaje de recuperaci&oacute;n. Si el VPS entero se cae, usa un monitor externo.</li>
     </ul>
+
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-bell" style="color:var(--accent)"></i> Notificaciones</h3>
+    <p>Recibe un aviso por <strong>Telegram</strong> y/o <strong>email</strong> cuando algo va mal: disco por encima del umbral, un servicio o contenedor ca&iacute;do (con aviso de recuperaci&oacute;n) y eventos de seguridad (bloqueo por fuerza bruta, inicio de sesi&oacute;n desde una IP nueva). Se configura en <strong>Ajustes &rarr; Notificaciones</strong>.</p>
+    <p><strong>No se despliega ning&uacute;n bot en el VPS:</strong> el panel solo env&iacute;a una petici&oacute;n a la API de Telegram cuando hace falta. No hay proceso que instalar ni que se pueda caer.</p>
+    <p><strong>Configurar Telegram:</strong></p>
+    <ol style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>En Telegram, abre <strong>@BotFather</strong> y env&iacute;a <code>/newbot</code>. Ponle un nombre y un usuario (que acabe en <code>bot</code>). Te dar&aacute; un <strong>token</strong> tipo <code>123456789:AAH...</code>.</li>
+      <li>Abre tu bot recién creado y pulsa <strong>/start</strong> (Telegram no deja que un bot te escriba si no le hablas primero).</li>
+      <li>En <strong>Ajustes &rarr; Notificaciones</strong>: activa Telegram, pega el token y pulsa <strong>Detectar chat</strong> (rellena tu Chat ID autom&aacute;ticamente). Elige los eventos, <strong>Guarda</strong> y pulsa <strong>Enviar prueba</strong>.</li>
+    </ol>
+    <p><strong>Configurar email (SMTP):</strong> el puerto y la casilla &laquo;Conexi&oacute;n TLS directa&raquo; deben cuadrar, o el env&iacute;o falla con un error de <em>SSL wrong version number</em>:</p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>Puerto <strong>587</strong> &rarr; casilla <strong>desmarcada</strong> (STARTTLS, lo m&aacute;s compatible).</li>
+      <li>Puerto <strong>465</strong> &rarr; casilla <strong>marcada</strong> (TLS directo).</li>
+    </ul>
+    <p><strong>Con Gmail:</strong> servidor <code>smtp.gmail.com</code>, puerto <code>587</code>, casilla desmarcada. Usuario y remitente son tu direcci&oacute;n completa de Gmail, y la contrase&ntilde;a debe ser una <strong>contrase&ntilde;a de aplicaci&oacute;n</strong> (Google &rarr; Seguridad &rarr; Verificaci&oacute;n en 2 pasos &rarr; Contrase&ntilde;as de aplicaciones), no tu contrase&ntilde;a normal. Con el propio correo del panel: host <code>127.0.0.1</code>, puerto <code>587</code>, casilla desmarcada.</p>
+    <p><strong>Aviso importante:</strong> si el VPS entero se cae, nada dentro de &eacute;l puede avisarte. Para ese caso usa un monitor externo (UptimeRobot, o un Uptime Kuma en otro servidor).</p>
   </div>
 </div>

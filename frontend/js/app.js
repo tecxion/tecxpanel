@@ -1591,6 +1591,16 @@ function collectNotifyForm() {
   };
 }
 
+// syncSmtpPort: al marcar/desmarcar "TLS directa", ajusta el puerto al estándar
+// que le corresponde (465 con TLS directo, 587 con STARTTLS). Respeta un puerto
+// personalizado: solo autoajusta si el actual es uno de los dos estándar o está vacío.
+function syncSmtpPort() {
+  const secure = document.getElementById('ntf-smtp-secure').checked;
+  const portEl = document.getElementById('ntf-smtp-port');
+  const cur = parseInt(portEl.value, 10);
+  if (!cur || cur === 587 || cur === 465) portEl.value = secure ? 465 : 587;
+}
+
 // saveNotifyConfig: guarda y limpia los campos de secretos.
 async function saveNotifyConfig() {
   const r = await req('POST', '/notifications/config', collectNotifyForm());

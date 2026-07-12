@@ -388,6 +388,41 @@ TecXPaneL puede convertir tu VPS en un **servidor DNS autoritativo** con PowerDN
 
 ---
 
+## 🔔 Notificaciones
+
+TecXPaneL te avisa por **Telegram** y/o **email** cuando algo va mal, sin que tengas que estar mirando el panel: disco por encima del umbral, un servicio o contenedor caído (con aviso de recuperación y anti-flapping) y eventos de seguridad (bloqueo por fuerza bruta, inicio de sesión desde una IP nueva). Se configura en **Ajustes → Notificaciones**.
+
+> [!NOTE]
+> **No se despliega ningún bot en el VPS.** El panel solo hace una petición saliente a la API de Telegram cuando necesita enviar. No hay proceso que instalar ni que se pueda caer, y encaja con el bajo consumo del panel.
+
+### Telegram
+
+1. En Telegram, abre **@BotFather**, envía `/newbot` y sigue los pasos (un nombre y un usuario que acabe en `bot`). Te dará un **token** tipo `123456789:AAH...`.
+2. Abre tu bot recién creado y pulsa **/start** (Telegram no permite que un bot te escriba si no le hablas primero).
+3. En **Ajustes → Notificaciones**, activa Telegram, pega el token y pulsa **Detectar chat**: el panel llama a la API de Telegram y rellena tu **Chat ID** automáticamente.
+4. Elige los eventos, pulsa **Guardar** y luego **Enviar prueba**.
+
+### Email (SMTP)
+
+El **puerto** y la casilla **«Conexión TLS directa»** deben ser coherentes (si no, el envío falla con un error de *SSL wrong version number*):
+
+| Puerto | Casilla TLS directa | Modo                                   |
+| :----- | :------------------ | :------------------------------------- |
+| `587`  | desmarcada          | STARTTLS (recomendado, más compatible) |
+| `465`  | marcada             | TLS implícito                          |
+
+**Con Gmail:** servidor `smtp.gmail.com`, puerto `587`, casilla desmarcada. El usuario y el remitente son tu dirección completa de Gmail, y la contraseña debe ser una **contraseña de aplicación**, no tu contraseña normal.
+
+> [!TIP]
+> Para generar la contraseña de aplicación de Gmail necesitas la **verificación en 2 pasos** activada; luego créala en **Cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones**. Es un código de 16 caracteres que pegas en el campo Contraseña del panel.
+
+**Con tu propio correo** (módulo Correo del panel): host `127.0.0.1`, puerto `587`, casilla desmarcada.
+
+> [!WARNING]
+> Si el VPS entero se cae, nada dentro de él puede avisarte. Para detectar una caída total usa un monitor **externo** (UptimeRobot, o un Uptime Kuma alojado en otro servidor).
+
+---
+
 ## 🛡️ Seguridad Aplicada
 
 > [!IMPORTANT]

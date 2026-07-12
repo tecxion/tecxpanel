@@ -56,7 +56,7 @@
   <div class="form-group"><label><input type="checkbox" id="ntf-smtp-enabled"> Activar avisos por email</label></div>
   <div class="form-group"><label>Servidor SMTP</label><input type="text" id="ntf-smtp-host" placeholder="smtp.ejemplo.com (o 127.0.0.1 si usas el módulo Correo)"></div>
   <div class="form-group"><label>Puerto</label><input type="number" id="ntf-smtp-port" value="587" min="1" max="65535"></div>
-  <div class="form-group"><label><input type="checkbox" id="ntf-smtp-secure"> Conexión TLS directa (puerto 465)</label></div>
+  <div class="form-group"><label><input type="checkbox" id="ntf-smtp-secure" onchange="syncSmtpPort()"> Conexión TLS directa (puerto 465)</label></div>
   <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="ntf-smtp-user" autocomplete="off"></div>
   <div class="form-group"><label>Contraseña (en Gmail: contraseña de aplicación)</label><input type="password" id="ntf-smtp-pass" autocomplete="new-password"></div>
   <div class="form-group"><label>Remitente</label><input type="email" id="ntf-smtp-from" placeholder="panel@midominio.com"></div>

@@ -95,13 +95,25 @@ else
 fi
 
 # ── 6. Verificar Nginx ────────────────────────────────────────
+# IMPORTANTE: NO sobrescribir la config de nginx en cada actualización. El
+# operador (o Certbot) suele personalizarla — SSL (listen 443), el enrutado del
+# WebSocket sobre HTTPS, dominios propios… Machacarla aquí rompe el SSL y el
+# WebSocket del panel (CPU/RAM/red dejan de verse). Solo la instalamos si NO
+# existe todavía; si ya está, se conserva tal cual.
+LIVE_NGINX=/etc/nginx/sites-available/txpl-panel
 if [[ -f "$SCRIPT_DIR/txpl-nginx.conf" ]]; then
-    cp "$SCRIPT_DIR/txpl-nginx.conf" /etc/nginx/sites-available/txpl-panel
-    if nginx -t 2>/dev/null; then
-        systemctl reload nginx
-        log "✅ Nginx actualizado y recargado"
+    if [[ ! -f "$LIVE_NGINX" ]]; then
+        cp "$SCRIPT_DIR/txpl-nginx.conf" "$LIVE_NGINX"
+        ln -sf "$LIVE_NGINX" /etc/nginx/sites-enabled/txpl-panel
+        if nginx -t 2>/dev/null; then
+            systemctl reload nginx
+            log "✅ Nginx instalado y recargado"
+        else
+            warn "Config Nginx inválida; revisa con: nginx -t"
+        fi
     else
-        warn "Config Nginx inválida, manteniendo la anterior"
+        log "ℹ️  Nginx: se conserva tu configuración actual (no se toca al actualizar)."
+        warn "Si una versión nueva añade rutas de nginx, aplícalas a mano (ver txpl-nginx.conf)."
     fi
 fi
 
