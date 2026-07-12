@@ -27,4 +27,11 @@ Thumbs.db
 # Web corporativa (no se sube a GitHub)
 web/
 
+# graphify — grafo de conocimiento local
+graphify-out/
+
+# Ajustes locales de Claude Code (contienen rutas absolutas de la máquina)
+.claude/settings.json
+.claude/settings.local.json
+
 
