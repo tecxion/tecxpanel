@@ -89,6 +89,7 @@ app.use('/api/cron', require('./routes/cron'));
 app.use('/api/mail', require('./routes/mail'));
 app.use('/api/dns', require('./routes/dns'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/catalog', require('./routes/catalog'));
 
 // ── Frontend estático ─────────────────────────────────────────
 // Servimos los archivos del panel (HTML, JS, CSS).
