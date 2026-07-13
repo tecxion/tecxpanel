@@ -170,3 +170,4 @@ router.get('/:id/password', (req, res) => {
 });
 
 module.exports = router;
+module.exports.mysqlExec = mysqlExec;

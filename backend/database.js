@@ -202,6 +202,17 @@ db.exec(`
     notified       INTEGER NOT NULL DEFAULT 1,
     updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS catalog_installs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_id TEXT NOT NULL UNIQUE,
+    mode TEXT NOT NULL,
+    domain TEXT,
+    port INTEGER,
+    ref TEXT,
+    db_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -430,6 +441,12 @@ const queries = {
       dom=@dom, month=@month, dow=@dow, enabled=@enabled WHERE id=@id`),
   setCronJobEnabled: db.prepare('UPDATE cron_jobs SET enabled=@enabled WHERE id=@id'),
   deleteCronJob: db.prepare('DELETE FROM cron_jobs WHERE id = ?'),
+
+  // ── Catálogo de aplicaciones ──
+  getCatalogInstall:    db.prepare('SELECT * FROM catalog_installs WHERE app_id = ?'),
+  listCatalogInstalls:  db.prepare('SELECT * FROM catalog_installs ORDER BY created_at DESC'),
+  insertCatalogInstall: db.prepare('INSERT INTO catalog_installs (app_id, mode, domain, port, ref, db_name) VALUES (@app_id, @mode, @domain, @port, @ref, @db_name)'),
+  deleteCatalogInstall: db.prepare('DELETE FROM catalog_installs WHERE app_id = ?'),
 };
 
 function audit(user, ip, action, detail) {
