@@ -2,11 +2,6 @@
   <div class="card-header">
     <div class="card-title"><i class="ti ti-certificate"></i> Certificados SSL — Let's Encrypt</div>
   </div>
-  <p style="color:var(--text-muted);font-size:13px;margin-bottom:1.5rem">Instala certificados SSL gratuitos para tus dominios. El dominio debe apuntar a este servidor.</p>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Dominio</th><th>SSL activo</th><th>Acciones</th></tr></thead>
-      <tbody id="ssl-table"></tbody>
-    </table>
-  </div>
+  <p style="color:var(--text-muted);font-size:13px;margin-bottom:1.5rem">Certificados emitidos en este servidor (según <code>certbot</code>): dominios, caducidad y estado. Renueva, elimina o emite uno nuevo.</p>
+  <div id="ssl-body"></div>
 </div>
