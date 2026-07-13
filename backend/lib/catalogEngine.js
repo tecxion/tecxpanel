@@ -327,8 +327,82 @@ async function installNativePhp(entry, opts, write) {
   }
 }
 
-// ── Stub temporal (Task 6 lo sustituye por la implementación real) ──
-async function installPm2(entry, opts, write) { write('✖ Modo PM2 aún no disponible.\n'); return 1; }
+// ── Instalación modo PM2 (Ghost, Uptime Kuma) ────────────────
+async function installPm2(entry, opts, write) {
+  const { domain, ssl } = opts;
+  const appDir = path.join(APPS_DIR, entry.id);
+  const name = pm2Name(entry.id);
+  let dbCreds = null;
+  try {
+    const node = await runSafe('node', ['--version']);
+    if (!node.ok) { const e = new Error('Node.js no está disponible.'); e.http = 409; throw e; }
+    if (fs.existsSync(appDir) && fs.readdirSync(appDir).length > 0) {
+      const e = new Error(`La carpeta ${appDir} ya existe y no está vacía.`);
+      e.http = 409;
+      throw e;
+    }
+    fs.mkdirSync(appDir, { recursive: true });
+    const hostPort = await findFreePort();
+
+    if (entry.id === 'ghost') {
+      dbCreds = await ensureDatabase(entry.id, write);
+      write('⏳ Instalando Ghost con ghost-cli (varios minutos)...\n');
+      // Solo los ficheros: nada de systemd/nginx/mysql del CLI; el panel gestiona todo.
+      await run('npx', ['ghost-cli@latest', 'install',
+        '--dir', appDir, '--db', 'mysql',
+        '--no-setup-nginx', '--no-setup-ssl', '--no-setup-systemd', '--no-setup-mysql',
+        '--no-start', '--no-enable', '--no-prompt',
+        '--dbhost', 'localhost', '--dbuser', dbCreds.user, '--dbpass', dbCreds.password, '--dbname', dbCreds.name,
+        '--url', domain ? `https://${domain}` : `http://localhost:${hostPort}`,
+      ], { ...LONG, cwd: appDir });
+      // Config de producción propia (puerto elegido, MySQL del host).
+      const conf = buildGhostConfig({
+        url: domain ? `https://${domain}` : `http://localhost:${hostPort}`,
+        port: hostPort, dbName: dbCreds.name, dbUser: dbCreds.user, dbPass: dbCreds.password,
+        contentPath: path.join(appDir, 'content'),
+      });
+      fs.writeFileSync(path.join(appDir, 'config.production.json'), JSON.stringify(conf, null, 2));
+      write('⏳ Arrancando Ghost con PM2...\n');
+      const r = await runSafe('pm2', ['start', path.join(appDir, 'current', 'index.js'), '--name', name],
+        { cwd: appDir, env: { ...process.env, NODE_ENV: 'production', GHOST_CONFIG: path.join(appDir, 'config.production.json') } });
+      if (!r.ok) throw new Error(`PM2 no pudo arrancar Ghost: ${r.stderr}`);
+    } else if (entry.id === 'uptime-kuma') {
+      write('⏳ Clonando Uptime Kuma (rama estable 1.x)...\n');
+      await run('git', ['clone', '--depth', '1', '-b', '1.23.16', 'https://github.com/louislam/uptime-kuma.git', appDir], LONG);
+      write('⏳ Instalando dependencias y compilando (varios minutos)...\n');
+      await run('npm', ['run', 'setup'], { ...LONG, cwd: appDir });
+      write('⏳ Arrancando Uptime Kuma con PM2...\n');
+      const r = await runSafe('pm2', ['start', path.join(appDir, 'server', 'server.js'), '--name', name],
+        { cwd: appDir, env: { ...process.env, UPTIME_KUMA_PORT: String(hostPort), UPTIME_KUMA_HOST: '127.0.0.1' } });
+      if (!r.ok) throw new Error(`PM2 no pudo arrancar Uptime Kuma: ${r.stderr}`);
+    } else {
+      const e = new Error(`${entry.name} no soporta el modo PM2.`);
+      e.http = 400;
+      throw e;
+    }
+    await runSafe('pm2', ['save']);
+    write(`✓ ${entry.name} corriendo bajo PM2 como ${name} en 127.0.0.1:${hostPort}.\n`);
+
+    if (domain) await setupProxy(entry.id, domain, hostPort, ssl, write);
+
+    queries.insertCatalogInstall.run({
+      app_id: entry.id, mode: 'pm2', domain: domain || null, port: hostPort, ref: name,
+      db_name: dbCreds ? dbCreds.name : null,
+    });
+    writeSummary(entry, { domain, hostPort, dbCreds }, write);
+    return 0;
+  } catch (e) {
+    write(`\n✖ ${e.message}\n`);
+    write('⏳ Deshaciendo cambios parciales...\n');
+    await runSafe('pm2', ['delete', name]);
+    await runSafe('pm2', ['save']);
+    try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {}
+    try { await nginx.removeSite(nginxConfName(entry.id)); } catch (_) {}
+    if (dbCreds) await dropDatabase(dbCreds.name);
+    write('✓ Limpieza hecha.\n');
+    return 1;
+  }
+}
 
 // ── Punto de entrada ─────────────────────────────────────────
 async function installApp(appId, opts, write) {
