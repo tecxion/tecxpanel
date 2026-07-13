@@ -175,3 +175,46 @@ test('buildEmailMessage: subject = línea de Telegram, body multilínea con firm
   assert.ok(text.includes('Uso: 93% (umbral 90%)'));
   assert.ok(text.includes('— TecXPaneL'));
 });
+
+// ── Caducidad de certificados SSL ────────────────────────────────
+
+const { applySslThreshold, buildSslExpiryEvent, SSL_THRESHOLDS } = require('../lib/notifications');
+
+test('SSL_THRESHOLDS: 15/7/1', () => {
+  assert.deepStrictEqual(SSL_THRESHOLDS, [15, 7, 1]);
+});
+
+test('applySslThreshold: cruza umbrales una sola vez', () => {
+  // Sin aviso previo, 60 días: nada.
+  assert.deepStrictEqual(applySslThreshold(null, 60), { next: null, event: null });
+  // Cae a 14: avisa umbral 15.
+  assert.deepStrictEqual(applySslThreshold(null, 14), { next: 15, event: { type: 'threshold', threshold: 15 } });
+  // Sigue en 12 con 15 ya avisado: silencio.
+  assert.deepStrictEqual(applySslThreshold(15, 12), { next: 15, event: null });
+  // Cae a 6: avisa umbral 7.
+  assert.deepStrictEqual(applySslThreshold(15, 6), { next: 7, event: { type: 'threshold', threshold: 7 } });
+  // Cae a 1: avisa umbral 1. daysLeft 0 (caducado) también es umbral 1.
+  assert.deepStrictEqual(applySslThreshold(7, 1), { next: 1, event: { type: 'threshold', threshold: 1 } });
+  assert.deepStrictEqual(applySslThreshold(null, 0), { next: 1, event: { type: 'threshold', threshold: 1 } });
+  assert.deepStrictEqual(applySslThreshold(1, 0), { next: 1, event: null });
+});
+
+test('applySslThreshold: recuperación y casos borde', () => {
+  // Renovado (>15) tras aviso: evento recovered y reset.
+  assert.deepStrictEqual(applySslThreshold(7, 88), { next: null, event: { type: 'recovered' } });
+  // Renovado sin aviso previo: silencio.
+  assert.deepStrictEqual(applySslThreshold(null, 88), { next: null, event: null });
+  // daysLeft null (parseo desconocido): no-op conservador.
+  assert.deepStrictEqual(applySslThreshold(15, null), { next: 15, event: null });
+  assert.deepStrictEqual(applySslThreshold(null, null), { next: null, event: null });
+});
+
+test('buildSslExpiryEvent: aviso y recuperación', () => {
+  const ev = buildSslExpiryEvent({ name: 'vps.tecxart.es', domains: ['vps.tecxart.es'], daysLeft: 6, hostname: 'vps', recovered: false });
+  assert.strictEqual(ev.kind, 'down');
+  assert.ok(ev.title.includes('vps.tecxart.es') && ev.title.includes('6'));
+  assert.ok(ev.detail.includes('vps.tecxart.es'));
+  const rec = buildSslExpiryEvent({ name: 'vps.tecxart.es', domains: ['vps.tecxart.es'], daysLeft: 89, hostname: 'vps', recovered: true });
+  assert.strictEqual(rec.kind, 'recovered');
+  assert.ok(rec.title.includes('renovado'));
+});

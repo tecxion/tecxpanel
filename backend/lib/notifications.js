@@ -149,6 +149,52 @@ function buildEmailMessage(ev) {
   return { subject, text: lines.join('\n') };
 }
 
+// ── Caducidad de certificados SSL ─────────────────────────────────
+// Umbrales de aviso en días. Certbot renueva solo a ~30 días: llegar
+// a 15 ya significa que la renovación automática está fallando.
+const SSL_THRESHOLDS = [15, 7, 1];
+
+// applySslThreshold(prevThreshold, daysLeft) → { next, event }
+//  - prevThreshold: último umbral notificado (15/7/1) o null.
+//  - daysLeft: días hasta caducar (0 = caducado; null = desconocido).
+// Un aviso por umbral: solo emite al cruzar un umbral MÁS bajo que el
+// ya notificado. Si vuelve a >15 días (renovado) emite recuperación.
+function applySslThreshold(prevThreshold, daysLeft) {
+  if (daysLeft === null || daysLeft === undefined) {
+    return { next: prevThreshold ?? null, event: null };
+  }
+  if (daysLeft > SSL_THRESHOLDS[0]) {
+    return prevThreshold !== null && prevThreshold !== undefined
+      ? { next: null, event: { type: 'recovered' } }
+      : { next: null, event: null };
+  }
+  // Umbral aplicable: el más bajo que cubre daysLeft (0-1→1, 2-7→7, 8-15→15).
+  const t = [...SSL_THRESHOLDS].reverse().find((x) => daysLeft <= x);
+  if (prevThreshold === null || prevThreshold === undefined || t < prevThreshold) {
+    return { next: t, event: { type: 'threshold', threshold: t } };
+  }
+  return { next: prevThreshold, event: null };
+}
+
+// Evento de caducidad/renovación con el mismo shape que buildStatusEvent.
+function buildSslExpiryEvent({ name, domains, daysLeft, hostname, recovered }) {
+  if (recovered) {
+    return {
+      kind: 'recovered', hostname,
+      title: `Certificado ${name} renovado`,
+      detail: `Dominios: ${(domains || []).join(', ')}`,
+      since: null,
+    };
+  }
+  const dias = daysLeft === 1 ? '1 día' : `${daysLeft} días`;
+  return {
+    kind: 'down', hostname,
+    title: daysLeft <= 0 ? `Certificado ${name} CADUCADO` : `Certificado ${name} caduca en ${dias}`,
+    detail: `Dominios: ${(domains || []).join(', ')}. Renueva desde la sección SSL del panel.`,
+    since: null,
+  };
+}
+
 module.exports = {
   CONFIRM_TICKS,
   isValidTelegramToken,
@@ -161,4 +207,7 @@ module.exports = {
   buildTestEvent,
   buildTelegramMessage,
   buildEmailMessage,
+  SSL_THRESHOLDS,
+  applySslThreshold,
+  buildSslExpiryEvent,
 };
