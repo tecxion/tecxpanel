@@ -26,6 +26,7 @@ Thumbs.db
 
 # Web corporativa (no se sube a GitHub)
 web/
+web/*
 
 # graphify — grafo de conocimiento local
 graphify-out/
