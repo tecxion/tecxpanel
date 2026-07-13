@@ -190,6 +190,7 @@ db.exec(`
     ev_disk_threshold   INTEGER NOT NULL DEFAULT 90,
     ev_services_enabled INTEGER NOT NULL DEFAULT 1,
     ev_security_enabled INTEGER NOT NULL DEFAULT 1,
+    ev_ssl_enabled      INTEGER NOT NULL DEFAULT 1,
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -226,6 +227,7 @@ try { db.exec("ALTER TABLE apps ADD COLUMN webhook_secret TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN security_question TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN security_answer_hash TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE notify_config ADD COLUMN ev_ssl_enabled INTEGER NOT NULL DEFAULT 1"); } catch (_) {}
 
 // ── Seed del usuario admin desde el .env ──────────────────────
 // La contraseña NUNCA se guarda en claro: se almacena el hash bcrypt.
@@ -346,10 +348,10 @@ const queries = {
   upsertNotifyConfig: db.prepare(`
     INSERT INTO notify_config (id, telegram_enabled, telegram_token_enc, telegram_chat_id,
       smtp_enabled, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass_enc, smtp_from, smtp_to,
-      ev_disk_enabled, ev_disk_threshold, ev_services_enabled, ev_security_enabled, updated_at)
+      ev_disk_enabled, ev_disk_threshold, ev_services_enabled, ev_security_enabled, ev_ssl_enabled, updated_at)
     VALUES (1, @telegram_enabled, @telegram_token_enc, @telegram_chat_id,
       @smtp_enabled, @smtp_host, @smtp_port, @smtp_secure, @smtp_user, @smtp_pass_enc, @smtp_from, @smtp_to,
-      @ev_disk_enabled, @ev_disk_threshold, @ev_services_enabled, @ev_security_enabled, datetime('now'))
+      @ev_disk_enabled, @ev_disk_threshold, @ev_services_enabled, @ev_security_enabled, @ev_ssl_enabled, datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       telegram_enabled = excluded.telegram_enabled,
       telegram_token_enc = excluded.telegram_token_enc,
@@ -366,6 +368,7 @@ const queries = {
       ev_disk_threshold = excluded.ev_disk_threshold,
       ev_services_enabled = excluded.ev_services_enabled,
       ev_security_enabled = excluded.ev_security_enabled,
+      ev_ssl_enabled = excluded.ev_ssl_enabled,
       updated_at = excluded.updated_at
   `),
   getNotifyState: db.prepare('SELECT * FROM notify_state WHERE key = ?'),

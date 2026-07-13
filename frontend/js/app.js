@@ -1657,6 +1657,7 @@ async function loadNotifyConfig() {
   document.getElementById('ntf-ev-disk-th').value = r.ev_disk_threshold || 90;
   document.getElementById('ntf-ev-services').checked = !!r.ev_services_enabled;
   document.getElementById('ntf-ev-security').checked = !!r.ev_security_enabled;
+  document.getElementById('ntf-ev-ssl').checked = !!r.ev_ssl_enabled;
 }
 
 // collectNotifyForm: lee la tarjeta entera (token/contraseña vacíos = conservar).
@@ -1677,6 +1678,7 @@ function collectNotifyForm() {
     ev_disk_threshold: parseInt(document.getElementById('ntf-ev-disk-th').value, 10) || 90,
     ev_services_enabled: document.getElementById('ntf-ev-services').checked,
     ev_security_enabled: document.getElementById('ntf-ev-security').checked,
+    ev_ssl_enabled: document.getElementById('ntf-ev-ssl').checked,
   };
 }
 

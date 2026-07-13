@@ -85,6 +85,7 @@ router.post('/config', wrap(async (req, res) => {
     ev_disk_threshold: Number.isInteger(th) && th >= 50 && th <= 99 ? th : 90,
     ev_services_enabled: b.ev_services_enabled ? 1 : 0,
     ev_security_enabled: b.ev_security_enabled ? 1 : 0,
+    ev_ssl_enabled: b.ev_ssl_enabled ? 1 : 0,
   });
   audit(req.user.username, clientIp(req), 'notify.config', null); // sin secretos en el detalle
   ok(res, { success: true, saved: true });
