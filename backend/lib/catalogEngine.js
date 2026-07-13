@@ -429,8 +429,101 @@ async function installApp(appId, opts, write) {
   throw e;
 }
 
+// ── Estado de una instalación ────────────────────────────────
+async function getInstallStatus(appId) {
+  const row = queries.getCatalogInstall.get(appId);
+  if (!row) return { installed: false, mode: null, domain: null, port: null, running: false };
+  let running = false;
+  if (row.mode === 'docker') {
+    try {
+      const r = await dockerRequest('GET', '/containers/json?all=1');
+      if (r.statusCode < 400) {
+        const list = JSON.parse(r.body.toString());
+        const c = list.find((x) => (x.Names || []).some((n) => n === `/${row.ref}`));
+        running = !!c && c.State === 'running';
+      }
+    } catch (_) {}
+  } else if (row.mode === 'pm2') {
+    const r = await runSafe('pm2', ['jlist']);
+    if (r.ok) {
+      try {
+        const list = JSON.parse(r.stdout);
+        const p = list.find((x) => x.name === row.ref);
+        running = !!p && p.pm2_env && p.pm2_env.status === 'online';
+      } catch (_) {}
+    }
+  } else {
+    // native: "corre" si el vhost está activo (lo sirve Nginx + PHP-FPM).
+    running = fs.existsSync(`/etc/nginx/sites-enabled/${nginxConfName(appId)}`);
+  }
+  return { installed: true, mode: row.mode, domain: row.domain, port: row.port, running };
+}
+
+// ── start / stop / restart ───────────────────────────────────
+async function controlApp(appId, action) {
+  const row = queries.getCatalogInstall.get(appId);
+  if (!row) { const e = new Error('La app no está instalada.'); e.http = 404; throw e; }
+  if (row.mode === 'docker') {
+    const r = await dockerRequest('POST', `/containers/${row.ref}/${action}`);
+    if (r.statusCode >= 400) { const e = new Error(`Error al ${action}: ${r.body.toString()}`); e.http = 502; throw e; }
+  } else if (row.mode === 'pm2') {
+    const r = await runSafe('pm2', [action === 'start' ? 'start' : action, row.ref]);
+    if (!r.ok) { const e = new Error(`PM2 falló al ${action}: ${r.stderr}`); e.http = 502; throw e; }
+  } else {
+    const e = new Error('El modo nativo se gestiona con Nginx/PHP-FPM (sección Sitios web).');
+    e.http = 400;
+    throw e;
+  }
+}
+
+// ── Desinstalación ───────────────────────────────────────────
+// purgeData/purgeDb SIEMPRE opt-in: por defecto los datos y la DB se conservan.
+async function uninstallApp(appId, { purgeData = false, purgeDb = false } = {}, write) {
+  const entry = getEntry(appId);
+  const row = queries.getCatalogInstall.get(appId);
+  if (!entry || !row) { const e = new Error('La app no está instalada.'); e.http = 404; throw e; }
+  write(`▶ Desinstalando ${entry.name}...\n`);
+  try {
+    if (row.mode === 'docker') {
+      write('⏳ Parando y borrando el contenedor...\n');
+      await dockerRequest('DELETE', `/containers/${row.ref}?force=1&v=0`).catch(() => {});
+      if (purgeData) {
+        write(`⏳ Borrando volumen ${volumeName(appId)}...\n`);
+        await dockerRequest('DELETE', `/volumes/${volumeName(appId)}`).catch(() => {});
+      }
+    } else if (row.mode === 'pm2') {
+      write('⏳ Parando el proceso PM2...\n');
+      await runSafe('pm2', ['delete', row.ref]);
+      await runSafe('pm2', ['save']);
+      if (purgeData) {
+        write(`⏳ Borrando ${path.join(APPS_DIR, appId)}...\n`);
+        try { fs.rmSync(path.join(APPS_DIR, appId), { recursive: true, force: true }); } catch (_) {}
+      }
+    } else { // native
+      if (purgeData && row.ref && row.ref.startsWith('/var/www/')) {
+        write(`⏳ Borrando ${row.ref}...\n`);
+        try { fs.rmSync(row.ref, { recursive: true, force: true }); } catch (_) {}
+      }
+    }
+    try { await nginx.removeSite(nginxConfName(appId)); write('✓ Vhost Nginx retirado.\n'); } catch (_) {}
+    if (purgeDb && row.db_name) {
+      write(`⏳ Borrando base de datos ${row.db_name}...\n`);
+      await dropDatabase(row.db_name);
+    } else if (row.db_name) {
+      write(`ℹ La base de datos ${row.db_name} se conserva (bórrala desde Bases de datos si quieres).\n`);
+    }
+    queries.deleteCatalogInstall.run(appId);
+    write(`\n✅ ${entry.name} desinstalado.\n`);
+    return 0;
+  } catch (e) {
+    write(`\n✖ ${e.message}\n`);
+    return 1;
+  }
+}
+
 module.exports = {
   installApp,
+  uninstallApp, getInstallStatus, controlApp,
   // internos reutilizados por el resto del motor y las rutas:
   dockerRequest, pullImageWithProgress, findFreePort,
   ensureDatabase, dropDatabase, detectDbHostForDocker, setupProxy, writeSummary,
