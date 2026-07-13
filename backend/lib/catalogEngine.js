@@ -248,8 +248,86 @@ function writeSummary(entry, { domain, hostPort, dbCreds }, write) {
   write('   Completa el asistente inicial de la app desde su URL.\n');
 }
 
-// ── Stubs temporales (Tasks 5-6 los sustituyen por la implementación real) ──
-async function installNativePhp(entry, opts, write) { write('✖ Modo nativo aún no disponible.\n'); return 1; }
+// ── Instalación modo nativo PHP (WordPress) ──────────────────
+// Descarga WordPress de wordpress.org, lo extrae en /var/www/<dominio>,
+// genera wp-config.php y crea el vhost PHP-FPM con el builder del panel.
+async function installNativePhp(entry, opts, write) {
+  const { domain, ssl } = opts;                       // domain validado como obligatorio
+  const siteDir = path.join('/var/www', domain);
+  const publicDir = path.join(siteDir, 'public');
+  let dbCreds = null;
+  try {
+    if (fs.existsSync(publicDir) && fs.readdirSync(publicDir).length > 0) {
+      const err = new Error(`La carpeta ${publicDir} ya existe y no está vacía.`);
+      err.http = 409;
+      throw err;
+    }
+    // PHP-FPM presente?
+    const php = await runSafe('php', ['-v']);
+    if (!php.ok) {
+      const err = new Error('PHP no está instalado. Instálalo primero (sección Plugins o crea un sitio PHP).');
+      err.http = 409;
+      throw err;
+    }
+    dbCreds = await ensureDatabase(entry.id, write);
+
+    write('⏳ Descargando WordPress (latest.tar.gz de wordpress.org)...\n');
+    const tarball = '/tmp/txpl-wordpress.tar.gz';
+    await run('curl', ['-fsSL', '-o', tarball, 'https://wordpress.org/latest.tar.gz'], LONG);
+    fs.mkdirSync(siteDir, { recursive: true });
+    await run('tar', ['-xzf', tarball, '-C', siteDir], LONG);
+    // El tar extrae a <siteDir>/wordpress; lo renombramos a public/.
+    fs.renameSync(path.join(siteDir, 'wordpress'), publicDir);
+    fs.unlinkSync(tarball);
+    write('✓ WordPress extraído en ' + publicDir + '.\n');
+
+    // Salts: API oficial con fallback local (genPassword).
+    write('⏳ Generando wp-config.php...\n');
+    let salts;
+    try {
+      salts = await run('curl', ['-fsSL', 'https://api.wordpress.org/secret-key/1.1/salt/']);
+    } catch (_) {
+      const keys = ['AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY', 'AUTH_SALT', 'SECURE_AUTH_SALT', 'LOGGED_IN_SALT', 'NONCE_SALT'];
+      salts = keys.map((k) => `define( '${k}', '${genPassword(64)}' );`).join('\n');
+    }
+    fs.writeFileSync(path.join(publicDir, 'wp-config.php'), buildWpConfig({
+      dbName: dbCreds.name, dbUser: dbCreds.user, dbPass: dbCreds.password, salts,
+    }));
+    await runSafe('chown', ['-R', 'www-data:www-data', siteDir]);
+    write('✓ wp-config.php listo y permisos aplicados.\n');
+
+    // Vhost PHP con el builder estándar de sitios (dominio => listen 80).
+    write(`⏳ Creando vhost Nginx PHP para ${domain}...\n`);
+    await nginx.enableSite(nginxConfName(entry.id), nginx.buildSite(domain, 'php', null, {}));
+    write('✓ Vhost activo.\n');
+    if (ssl) {
+      write(`⏳ Emitiendo SSL para ${domain}...\n`);
+      try {
+        await nginx.installSsl(domain, { www: true });
+        write('✓ SSL emitido.\n');
+      } catch (e) {
+        write(`⚠ WordPress funciona, pero falló el SSL: ${e.message}\n`);
+      }
+    }
+
+    queries.insertCatalogInstall.run({
+      app_id: entry.id, mode: 'native', domain, port: null, ref: siteDir, db_name: dbCreds.name,
+    });
+    writeSummary(entry, { domain, hostPort: null, dbCreds }, write);
+    write(`   Termina la instalación en http${ssl ? 's' : ''}://${domain}/wp-admin/install.php\n`);
+    return 0;
+  } catch (e) {
+    write(`\n✖ ${e.message}\n`);
+    write('⏳ Deshaciendo cambios parciales...\n');
+    try { fs.rmSync(siteDir, { recursive: true, force: true }); } catch (_) {}
+    try { await nginx.removeSite(nginxConfName(entry.id)); } catch (_) {}
+    if (dbCreds) await dropDatabase(dbCreds.name);
+    write('✓ Limpieza hecha.\n');
+    return 1;
+  }
+}
+
+// ── Stub temporal (Task 6 lo sustituye por la implementación real) ──
 async function installPm2(entry, opts, write) { write('✖ Modo PM2 aún no disponible.\n'); return 1; }
 
 // ── Punto de entrada ─────────────────────────────────────────
