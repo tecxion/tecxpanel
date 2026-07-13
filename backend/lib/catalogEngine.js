@@ -256,6 +256,10 @@ async function installNativePhp(entry, opts, write) {
   const siteDir = path.join('/var/www', domain);
   const publicDir = path.join(siteDir, 'public');
   let dbCreds = null;
+  // Si siteDir ya existía ANTES de esta instalación, el rollback no debe
+  // borrarlo: podría no ser esta instalación quien lo creó (no borrar
+  // datos preexistentes que no creó esta instalación).
+  const dirPreExisted = fs.existsSync(siteDir);
   try {
     if (fs.existsSync(publicDir) && fs.readdirSync(publicDir).length > 0) {
       const err = new Error(`La carpeta ${publicDir} ya existe y no está vacía.`);
@@ -319,7 +323,7 @@ async function installNativePhp(entry, opts, write) {
   } catch (e) {
     write(`\n✖ ${e.message}\n`);
     write('⏳ Deshaciendo cambios parciales...\n');
-    try { fs.rmSync(siteDir, { recursive: true, force: true }); } catch (_) {}
+    if (!dirPreExisted) { try { fs.rmSync(siteDir, { recursive: true, force: true }); } catch (_) {} }
     try { await nginx.removeSite(nginxConfName(entry.id)); } catch (_) {}
     if (dbCreds) await dropDatabase(dbCreds.name);
     write('✓ Limpieza hecha.\n');
@@ -333,6 +337,10 @@ async function installPm2(entry, opts, write) {
   const appDir = path.join(APPS_DIR, entry.id);
   const name = pm2Name(entry.id);
   let dbCreds = null;
+  // Si appDir ya existía ANTES de esta instalación, el rollback no debe
+  // borrarlo: podría no ser esta instalación quien lo creó (no borrar
+  // datos preexistentes que no creó esta instalación).
+  const dirPreExisted = fs.existsSync(appDir);
   try {
     const node = await runSafe('node', ['--version']);
     if (!node.ok) { const e = new Error('Node.js no está disponible.'); e.http = 409; throw e; }
@@ -396,7 +404,7 @@ async function installPm2(entry, opts, write) {
     write('⏳ Deshaciendo cambios parciales...\n');
     await runSafe('pm2', ['delete', name]);
     await runSafe('pm2', ['save']);
-    try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {}
+    if (!dirPreExisted) { try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {} }
     try { await nginx.removeSite(nginxConfName(entry.id)); } catch (_) {}
     if (dbCreds) await dropDatabase(dbCreds.name);
     write('✓ Limpieza hecha.\n');
