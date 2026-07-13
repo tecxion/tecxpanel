@@ -45,6 +45,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 - 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
 - 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python, React y TypeScript a través de PM2. Soporta carga en `.zip`/`.tar.gz` o **clonado desde Git con auto-deploy por webhook**, y gestión de archivos `.env`. En **Python** aísla cada app en su propio **virtualenv (`.venv`)** y distingue **servicio web** (con puerto y proxy) de **worker/bot** (sin puerto, p. ej. un bot de Telegram), con comando de arranque editable.
+- 🎁 **Catálogo de aplicaciones**: Instala WordPress, Ghost, Nextcloud, Vaultwarden y Uptime Kuma con un clic, en Docker, nativo (PHP-FPM) o PM2 según prefieras, con dominio + SSL opcionales y base de datos gestionada.
 - 🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
 - 🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
 - 🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
