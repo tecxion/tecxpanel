@@ -253,7 +253,9 @@ function writeSummary(entry, { domain, hostPort, dbCreds }, write) {
 // genera wp-config.php y crea el vhost PHP-FPM con el builder del panel.
 async function installNativePhp(entry, opts, write) {
   const { domain, ssl } = opts;                       // domain validado como obligatorio
-  const siteDir = path.join('/var/www', domain);
+  // Usar el SITES_DIR de nginx (configurable por env) para que la raíz del vhost
+  // y la ruta de instalación NO diverjan si SITES_DIR está personalizado.
+  const siteDir = path.join(nginx.SITES_DIR, domain);
   const publicDir = path.join(siteDir, 'public');
   let dbCreds = null;
   // Si siteDir ya existía ANTES de esta instalación, el rollback no debe
@@ -467,7 +469,7 @@ async function controlApp(appId, action) {
     const r = await dockerRequest('POST', `/containers/${row.ref}/${action}`);
     if (r.statusCode >= 400) { const e = new Error(`Error al ${action}: ${r.body.toString()}`); e.http = 502; throw e; }
   } else if (row.mode === 'pm2') {
-    const r = await runSafe('pm2', [action === 'start' ? 'start' : action, row.ref]);
+    const r = await runSafe('pm2', [action, row.ref]);
     if (!r.ok) { const e = new Error(`PM2 falló al ${action}: ${r.stderr}`); e.http = 502; throw e; }
   } else {
     const e = new Error('El modo nativo se gestiona con Nginx/PHP-FPM (sección Sitios web).');

@@ -61,7 +61,7 @@ const CATALOG = [
     description: 'Monitorización de servicios con avisos: web, TCP, ping, certificados.',
     icon: 'ti-activity-heartbeat',
     modes: ['docker', 'pm2'],
-    docker: { image: 'louislam/uptime-kuma', tag: '1', port: 3001, dataPath: '/app/data' },
+    docker: { image: 'louislam/uptime-kuma', tag: '1.23.16', port: 3001, dataPath: '/app/data' },
     native: { type: 'node' },
     db: null,
   },
