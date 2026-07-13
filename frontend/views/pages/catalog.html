@@ -1,0 +1,25 @@
+<div class="page-header">
+  <h1><i class="ti ti-apps"></i> Catálogo de aplicaciones</h1>
+  <p class="page-desc">Instala aplicaciones populares con un clic, en Docker, nativo o PM2.</p>
+</div>
+
+<!-- Estado dinámico: lo rellena loadCatalog() según GET /api/catalog -->
+<div id="catalog-body"><div class="card"><p>Cargando catálogo...</p></div></div>
+
+<!-- Consola de streaming reutilizable para instalar/desinstalar -->
+<div id="catalog-console" style="display:none;margin-top:1.25rem">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <span id="catalog-console-title" style="font-weight:600;font-size:13px">Instalando</span>
+    <span id="catalog-console-spinner" style="color:var(--accent);font-size:12px;margin-left:auto"><i class="ti ti-loader-2"></i> en ejecución...</span>
+    <button class="btn btn-sm" onclick="document.getElementById('catalog-console').style.display='none'" title="Cerrar consola"><i class="ti ti-x"></i></button>
+  </div>
+  <div id="catalog-progress" style="display:none;margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:4px">
+      <span>Descargando imagen…</span><span id="catalog-progress-label">0%</span>
+    </div>
+    <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden">
+      <div id="catalog-progress-bar" style="width:0%;height:100%;background:var(--accent);transition:width .2s"></div>
+    </div>
+  </div>
+  <pre id="catalog-console-output" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+</div>
