@@ -64,3 +64,64 @@ test('validateInstallOptions: casos inválidos', () => {
   assert.strictEqual(validateInstallOptions(wp, { mode: 'docker', domain: null, ssl: true }).ok, false); // ssl sin dominio
   assert.strictEqual(validateInstallOptions(getEntry('nextcloud'), { mode: 'native' }).ok, false);
 });
+
+const {
+  buildAppContainerConfig, buildDbEnv, buildWpConfig, buildGhostConfig,
+} = require('../lib/catalog');
+
+const CREDS = { name: 'wpdb', user: 'txpl_wpdb', password: 'S3cr3ta' };
+
+test('buildDbEnv: wordpress y ghost; apps sin DB devuelven []', () => {
+  assert.deepStrictEqual(buildDbEnv('wordpress', CREDS, '172.17.0.1'), [
+    'WORDPRESS_DB_HOST=172.17.0.1',
+    'WORDPRESS_DB_NAME=wpdb',
+    'WORDPRESS_DB_USER=txpl_wpdb',
+    'WORDPRESS_DB_PASSWORD=S3cr3ta',
+  ]);
+  const ghostEnv = buildDbEnv('ghost', CREDS, '172.17.0.1');
+  assert.ok(ghostEnv.includes('database__client=mysql'));
+  assert.ok(ghostEnv.includes('database__connection__host=172.17.0.1'));
+  assert.ok(ghostEnv.includes('database__connection__password=S3cr3ta'));
+  assert.deepStrictEqual(buildDbEnv('vaultwarden', null, null), []);
+});
+
+test('buildAppContainerConfig: imagen con tag, volumen, puerto en loopback', () => {
+  const entry = getEntry('wordpress');
+  const cfg = buildAppContainerConfig(entry, { hostPort: 8090, domain: 'blog.com', dbCreds: CREDS, dbHost: '172.17.0.1' });
+  assert.strictEqual(cfg.Image, 'wordpress:6.8-apache');
+  assert.deepStrictEqual(cfg.HostConfig.Binds, ['txpl_wordpress_data:/var/www/html']);
+  assert.deepStrictEqual(cfg.HostConfig.PortBindings['80/tcp'], [{ HostIp: '127.0.0.1', HostPort: '8090' }]);
+  assert.strictEqual(cfg.HostConfig.RestartPolicy.Name, 'unless-stopped');
+  assert.ok(cfg.Env.includes('WORDPRESS_DB_NAME=wpdb'));
+  assert.strictEqual(cfg.Labels['txpl.domain'], 'blog.com');
+  assert.ok(cfg.HostConfig.ExtraHosts.includes('host.docker.internal:host-gateway'));
+});
+
+test('buildAppContainerConfig: app sin DB ni dominio', () => {
+  const cfg = buildAppContainerConfig(getEntry('vaultwarden'), { hostPort: 8091 });
+  assert.strictEqual(cfg.Image, 'vaultwarden/server:1.34.1');
+  assert.deepStrictEqual(cfg.Env, []);
+  assert.deepStrictEqual(cfg.Labels, {});
+});
+
+test('buildWpConfig: credenciales y salts presentes, sin placeholders', () => {
+  const salts = 'define(\'AUTH_KEY\', \'x\');';
+  const conf = buildWpConfig({ dbName: 'wpdb', dbUser: 'txpl_wpdb', dbPass: 'S3cr3ta', salts });
+  assert.ok(conf.includes("define( 'DB_NAME', 'wpdb' )"));
+  assert.ok(conf.includes("define( 'DB_USER', 'txpl_wpdb' )"));
+  assert.ok(conf.includes("define( 'DB_PASSWORD', 'S3cr3ta' )"));
+  assert.ok(conf.includes("define( 'DB_HOST', 'localhost' )"));
+  assert.ok(conf.includes(salts));
+  assert.ok(conf.includes('$table_prefix'));
+  assert.ok(!conf.includes('put your unique phrase here'));
+});
+
+test('buildGhostConfig: url, puerto y conexión MySQL', () => {
+  const c = buildGhostConfig({ url: 'https://blog.com', port: 2368, dbName: 'ghostdb', dbUser: 'u', dbPass: 'p', contentPath: '/opt/txpl-apps/ghost/content' });
+  assert.strictEqual(c.url, 'https://blog.com');
+  assert.strictEqual(c.server.port, 2368);
+  assert.strictEqual(c.server.host, '127.0.0.1');
+  assert.strictEqual(c.database.client, 'mysql');
+  assert.strictEqual(c.database.connection.database, 'ghostdb');
+  assert.strictEqual(c.paths.contentPath, '/opt/txpl-apps/ghost/content');
+});

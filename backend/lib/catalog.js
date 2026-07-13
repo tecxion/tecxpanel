@@ -96,8 +96,100 @@ function validateInstallOptions(entry, raw = {}) {
   return { ok: true, opts: { mode, domain, ssl } };
 }
 
+// Env vars de conexión a la DB según la app. dbHost varía por modo:
+// '172.17.0.1'/'host.docker.internal' (docker) o 'localhost' (nativo/pm2).
+function buildDbEnv(entryId, dbCreds, dbHost) {
+  if (!dbCreds) return [];
+  if (entryId === 'wordpress') {
+    return [
+      `WORDPRESS_DB_HOST=${dbHost}`,
+      `WORDPRESS_DB_NAME=${dbCreds.name}`,
+      `WORDPRESS_DB_USER=${dbCreds.user}`,
+      `WORDPRESS_DB_PASSWORD=${dbCreds.password}`,
+    ];
+  }
+  if (entryId === 'ghost') {
+    return [
+      'database__client=mysql',
+      `database__connection__host=${dbHost}`,
+      `database__connection__database=${dbCreds.name}`,
+      `database__connection__user=${dbCreds.user}`,
+      `database__connection__password=${dbCreds.password}`,
+    ];
+  }
+  return [];
+}
+
+// Config para POST /containers/create de la Docker API.
+// El puerto host SIEMPRE se publica solo en 127.0.0.1: el acceso externo
+// pasa por el proxy Nginx (o no existe, si el usuario no puso dominio).
+function buildAppContainerConfig(entry, { hostPort, domain = null, dbCreds = null, dbHost = null } = {}) {
+  const cPort = `${entry.docker.port}/tcp`;
+  const env = [...buildDbEnv(entry.id, dbCreds, dbHost)];
+  if (entry.id === 'ghost') {
+    // Ghost necesita saber su URL pública para generar enlaces correctos.
+    env.push(`url=${domain ? `https://${domain}` : `http://localhost:${hostPort}`}`);
+  }
+  if (entry.id === 'nextcloud' && domain) env.push(`NEXTCLOUD_TRUSTED_DOMAINS=${domain}`);
+  if (entry.id === 'vaultwarden' && domain) env.push(`DOMAIN=https://${domain}`);
+  return {
+    Image: `${entry.docker.image}:${entry.docker.tag}`,
+    Env: env,
+    ExposedPorts: { [cPort]: {} },
+    HostConfig: {
+      RestartPolicy: { Name: 'unless-stopped' },
+      PortBindings: { [cPort]: [{ HostIp: '127.0.0.1', HostPort: String(hostPort) }] },
+      Binds: [`${volumeName(entry.id)}:${entry.docker.dataPath}`],
+      // host-gateway permite al contenedor resolver host.docker.internal
+      // hacia el host (para el MySQL del host) también en Linux.
+      ExtraHosts: ['host.docker.internal:host-gateway'],
+    },
+    Labels: domain ? { 'txpl.domain': domain } : {},
+  };
+}
+
+// Contenido completo de wp-config.php (modo nativo). salts = bloque de
+// define() de claves (de api.wordpress.org o generado con crypto.js).
+function buildWpConfig({ dbName, dbUser, dbPass, salts }) {
+  return `<?php
+define( 'DB_NAME', '${dbName}' );
+define( 'DB_USER', '${dbUser}' );
+define( 'DB_PASSWORD', '${dbPass}' );
+define( 'DB_HOST', 'localhost' );
+define( 'DB_CHARSET', 'utf8mb4' );
+define( 'DB_COLLATE', '' );
+
+${salts}
+
+$table_prefix = 'wp_';
+define( 'WP_DEBUG', false );
+
+if ( ! defined( 'ABSPATH' ) ) {
+\tdefine( 'ABSPATH', __DIR__ . '/' );
+}
+require_once ABSPATH . 'wp-settings.php';
+`;
+}
+
+// config.production.json de Ghost en modo PM2.
+function buildGhostConfig({ url, port, dbName, dbUser, dbPass, contentPath }) {
+  return {
+    url,
+    server: { port, host: '127.0.0.1' },
+    database: {
+      client: 'mysql',
+      connection: { host: 'localhost', database: dbName, user: dbUser, password: dbPass },
+    },
+    mail: { transport: 'Direct' },
+    logging: { transports: ['file', 'stdout'] },
+    process: 'local',
+    paths: { contentPath },
+  };
+}
+
 module.exports = {
   CATALOG, getEntry,
   containerName, pm2Name, volumeName, nginxConfName,
   validateInstallOptions,
+  buildDbEnv, buildAppContainerConfig, buildWpConfig, buildGhostConfig,
 };
