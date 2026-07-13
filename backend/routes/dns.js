@@ -153,6 +153,8 @@ router.post('/install', wrap(async (req, res) => {
       "if [ -f /etc/powerdns/pdns.conf ]; then sed -i 's/^[[:space:]]*local-address/#local-address/' /etc/powerdns/pdns.conf; fi",
       // Asegura que PowerDNS incluye el directorio pdns.d (donde va txpl.conf).
       "grep -q '^include-dir=/etc/powerdns/pdns.d' /etc/powerdns/pdns.conf 2>/dev/null || echo 'include-dir=/etc/powerdns/pdns.d' >> /etc/powerdns/pdns.conf",
+      // Desactiva el backend bind por defecto para evitar error de "unknown setting 'bind-config'"
+      "if [ -f /etc/powerdns/pdns.d/bind.conf ]; then mv /etc/powerdns/pdns.d/bind.conf /etc/powerdns/pdns.d/bind.conf.disabled || true; fi",
       `chown -R pdns:pdns /var/lib/powerdns || true`,
     ].join('\n');
     const initR = await runSafe('bash', ['-c', initScript]);
