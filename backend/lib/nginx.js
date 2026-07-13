@@ -35,6 +35,12 @@ const SITES_DIR = path.resolve(process.env.SITES_DIR || '/var/www');
 
 // ── GENERADORES DE VHOST ──────────────────────────────────────
 
+// Líneas de log propias de un dominio: permiten ver el tráfico de cada
+// sitio por separado en la página Logs (en vez de mezclado en el global).
+function buildLogLines(domain) {
+  return `\n    access_log /var/log/nginx/${domain}.access.log;\n    error_log /var/log/nginx/${domain}.error.log;`;
+}
+
 // Genera el vhost de un SITIO WEB según su tipo.
 //  - domain:    el dominio (ej. "ejemplo.com") o un nombre si se sirve por puerto.
 //  - type:      'html' | 'php' | 'react' | 'nodejs' | 'python'.
@@ -56,12 +62,12 @@ function buildSite(domain, type, proxyPort, opts = {}) {
   // Node.js y Python no sirven archivos: se hace de "proxy inverso" hacia
   // el puerto donde corre su proceso.
   if (type === 'nodejs' || type === 'python') {
-    return `server {\n    ${listen};${serverName}\n    location / {\n        proxy_pass http://127.0.0.1:${proxyPort};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
+    return `server {\n    ${listen};${serverName}${buildLogLines(domain)}\n    location / {\n        proxy_pass http://127.0.0.1:${proxyPort};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
   }
   // HTML/PHP/React sí sirven archivos desde "root".
   //  - React: si no encuentra el archivo, devuelve index.html (rutas SPA).
   //  - PHP: añade el bloque que pasa los .php a PHP-FPM.
-  return `server {\n    ${listen};${serverName}\n    root ${root};\n    index index.html index.htm${type === 'php' ? ' index.php' : ''};\n    location / { try_files $uri $uri/ ${type === 'react' ? '/index.html' : '=404'}; }\n${type === 'php' ? `    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${fpmSock};\n    }\n` : ''}}\n`;
+  return `server {\n    ${listen};${serverName}${buildLogLines(domain)}\n    root ${root};\n    index index.html index.htm${type === 'php' ? ' index.php' : ''};\n    location / { try_files $uri $uri/ ${type === 'react' ? '/index.html' : '=404'}; }\n${type === 'php' ? `    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${fpmSock};\n    }\n` : ''}}\n`;
 }
 
 // Genera un vhost de PROXY INVERSO: el dominio reenvía todo el tráfico a
@@ -71,7 +77,7 @@ function buildSite(domain, type, proxyPort, opts = {}) {
 function buildProxy(domain, port, opts = {}) {
   const { www = false } = opts;
   const serverName = www ? `${domain} www.${domain}` : `${domain}`;
-  return `server {\n    listen 80;\n    server_name ${serverName};\n    location / {\n        proxy_pass http://127.0.0.1:${port};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
+  return `server {\n    listen 80;\n    server_name ${serverName};${buildLogLines(domain)}\n    location / {\n        proxy_pass http://127.0.0.1:${port};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
 }
 
 // Genera un vhost para una app PHP servida con PHP-FPM en un PUERTO propio

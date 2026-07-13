@@ -1,8 +1,33 @@
-<div class="tabs">
-  <div class="tab active" onclick="loadLog('nginx_access',this)">Nginx Access</div>
-  <div class="tab" onclick="loadLog('nginx_error',this)">Nginx Error</div>
-  <div class="tab" onclick="loadLog('system',this)">Sistema</div>
+<div class="tabs" id="logs-tabs">
+  <div class="tab active" data-src="static:nginx_access" onclick="logsSelect(this)">Nginx Access</div>
+  <div class="tab" data-src="static:nginx_error" onclick="logsSelect(this)">Nginx Error</div>
+  <div class="tab" data-src="static:system" onclick="logsSelect(this)">Sistema</div>
+  <div class="tab" data-src="audit" onclick="logsSelect(this)">Auditoría</div>
 </div>
 <div class="card">
-  <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Selecciona un log para verlo...</pre>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <select id="logs-app-select" onchange="logsSelectApp()" style="min-width:150px">
+      <option value="">Apps (PM2)…</option>
+    </select>
+    <select id="logs-site-select" onchange="logsSelectSite()" style="min-width:150px">
+      <option value="">Sitios web…</option>
+    </select>
+    <select id="logs-site-kind" onchange="logsSelectSite(true)" style="display:none">
+      <option value="access">access</option>
+      <option value="error">error</option>
+    </select>
+    <span style="flex:1"></span>
+    <input type="text" id="logs-filter" placeholder="Filtrar…" oninput="logsRender()" style="min-width:140px">
+    <select id="logs-lines" onchange="logsFetch()">
+      <option value="100">100 líneas</option>
+      <option value="300" selected>300 líneas</option>
+      <option value="1000">1000 líneas</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap">
+      <input type="checkbox" id="logs-live" onchange="logsLiveToggle()"> En vivo
+    </label>
+    <button class="btn btn-sm" onclick="logsFetch()" title="Refrescar"><i class="ti ti-refresh"></i></button>
+    <button class="btn btn-sm" onclick="logsDownload()" title="Descargar"><i class="ti ti-download"></i></button>
+  </div>
+  <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Cargando…</pre>
 </div>

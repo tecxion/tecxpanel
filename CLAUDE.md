@@ -53,7 +53,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
   - `firewall.js` — UFW rule management.
   - `plugins.js` — Install/uninstall server packages (Docker, phpMyAdmin, Adminer, Redis, Fail2Ban, Composer, Certbot) with streaming output.
   - `system.js` — Server stats (CPU, RAM, disk), service control (systemctl), process list, PHP version detection.
-  - `logs.js` — Tail Nginx/system logs + audit log from DB.
+  - `logs.js` — Página de logs multi-fuente: logs estáticos de la lista blanca (`?lines=` 50-2000), log propio por sitio web (`/site/:domain?kind=access|error`, dominio validado contra la BD), fuentes disponibles (`/sources`: estáticos + apps PM2 + sitios) y auditoría. Los vhosts nuevos declaran `access_log`/`error_log` por dominio (`buildLogLines` en `lib/nginx.js`); los antiguos siguen en el log global hasta recrearse. Los logs de apps PM2 se sirven desde `/api/apps/:id/logs`. Frontend con filtro, coloreado de errores, modo "en vivo" (polling 4 s) y descarga. Helpers puros en `lib/logs.js` (`backend/test/logs.test.js`).
   - `webhooks.js` — Public endpoint for Git push auto-deploy (no auth; uses per-app secret).
 - `backend/lib/crypto.js` — AES-256-GCM encrypt/decrypt, TOTP implementation (RFC 6238), password generator.
 - `backend/lib/helpers.js` — `ok()`, `fail()`, `run()` (execFile wrapper), `runSafe()`, `wrap()` (async error handler).
