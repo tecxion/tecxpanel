@@ -13,12 +13,13 @@ const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const nginx = require('../lib/nginx');
+const D = require('../lib/dns');
 const {
   MAIL_CONTAINER, MAIL_IMAGE, MAIL_TAG, MAIL_PORTS, buildMailContainerConfig, isValidMailDomain,
   isValidEmail, isValidMailPassword,
   setupEmailAddArgs, setupEmailDelArgs, setupEmailUpdateArgs, setupEmailListArgs,
   setupAliasAddArgs, setupAliasDelArgs, setupAliasListArgs, setupDkimArgs,
-  parseEmailList, parseAliasList, buildDnsRecords,
+  parseEmailList, parseAliasList, buildDnsRecords, mailRecordsToRrsets,
 } = require('../lib/mail');
 
 const router = express.Router();
@@ -333,6 +334,70 @@ router.get('/dns', wrap(async (req, res) => {
     dkimPublic: cfg.dkim_public, dkimSelector: cfg.dkim_selector || 'mail',
   });
   ok(res, { records });
+}));
+
+// ── Publicar los registros de correo en el DNS del panel ─────
+// Calcula los rrsets deseados y el estado actual de la zona PowerDNS.
+// Lanza con e.http=409 si falta correo, DNS o la zona.
+async function computeDnsPublish() {
+  const cfg = queries.getMailConfig.get();
+  if (!cfg || !cfg.hostname || !cfg.domain) {
+    const e = new Error('Configura primero el correo (hostname y dominio).'); e.http = 409; throw e;
+  }
+  let dnsCfg;
+  try { dnsCfg = require('./dns').getDnsConnectedConfig(); }
+  catch (_) { const e = new Error('El DNS del panel no está instalado. Instálalo en la sección DNS.'); e.http = 409; throw e; }
+
+  const { pdnsApi } = require('./dns');
+  const zone = cfg.domain;
+  const zoneId = encodeURIComponent(D.canonical(zone));
+  const zr = await pdnsApi('GET', `/zones/${zoneId}`, dnsCfg.apiKey);
+  if (zr.statusCode === 404) {
+    const e = new Error(`La zona ${zone} no existe en el DNS del panel. Créala primero en la sección DNS.`); e.http = 409; throw e;
+  }
+  if (zr.statusCode >= 400) { const e = new Error('PowerDNS: ' + JSON.stringify(zr.json)); e.http = 502; throw e; }
+
+  const ipR = await runSafe('bash', ['-c', "curl -s https://api.ipify.org || hostname -I | awk '{print $1}'"]);
+  const serverIp = (ipR.stdout || '').trim();
+  const records = buildDnsRecords({
+    domain: cfg.domain, hostname: cfg.hostname, serverIp,
+    dkimPublic: cfg.dkim_public, dkimSelector: cfg.dkim_selector || 'mail',
+  });
+  const desired = mailRecordsToRrsets(records, zone);
+  const existing = D.parseRecords(zr.json); // [{ name, type, ttl, content }] sin punto final
+
+  const skipped = [];
+  if (!cfg.dkim_public) skipped.push('DKIM omitido: genera primero la clave DKIM en esta página.');
+  if (!serverIp) skipped.push('Registro A omitido: no se pudo detectar la IP pública.');
+
+  const items = desired.map((d) => {
+    const match = existing.find((x) => x.name === d.name && x.type === d.type);
+    let action = 'crear';
+    if (match) action = match.content === d.content ? 'igual' : 'sobrescribir';
+    return { type: d.type, name: d.name, value: d.content, action };
+  });
+  return { zone, zoneId, apiKey: dnsCfg.apiKey, desired, items, skipped };
+}
+
+// GET /dns/preview — qué se creará/sobrescribirá, sin tocar nada.
+router.get('/dns/preview', wrap(async (req, res) => {
+  const { zone, items, skipped } = await computeDnsPublish();
+  ok(res, { zone, items, skipped });
+}));
+
+// POST /dns/publish — upsert (REPLACE) de cada rrset en la zona.
+router.post('/dns/publish', wrap(async (req, res) => {
+  const { pdnsApi } = require('./dns');
+  const { zone, zoneId, apiKey, desired, items, skipped } = await computeDnsPublish();
+  let applied = 0;
+  for (const d of desired) {
+    const patch = D.buildRrsetPatch({ name: d.name, type: d.type, contents: [d.content], ttl: 3600, changetype: 'REPLACE' });
+    const r = await pdnsApi('PATCH', `/zones/${zoneId}`, apiKey, patch);
+    if (r.statusCode >= 400) return fail(res, 502, `PowerDNS al publicar ${d.type} ${d.name}: ` + JSON.stringify(r.json));
+    applied++;
+  }
+  audit(req.user.username, clientIp(req), 'mail.dns.publish', `${zone} (${applied} registros)`);
+  ok(res, { success: true, applied, items, skipped });
 }));
 
 module.exports = router;
