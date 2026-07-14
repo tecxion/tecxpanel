@@ -138,10 +138,40 @@ function mailRecordsToRrsets(records, zone) {
   return out;
 }
 
+// ── Webmail (Roundcube) ──────────────────────────────────────
+const WEBMAIL_CONTAINER = 'txpl-webmail';
+const WEBMAIL_IMAGE = 'roundcube/roundcubemail';
+// Tag fijado a minor (mismo criterio que el catálogo): nunca latest implícito.
+const WEBMAIL_TAG = '1.6-apache';
+const WEBMAIL_VOLUME = 'txpl_webmail_data';
+
+// Config del contenedor Roundcube. Conecta al mailserver por su hostname
+// PÚBLICO (TLS válido con el cert de Let's Encrypt del mailserver); el
+// puerto web solo se publica en loopback (el acceso externo va por Nginx).
+function buildWebmailContainerConfig({ hostPort, mailHostname, domain = null } = {}) {
+  return {
+    Image: `${WEBMAIL_IMAGE}:${WEBMAIL_TAG}`,
+    Env: [
+      `ROUNDCUBEMAIL_DEFAULT_HOST=ssl://${mailHostname}`,
+      'ROUNDCUBEMAIL_DEFAULT_PORT=993',
+      `ROUNDCUBEMAIL_SMTP_SERVER=tls://${mailHostname}`,
+      'ROUNDCUBEMAIL_SMTP_PORT=587',
+    ],
+    ExposedPorts: { '80/tcp': {} },
+    HostConfig: {
+      RestartPolicy: { Name: 'unless-stopped' },
+      PortBindings: { '80/tcp': [{ HostIp: '127.0.0.1', HostPort: String(hostPort) }] },
+      Binds: [`${WEBMAIL_VOLUME}:/var/roundcube/config`],
+    },
+    Labels: domain ? { 'txpl.domain': domain } : {},
+  };
+}
+
 module.exports = {
   MAIL_CONTAINER, MAIL_IMAGE, MAIL_TAG, MAIL_PORTS, MAIL_VOLUMES,
   isValidEmail, isValidMailDomain, isValidMailPassword, buildMailContainerConfig,
   setupEmailAddArgs, setupEmailDelArgs, setupEmailUpdateArgs, setupEmailListArgs,
   setupAliasAddArgs, setupAliasDelArgs, setupAliasListArgs, setupDkimArgs,
   parseEmailList, parseAliasList, buildDnsRecords, mailRecordsToRrsets,
+  WEBMAIL_CONTAINER, WEBMAIL_IMAGE, WEBMAIL_TAG, WEBMAIL_VOLUME, buildWebmailContainerConfig,
 };

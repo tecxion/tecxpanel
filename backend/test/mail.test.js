@@ -124,3 +124,30 @@ test('mailRecordsToRrsets: DKIM con valor entra; A sin IP fuera', () => {
   assert.strictEqual(rr[0].type, 'TXT');
   assert.ok(rr[0].content.includes('DKIM1'));
 });
+
+const { buildWebmailContainerConfig, WEBMAIL_CONTAINER, WEBMAIL_IMAGE, WEBMAIL_TAG, WEBMAIL_VOLUME } = require('../lib/mail');
+
+test('webmail: constantes', () => {
+  assert.strictEqual(WEBMAIL_CONTAINER, 'txpl-webmail');
+  assert.strictEqual(WEBMAIL_IMAGE, 'roundcube/roundcubemail');
+  assert.strictEqual(WEBMAIL_TAG, '1.6-apache');
+  assert.strictEqual(WEBMAIL_VOLUME, 'txpl_webmail_data');
+});
+
+test('buildWebmailContainerConfig: imagen fijada, IMAP/SMTP por hostname, loopback', () => {
+  const c = buildWebmailContainerConfig({ hostPort: 8110, mailHostname: 'mail.ejemplo.com', domain: 'webmail.ejemplo.com' });
+  assert.strictEqual(c.Image, 'roundcube/roundcubemail:1.6-apache');
+  assert.ok(c.Env.includes('ROUNDCUBEMAIL_DEFAULT_HOST=ssl://mail.ejemplo.com'));
+  assert.ok(c.Env.includes('ROUNDCUBEMAIL_DEFAULT_PORT=993'));
+  assert.ok(c.Env.includes('ROUNDCUBEMAIL_SMTP_SERVER=tls://mail.ejemplo.com'));
+  assert.ok(c.Env.includes('ROUNDCUBEMAIL_SMTP_PORT=587'));
+  assert.deepStrictEqual(c.HostConfig.PortBindings['80/tcp'], [{ HostIp: '127.0.0.1', HostPort: '8110' }]);
+  assert.deepStrictEqual(c.HostConfig.Binds, ['txpl_webmail_data:/var/roundcube/config']);
+  assert.strictEqual(c.HostConfig.RestartPolicy.Name, 'unless-stopped');
+  assert.strictEqual(c.Labels['txpl.domain'], 'webmail.ejemplo.com');
+});
+
+test('buildWebmailContainerConfig: sin dominio => sin label', () => {
+  const c = buildWebmailContainerConfig({ hostPort: 8110, mailHostname: 'mail.e.com' });
+  assert.deepStrictEqual(c.Labels, {});
+});
