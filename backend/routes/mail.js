@@ -497,16 +497,21 @@ router.delete('/webmail', wrap(async (req, res) => {
   startStream(res);
   const write = (s) => res.write(s);
   const done = (code) => res.end(`\n__TXPL_DONE__${code}`);
-  write('▶ Desinstalando webmail...\n');
-  await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1&v=0`).catch(() => {});
-  if (removeVolume) {
-    write(`⏳ Borrando volumen ${WEBMAIL_VOLUME}...\n`);
-    await dockerRequest('DELETE', `/volumes/${WEBMAIL_VOLUME}`).catch(() => {});
+  try {
+    write('▶ Desinstalando webmail...\n');
+    await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1&v=0`).catch(() => {});
+    if (removeVolume) {
+      write(`⏳ Borrando volumen ${WEBMAIL_VOLUME}...\n`);
+      await dockerRequest('DELETE', `/volumes/${WEBMAIL_VOLUME}`).catch(() => {});
+    }
+    try { await nginx.removeSite(WEBMAIL_CONF); } catch (_) {}
+    queries.clearMailWebmail.run();
+    write('\n✅ Webmail desinstalado.\n');
+    return done(0);
+  } catch (e) {
+    write(`\n✖ ${e.message}\n`);
+    return done(1);
   }
-  try { await nginx.removeSite(WEBMAIL_CONF); } catch (_) {}
-  queries.clearMailWebmail.run();
-  write('\n✅ Webmail desinstalado.\n');
-  return done(0);
 }));
 
 module.exports = router;
