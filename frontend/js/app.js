@@ -2829,6 +2829,52 @@ async function mailLoadDns() {
       <td><code>${esc(rec.name)}</code></td>
       <td><code>${esc(rec.value || '—')}</code>${rec.note ? `<br><span class="muted">${esc(rec.note)}</span>` : ''}</td>
     </tr>`).join('') + '</tbody></table>';
+  el.innerHTML += `
+    <div style="margin-top:10px">
+      <button class="btn btn-sm btn-primary" onclick="mailDnsPreview()"><i class="ti ti-world-upload"></i> Publicar en DNS del panel</button>
+      <span class="muted" style="font-size:12px;margin-left:8px">Requiere el DNS del panel instalado y la zona creada.</span>
+    </div>`;
+}
+
+// mailDnsPreview: pide el resumen y muestra la modal de confirmación.
+async function mailDnsPreview() {
+  const r = await req('GET', '/mail/dns/preview');
+  if (!r || r.error) { toast(r?.error || 'No se pudo calcular el resumen', 'error'); return; }
+  const ACTION_BADGE = { crear: 'badge-green', sobrescribir: 'badge-yellow', igual: 'badge' };
+  const rows = r.items.map((i) => `
+    <tr><td><span class="badge ${ACTION_BADGE[i.action]}">${esc(i.action)}</span></td>
+    <td>${esc(i.type)}</td><td>${esc(i.name)}</td>
+    <td style="font-family:var(--mono);font-size:11px;word-break:break-all">${esc(i.value)}</td></tr>`).join('');
+  const skipped = (r.skipped || []).map((s) => `<p class="muted" style="font-size:12px">⚠ ${esc(s)}</p>`).join('');
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'modal-mail-dns';
+  modal.dataset.dynamic = 'true';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <div class="modal-title"><i class="ti ti-world-upload"></i> Publicar registros en la zona ${esc(r.zone)}</div>
+        <button class="btn btn-sm" onclick="closeModal('modal-mail-dns')"><i class="ti ti-x"></i></button>
+      </div>
+      <div style="padding:1rem;max-height:50vh;overflow:auto">
+        <table class="table"><thead><tr><th>Acción</th><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        ${skipped}
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-mail-dns')">Cancelar</button>
+        <button class="btn btn-primary" onclick="mailDnsPublish()"><i class="ti ti-check"></i> Publicar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+// mailDnsPublish: confirma el upsert.
+async function mailDnsPublish() {
+  closeModal('modal-mail-dns');
+  const r = await req('POST', '/mail/dns/publish');
+  if (r?.success) toast(`${r.applied} registros publicados en el DNS`, 'success');
+  else toast(r?.error || 'Error al publicar', 'error');
 }
 
 // ── DNS (PowerDNS) ──────────────────────────────────────────────
