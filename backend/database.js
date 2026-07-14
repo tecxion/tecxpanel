@@ -228,6 +228,9 @@ try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN security_question TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN security_answer_hash TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE notify_config ADD COLUMN ev_ssl_enabled INTEGER NOT NULL DEFAULT 1"); } catch (_) {}
+try { db.exec("ALTER TABLE mail_config ADD COLUMN webmail_domain TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE mail_config ADD COLUMN webmail_port INTEGER"); } catch (_) {}
+try { db.exec("ALTER TABLE mail_config ADD COLUMN webmail_container TEXT"); } catch (_) {}
 
 // ── Seed del usuario admin desde el .env ──────────────────────
 // La contraseña NUNCA se guarda en claro: se almacena el hash bcrypt.
@@ -395,6 +398,8 @@ const queries = {
       hostname = @hostname, domain = @domain, container_id = @container_id,
       status = @status, dkim_selector = @dkim_selector, dkim_public = @dkim_public`),
   clearMailConfig: db.prepare('DELETE FROM mail_config WHERE id = 1'),
+  setMailWebmail:   db.prepare('UPDATE mail_config SET webmail_domain = ?, webmail_port = ?, webmail_container = ? WHERE id = 1'),
+  clearMailWebmail: db.prepare('UPDATE mail_config SET webmail_domain = NULL, webmail_port = NULL, webmail_container = NULL WHERE id = 1'),
 
   // ── DNS (PowerDNS) ───────────────────────────────────────
   getDnsConfig: db.prepare('SELECT * FROM dns_config WHERE id = 1'),

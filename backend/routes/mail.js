@@ -14,12 +14,14 @@ const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const nginx = require('../lib/nginx');
 const D = require('../lib/dns');
+const { findFreePort } = require('../lib/catalogEngine');
 const {
   MAIL_CONTAINER, MAIL_IMAGE, MAIL_TAG, MAIL_PORTS, buildMailContainerConfig, isValidMailDomain,
   isValidEmail, isValidMailPassword,
   setupEmailAddArgs, setupEmailDelArgs, setupEmailUpdateArgs, setupEmailListArgs,
   setupAliasAddArgs, setupAliasDelArgs, setupAliasListArgs, setupDkimArgs,
   parseEmailList, parseAliasList, buildDnsRecords, mailRecordsToRrsets,
+  buildWebmailContainerConfig, WEBMAIL_CONTAINER, WEBMAIL_TAG, WEBMAIL_IMAGE, WEBMAIL_VOLUME,
 } = require('../lib/mail');
 
 const router = express.Router();
@@ -398,6 +400,113 @@ router.post('/dns/publish', wrap(async (req, res) => {
   }
   audit(req.user.username, clientIp(req), 'mail.dns.publish', `${zone} (${applied} registros)`);
   ok(res, { success: true, applied, items, skipped });
+}));
+
+// ── Webmail (Roundcube) ──────────────────────────────────────
+const WEBMAIL_CONF = 'txpl-webmail'; // nombre del vhost Nginx
+
+async function inspectWebmail() {
+  try {
+    const r = await dockerRequest('GET', '/containers/json?all=1');
+    if (r.statusCode >= 400) return { exists: false, running: false };
+    const list = JSON.parse(r.body.toString());
+    const c = list.find((x) => (x.Names || []).some((n) => n === `/${WEBMAIL_CONTAINER}`));
+    return { exists: !!c, running: !!c && c.State === 'running' };
+  } catch (_) { return { exists: false, running: false }; }
+}
+
+// GET /webmail/status — estado para la tarjeta de la página Correo.
+router.get('/webmail/status', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get();
+  const insp = await inspectWebmail();
+  ok(res, {
+    installed: insp.exists,
+    running: insp.running,
+    domain: (cfg && cfg.webmail_domain) || null,
+    port: (cfg && cfg.webmail_port) || null,
+  });
+}));
+
+// POST /webmail/install — body { domain?, ssl? }. Streaming __TXPL_DONE__.
+router.post('/webmail/install', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get();
+  if (!cfg || !cfg.hostname) return fail(res, 409, 'Configura primero el correo (hostname).');
+  const domainRaw = String((req.body && req.body.domain) || '').trim();
+  const ssl = !!(req.body && req.body.ssl);
+  let domain = null;
+  if (domainRaw) {
+    if (!isValidMailDomain(domainRaw)) return fail(res, 400, 'Dominio inválido.');
+    domain = domainRaw;
+  }
+  if (ssl && !domain) return fail(res, 400, 'SSL requiere un dominio.');
+
+  audit(req.user.username, clientIp(req), 'mail.webmail.install', domain || 'sin dominio');
+  startStream(res);
+  const write = (s) => res.write(s);
+  const done = (code) => res.end(`\n__TXPL_DONE__${code}`);
+  write('▶ Instalando webmail (Roundcube)...\n\n');
+  try {
+    const hostPort = await findFreePort();
+    write(`⏳ Descargando imagen ${WEBMAIL_IMAGE}:${WEBMAIL_TAG}...\n`);
+    await pullImage(WEBMAIL_IMAGE, WEBMAIL_TAG, write);
+    write('✓ Imagen lista.\n');
+    await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1`).catch(() => {});
+    const config = buildWebmailContainerConfig({ hostPort, mailHostname: cfg.hostname, domain });
+    write(`⏳ Creando contenedor ${WEBMAIL_CONTAINER}...\n`);
+    const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(WEBMAIL_CONTAINER)}`, config);
+    if (create.statusCode >= 400) throw new Error('Error al crear el contenedor: ' + create.body.toString());
+    const start = await dockerRequest('POST', `/containers/${WEBMAIL_CONTAINER}/start`);
+    if (start.statusCode >= 400) throw new Error('El contenedor no arrancó: ' + start.body.toString());
+    write(`✓ Roundcube en marcha en 127.0.0.1:${hostPort}.\n`);
+    if (domain) {
+      write(`⏳ Proxy Nginx para ${domain}...\n`);
+      await nginx.enableSite(WEBMAIL_CONF, nginx.buildProxy(domain, hostPort));
+      write('✓ Proxy activo.\n');
+      if (ssl) {
+        try { await nginx.installSsl(domain, { www: false }); write('✓ SSL emitido.\n'); }
+        catch (e) { write(`⚠ Webmail funciona, pero falló el SSL: ${e.message}\n`); }
+      }
+    }
+    queries.setMailWebmail.run(domain, hostPort, WEBMAIL_CONTAINER);
+    write(`\n✅ Webmail instalado. Entra con un buzón (usuario@${cfg.domain}) y su contraseña.\n`);
+    if (!domain) write(`   Acceso: túnel SSH a 127.0.0.1:${hostPort} (sin dominio no se expone fuera).\n`);
+    return done(0);
+  } catch (e) {
+    write(`\n✖ ${e.message}\n⏳ Deshaciendo...\n`);
+    await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1`).catch(() => {});
+    try { await nginx.removeSite(WEBMAIL_CONF); } catch (_) {}
+    write('✓ Limpieza hecha.\n');
+    return done(1);
+  }
+}));
+
+// POST /webmail/:action — start | stop | restart.
+router.post('/webmail/:action(start|stop|restart)', wrap(async (req, res) => {
+  const insp = await inspectWebmail();
+  if (!insp.exists) return fail(res, 404, 'El webmail no está instalado.');
+  const r = await dockerRequest('POST', `/containers/${WEBMAIL_CONTAINER}/${req.params.action}`);
+  if (r.statusCode >= 400) return fail(res, 502, `Error al ${req.params.action}: ` + r.body.toString());
+  audit(req.user.username, clientIp(req), `mail.webmail.${req.params.action}`, null);
+  ok(res);
+}));
+
+// DELETE /webmail?volume=true — desinstala; el volumen solo con opt-in.
+router.delete('/webmail', wrap(async (req, res) => {
+  const removeVolume = req.query.volume === 'true';
+  audit(req.user.username, clientIp(req), 'mail.webmail.uninstall', removeVolume ? 'con volumen' : 'sin volumen');
+  startStream(res);
+  const write = (s) => res.write(s);
+  const done = (code) => res.end(`\n__TXPL_DONE__${code}`);
+  write('▶ Desinstalando webmail...\n');
+  await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1&v=0`).catch(() => {});
+  if (removeVolume) {
+    write(`⏳ Borrando volumen ${WEBMAIL_VOLUME}...\n`);
+    await dockerRequest('DELETE', `/volumes/${WEBMAIL_VOLUME}`).catch(() => {});
+  }
+  try { await nginx.removeSite(WEBMAIL_CONF); } catch (_) {}
+  queries.clearMailWebmail.run();
+  write('\n✅ Webmail desinstalado.\n');
+  return done(0);
 }));
 
 module.exports = router;
