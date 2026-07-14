@@ -14,8 +14,9 @@ const os = require('os');
 const http = require('http');
 const { queries } = require('../database');
 const { runSafe } = require('./helpers');
-const { applyTick, resourceKey, buildStatusEvent } = require('./notifications');
+const { applyTick, resourceKey, buildStatusEvent, applySslThreshold, buildSslExpiryEvent } = require('./notifications');
 const { dispatch } = require('./notifyExecutor');
+const { parseCertbotCertificates } = require('./ssl');
 
 const TICK_MS = 60_000;
 const WATCHED_SERVICES = ['nginx', 'mysql', 'postgresql', 'redis', 'ssh'];
@@ -93,6 +94,42 @@ async function checkContainers() {
   return result;
 }
 
+// ── Caducidad SSL (1 vez cada 24 h) ──────────────────────────
+// Estado por certificado en notify_state clave `sslexp:<name>`:
+// status = 'ok' (sin aviso activo) o el umbral notificado ('15'|'7'|'1').
+// Si certbot no está instalado, sale en silencio (Windows/dev o VPS sin SSL).
+const SSL_CHECK_MS = 24 * 60 * 60 * 1000;
+let lastSslCheck = 0;
+
+async function checkSslExpiry(hostname) {
+  const r = await runSafe('certbot', ['certificates']);
+  if (!r.ok) return;
+  for (const cert of parseCertbotCertificates(r.stdout || '')) {
+    const key = `sslexp:${cert.name}`;
+    const row = queries.getNotifyState.get(key) || null;
+    const prev = row && row.status !== 'ok' ? (parseInt(row.status, 10) || null) : null;
+    const days = cert.valid ? cert.daysLeft : 0; // INVALID/EXPIRED cuenta como 0
+    const { next, event } = applySslThreshold(prev, days);
+    if (event) {
+      const ev = buildSslExpiryEvent({
+        name: cert.name, domains: cert.domains, daysLeft: days,
+        hostname, recovered: event.type === 'recovered',
+      });
+      await dispatch(ev); // nunca lanza; si falla la entrega, reavisará al cruzar el siguiente umbral
+    }
+    if (event || !row) {
+      queries.upsertNotifyState.run({
+        key,
+        status: next === null ? 'ok' : String(next),
+        pending_status: null,
+        pending_count: 0,
+        since: new Date().toISOString(),
+        notified: 1,
+      });
+    }
+  }
+}
+
 // Un tick completo: recoger → transicionar → despachar → persistir.
 async function tick() {
   if (busy) return;
@@ -126,6 +163,12 @@ async function tick() {
         since: next.since,
         notified,
       });
+    }
+
+    // Caducidad SSL: chequeo barato pero no en cada tick (1 vez/24 h).
+    if (cfg.ev_ssl_enabled && Date.now() - lastSslCheck >= SSL_CHECK_MS) {
+      lastSslCheck = Date.now();
+      await checkSslExpiry(hostname);
     }
   } catch (e) {
     console.error('[monitor]', e.message);
