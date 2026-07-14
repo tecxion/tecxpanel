@@ -95,3 +95,32 @@ test('buildDnsRecords sin DKIM aún: el registro DKIM lleva nota y valor vacío'
   assert.strictEqual(dkim.value, '');
   assert.match(dkim.note || '', /DKIM/);
 });
+
+const { mailRecordsToRrsets } = require('../lib/mail');
+
+test('mailRecordsToRrsets: convierte y filtra registros', () => {
+  const records = [
+    { type: 'A', name: 'mail.ejemplo.com', value: '1.2.3.4' },
+    { type: 'MX', name: 'ejemplo.com', value: 'mail.ejemplo.com', priority: 10 },
+    { type: 'TXT', name: 'ejemplo.com', value: 'v=spf1 mx ~all' },
+    { type: 'TXT', name: 'mail._domainkey.ejemplo.com', value: '' },            // DKIM sin generar: fuera
+    { type: 'TXT', name: '_dmarc.ejemplo.com', value: 'v=DMARC1; p=quarantine; rua=mailto:postmaster@ejemplo.com' },
+    { type: 'PTR', name: '1.2.3.4', value: 'mail.ejemplo.com' },                // PTR: fuera siempre
+  ];
+  const rr = mailRecordsToRrsets(records, 'ejemplo.com');
+  assert.deepStrictEqual(rr.map((x) => x.type), ['A', 'MX', 'TXT', 'TXT']);
+  assert.deepStrictEqual(rr[0], { name: 'mail.ejemplo.com', type: 'A', content: '1.2.3.4' });
+  assert.deepStrictEqual(rr[1], { name: 'ejemplo.com', type: 'MX', content: '10 mail.ejemplo.com.' });
+  assert.deepStrictEqual(rr[2], { name: 'ejemplo.com', type: 'TXT', content: '"v=spf1 mx ~all"' });
+  assert.ok(rr[3].name === '_dmarc.ejemplo.com' && rr[3].content.startsWith('"v=DMARC1'));
+});
+
+test('mailRecordsToRrsets: DKIM con valor entra; A sin IP fuera', () => {
+  const rr = mailRecordsToRrsets([
+    { type: 'A', name: 'mail.e.com', value: '' },
+    { type: 'TXT', name: 'mail._domainkey.e.com', value: 'v=DKIM1; k=rsa; p=MIIB...' },
+  ], 'e.com');
+  assert.strictEqual(rr.length, 1);
+  assert.strictEqual(rr[0].type, 'TXT');
+  assert.ok(rr[0].content.includes('DKIM1'));
+});

@@ -295,4 +295,8 @@ router.get('/zones/:zone/delegation', wrap(async (req, res) => {
   ok(res, { glue, delegated, ns_found: nsFound });
 }));
 
+// Reutilizados por routes/mail.js para publicar los registros de correo
+// en la zona del panel (patrón export mysqlExec de databases.js).
 module.exports = router;
+module.exports.pdnsApi = pdnsApi;
+module.exports.getDnsConnectedConfig = getConnectedConfig;

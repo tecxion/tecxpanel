@@ -118,10 +118,30 @@ function buildDnsRecords({ domain, hostname, serverIp, dkimPublic, dkimSelector 
   ];
 }
 
+// Convierte los registros de buildDnsRecords al formato de la API de
+// PowerDNS ({ name, type, content }) reutilizando buildRecordContent de
+// lib/dns.js. Excluye: PTR (se pide al proveedor del VPS, no a la zona),
+// DKIM sin generar y A sin IP detectada.
+const { buildRecordContent } = require('./dns');
+
+function mailRecordsToRrsets(records, zone) {
+  const out = [];
+  for (const r of records || []) {
+    if (r.type === 'PTR') continue;
+    if (!r.value) continue;
+    out.push({
+      name: r.name,
+      type: r.type,
+      content: buildRecordContent(r.type, r.value, r.priority || 10),
+    });
+  }
+  return out;
+}
+
 module.exports = {
   MAIL_CONTAINER, MAIL_IMAGE, MAIL_TAG, MAIL_PORTS, MAIL_VOLUMES,
   isValidEmail, isValidMailDomain, isValidMailPassword, buildMailContainerConfig,
   setupEmailAddArgs, setupEmailDelArgs, setupEmailUpdateArgs, setupEmailListArgs,
   setupAliasAddArgs, setupAliasDelArgs, setupAliasListArgs, setupDkimArgs,
-  parseEmailList, parseAliasList, buildDnsRecords,
+  parseEmailList, parseAliasList, buildDnsRecords, mailRecordsToRrsets,
 };
