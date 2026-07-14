@@ -2641,10 +2641,10 @@ async function saveBackupSchedule() {
 
 // ── Correo (docker-mailserver) ─────────────────────────────────
 // Streaming reutilizable (mismo patrón que streamConsole de backups).
-async function mailStream(path, body, el) {
+async function mailStream(path, body, el, method = 'POST') {
   const DONE = '__TXPL_DONE__';
   const r = await fetch(API + '/api' + path, {
-    method: 'POST',
+    method,
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body || {}),
   });
@@ -2726,8 +2726,10 @@ async function loadMail() {
       <button class="btn" onclick="mailGenDkim()"><i class="ti ti-key"></i> Generar DKIM</button>
       <button class="btn" onclick="mailLoadDns()"><i class="ti ti-list"></i> Ver registros DNS</button>
       <div id="mail-dns"></div>
+      <h3 style="margin-top:1.5rem"><i class="ti ti-inbox"></i> Webmail (Roundcube)</h3>
+      <div id="mail-webmail">Cargando…</div>
     </div>`;
-  loadMailboxes(); loadAliases();
+  loadMailboxes(); loadAliases(); loadWebmail();
 }
 
 async function mailInstall() {
@@ -2741,6 +2743,57 @@ async function mailAction(a) { await req('POST', `/mail/${a}`); loadMail(); }
 async function mailUninstall() {
   if (!confirm('¿Desinstalar el correo? Se elimina el contenedor (los datos de correo se conservan en su volumen).')) return;
   await req('DELETE', '/mail'); loadMail();
+}
+
+// loadWebmail: pinta la tarjeta según el estado del contenedor Roundcube.
+async function loadWebmail() {
+  const el = document.getElementById('mail-webmail');
+  if (!el) return;
+  const st = await req('GET', '/mail/webmail/status');
+  if (!st) return;
+  if (!st.installed) {
+    el.innerHTML = `
+      <p class="muted" style="font-size:13px">Interfaz web para leer y enviar correo con los buzones de este servidor.</p>
+      <div class="form-row">
+        <input type="text" id="webmail-domain" placeholder="webmail.tudominio.com (opcional)" style="width:280px">
+        <label style="margin-left:8px"><input type="checkbox" id="webmail-ssl"> SSL</label>
+        <button class="btn btn-primary btn-sm" style="margin-left:8px" onclick="webmailInstall()"><i class="ti ti-download"></i> Instalar webmail</button>
+      </div>`;
+    return;
+  }
+  const url = st.domain ? `https://${st.domain}` : `http://127.0.0.1:${st.port}`;
+  el.innerHTML = `
+    <p><span class="badge ${st.running ? 'badge-green' : 'badge-red'}">${st.running ? 'En marcha' : 'Parado'}</span>
+       ${st.domain ? `<a href="${esc(url)}" target="_blank">${esc(st.domain)}</a>` : `puerto ${st.port} (loopback)`}</p>
+    <div class="form-row">
+      <button class="btn btn-sm" onclick="webmailAction('${st.running ? 'stop' : 'start'}')">${st.running ? 'Parar' : 'Iniciar'}</button>
+      <button class="btn btn-sm" onclick="webmailAction('restart')">Reiniciar</button>
+      <button class="btn btn-sm btn-danger" onclick="webmailUninstall()"><i class="ti ti-trash"></i> Desinstalar</button>
+    </div>`;
+}
+
+async function webmailInstall() {
+  const domain = document.getElementById('webmail-domain').value.trim();
+  const ssl = document.getElementById('webmail-ssl').checked;
+  const con = document.getElementById('mail-console');
+  con.style.display = 'block'; con.textContent = '';
+  await mailStream('/mail/webmail/install', { domain, ssl }, con);
+  loadWebmail();
+}
+
+async function webmailAction(a) {
+  const r = await req('POST', `/mail/webmail/${a}`);
+  if (r?.error) toast(r.error, 'error');
+  loadWebmail();
+}
+
+async function webmailUninstall() {
+  const purge = confirm('¿Borrar también la configuración guardada de Roundcube (volumen)? Aceptar = sí, Cancelar = conservar.');
+  if (!confirm('¿Desinstalar el webmail?')) return;
+  const con = document.getElementById('mail-console');
+  con.style.display = 'block'; con.textContent = '';
+  await mailStream(`/mail/webmail?volume=${purge}`, null, con, 'DELETE');
+  loadWebmail();
 }
 
 async function mailSaveConfig() {
