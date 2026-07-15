@@ -60,7 +60,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 - `backend/lib/validators.js` — Whitelists, regexes, and validators for domains, ports, app names, DB names, IPs.
 - `backend/lib/nginx.js` — Nginx vhost builders (`buildProxy`, `buildSite`, `buildPhpFpmSite`), `enableSite`/`removeSite` (symlink + `nginx -t` + reload), and `installSsl` (Certbot). Reused by `websites.js`, `docker.js`, and `n8n.js`.
 - `backend/lib/backups.js` — Helpers puros de backups (manifest, validación de nombres, retención, línea de cron, constructores de argumentos de dump/tar), unit-tested en `backend/test/backups.test.js`.
-- `backend/lib/backupEngine.js` — Motor de backups: `createBackup`, `restoreItem`, `readManifest`. Usa los helpers puros + `run`/`runSafe` + `queries`.
+- `backend/lib/backupEngine.js` — Motor de backups: `createBackup`, `restoreItem`, `readManifest`. Usa los helpers puros + `run`/`runSafe` + `queries`. Tests en `backend/test/backupEngine.test.js`.
 - `backend/lib/appdeploy.js` — Helpers puros del pipeline de despliegue de apps (detección de modo Python web/worker por frameworks en `requirements.txt`, entrypoints reconocidos, etc.). Unit-tested en `backend/test/appdeploy.test.js`.
 - `backend/lib/rclone.js` — Helpers puros de rclone (env por tipo S3/SFTP, montaje del remoto crypt, args de copy/lsjson/deletefile/lsd/obscure, parseo de lsjson), unit-tested en `backend/test/rclone.test.js`.
 - `backend/lib/backupRemote.js` — Ejecutor de rclone: sube/lista/descarga/borra archivos de backup en un remoto (S3/SFTP) leyendo `backup_remote`. Descifra credenciales y las inyecta por env vars del proceso hijo; materializa temporalmente la clave SSH en 0600 si aplica.
@@ -76,7 +76,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 - `backend/lib/monitor.js` — Vigilante integrado (60 s): disco (`df`), servicios (`systemctl is-active`), contenedores `txpl-*` (socket Docker). Sin config no hace nada; en Windows/dev se omiten los chequeos limpiamente.
 - `backend/lib/websocket.js` — Two WS endpoints: `/ws/stats` (real-time CPU/RAM/network push every 2s) and `/ws/terminal` (interactive shell via node-pty).
 
-**Frontend** — Single `frontend/index.html` + `frontend/js/app.js` (1700 lines vanilla JS) + `frontend/css/styles.css`. SPA routing via `navigate()` function that toggles page visibility. No framework, no bundler.
+**Frontend** — Single `frontend/index.html` + `frontend/js/app.js` (~3800 lines vanilla JS) + `frontend/css/styles.css`. SPA routing via `navigate()` function that toggles page visibility. No framework, no bundler.
 
 **Shell scripts** (for VPS, not for dev):
 - `txpl-setup.sh` — Full VPS provisioner (Node, Nginx, PM2, UFW, Certbot, optional MySQL/PG).
