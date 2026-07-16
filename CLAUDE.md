@@ -76,7 +76,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 - `backend/lib/monitor.js` — Vigilante integrado (60 s): disco (`df`), servicios (`systemctl is-active`), contenedores `txpl-*` (socket Docker). Sin config no hace nada; en Windows/dev se omiten los chequeos limpiamente.
 - `backend/lib/websocket.js` — Two WS endpoints: `/ws/stats` (real-time CPU/RAM/network push every 2s) and `/ws/terminal` (interactive shell via node-pty).
 
-**Frontend** — Single `frontend/index.html` + `frontend/js/app.js` (~3800 lines vanilla JS) + `frontend/css/styles.css`. SPA routing via `navigate()` function that toggles page visibility. No framework, no bundler.
+**Frontend** — `frontend/index.html` + `frontend/js/` (vanilla JS sin bundler: `core.js` con globals/helpers compartidos carga primero, más un fichero por dominio — `auth.js`, `dashboard.js`, `websites.js`, `apps.js`, `databases.js`, `files.js`, `firewall.js`, `ssl.js`, `settings.js`, `notifications.js`, `logs.js`, `terminal.js`, `plugins.js`, `n8n.js`, `catalog.js`, `backups.js`, `mail.js`, `dns.js`, `cron.js`, `docker.js` — que comparten scope global vía `<script>` ordenados) + `frontend/css/styles.css` + vistas parciales en `frontend/views/` (sidebar, modals, `pages/*.html`) cargadas por fetch desde `core.js`. SPA routing vía `navigate()`. No framework, no bundler. Los handlers `onclick=` inline resuelven contra el scope global: toda función usada en vistas debe ser global y existir exactamente una vez (test `backend/test/frontend-handlers.test.js`).
 
 **Shell scripts** (for VPS, not for dev):
 - `txpl-setup.sh` — Full VPS provisioner (Node, Nginx, PM2, UFW, Certbot, optional MySQL/PG).

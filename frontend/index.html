@@ -5,7 +5,8 @@
    Toda la interfaz vive en este archivo: la pantalla de login,
    la barra lateral de navegación, una <div class="page"> por cada
    sección (dashboard, sitios, apps, BDs, Docker, archivos...) y las
-   ventanas modales. La lógica está en js/app.js y los estilos en
+   ventanas modales. La lógica está partida por dominio en js/
+   (core.js primero + un fichero por sección) y los estilos en
    css/styles.css. Los iconos (Tabler) y la terminal (xterm) se
    cargan desde CDN.
   ════════════════════════════════════════════════════════════
@@ -220,6 +221,5 @@
 <script src="js/dns.js?v=20260715"></script>
 <script src="js/cron.js?v=20260715"></script>
 <script src="js/docker.js?v=20260715"></script>
-<script src="js/app.js?v=20260715"></script>
 </body>
 </html>

@@ -1,12 +1,18 @@
 // TecXPaneL — núcleo compartido (globals, req, toast, navegación, boot)
 // ════════════════════════════════════════════════════════════
-//  TecXPaneL — Lógica del frontend (JavaScript "vanilla", sin frameworks)
+//  TecXPaneL — Frontend en JavaScript "vanilla", sin frameworks.
 //
-//  Este único archivo controla toda la interfaz del panel: login,
-//  navegación entre páginas, y la lógica de cada sección (sitios,
-//  apps, bases de datos, Docker, archivos, firewall, etc.).
-//  Se comunica con el backend mediante la función req() (API REST)
-//  y WebSockets para los datos en tiempo real.
+//  Este fichero es el núcleo: globals (API, TOKEN, statsWS,
+//  currentPage, serverIp), helpers (req, toast, esc, fmt*,
+//  openModal/closeModal), navegación (navigate), streaming genérico
+//  (streamConsole), portapapeles y el arranque (bootApp + carga de
+//  parciales). La lógica de cada sección vive en su propio fichero
+//  js/<dominio>.js (auth, dashboard, websites, apps, databases,
+//  files, firewall, ssl, settings, notifications, logs, terminal,
+//  plugins, n8n, catalog, backups, mail, dns, cron, docker) y todos
+//  comparten scope global — `<script>` clásicos ordenados con
+//  core.js primero. Comunicación con el backend por req() (API REST)
+//  y WebSockets para datos en tiempo real.
 // ════════════════════════════════════════════════════════════
 
 // Variables globales del estado de la app:
