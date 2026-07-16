@@ -15,12 +15,13 @@ async function loadWebsites() {
     <tr>
       <td><span class="domain-pill">${domainLabel}</span></td>
       <td><span class="badge badge-purple">${esc(s.type)}${s.php_version ? ' '+esc(s.php_version) : ''}</span></td>
-      <td>${isPort ? '<span class="badge badge-amber">IP:Puerto</span>' : s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
+      <td>${isPort ? '<span class="badge badge-amber" title="SSL requiere dominio">IP:Puerto</span>' : s.ssl ? '<span class="badge badge-green">🔒 SSL</span>' : '<span class="badge badge-yellow">Sin SSL</span>'}</td>
       <td><span class="badge ${s.status === 'active' ? 'badge-green' : 'badge-red'}">${esc(s.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(s.created_at)}</td>
       <td>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm" onclick="window.open('${accessUrl}','_blank')" title="Abrir sitio"><i class="ti ti-external-link"></i> Abrir</button>
+          ${!isPort && !s.ssl ? `<button class="btn btn-sm" onclick="installSiteSsl(${s.id}, '${esc(s.domain)}')" title="Instalar certificado Let's Encrypt">🔒 Instalar SSL</button>` : ''}
           <button class="btn btn-sm btn-danger" onclick="deleteWebsite(${s.id})" title="Eliminar sitio"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
       </td>
@@ -73,6 +74,15 @@ async function createWebsite() {
     closeModal('modal-new-site');
     loadWebsites();
   } else toast(r?.error || 'Error al crear sitio', 'error');
+}
+
+// installSiteSsl: instala un certificado Let's Encrypt en un sitio existente.
+async function installSiteSsl(id, domain) {
+  if (!confirm(`Instalar SSL en ${domain}.\n\nEl dominio debe apuntar a este servidor y el puerto 80 estar abierto. ¿Continuar?`)) return;
+  toast('Instalando certificado SSL... puede tardar un minuto', 'info');
+  const r = await req('POST', `/websites/${id}/ssl`);
+  if (r?.success) { toast(`SSL instalado en ${domain}`, 'success'); loadWebsites(); }
+  else toast(r?.error || 'Error al instalar SSL. Comprueba que el DNS apunta a este servidor.', 'error');
 }
 
 // deleteWebsite: borra un sitio web (pide confirmación antes).
