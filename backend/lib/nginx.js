@@ -153,13 +153,22 @@ async function removeSite(name) {
   if (removed) await reload();
 }
 
+// Un dominio "apex" (raíz, p.ej. ejemplo.com) tiene 2 etiquetas. Solo para
+// esos tiene sentido pedir también "www". Los subdominios (vps.ejemplo.com)
+// rara vez tienen registro "www", y pedir el cert para él haría fallar TODA
+// la emisión de certbot. Heurística imperfecta con TLDs compuestos (.co.uk),
+// suficiente para los dominios simples que gestiona el panel.
+function isApexDomain(domain) {
+  return String(domain).split('.').length === 2;
+}
+
 // Instala un certificado HTTPS gratuito (Let's Encrypt) con Certbot y
 // fuerza la redirección de HTTP a HTTPS.
-//  - opts.www: si true, también pide el certificado para "www.<dominio>"
-//    (sitios web); para subdominios se deja en false.
+//  - opts.www: si se omite, se pide "www.<dominio>" solo para dominios apex
+//    (ver isApexDomain). Pásalo explícito para forzar el comportamiento.
 // Lanza un error con el motivo si Certbot falla.
 async function installSsl(domain, opts = {}) {
-  const { www = true } = opts;
+  const { www = isApexDomain(domain) } = opts;
   const args = ['--nginx', '-d', domain];
   if (www) args.push('-d', `www.${domain}`);
   args.push('--non-interactive', '--agree-tos', '--redirect',
@@ -171,5 +180,5 @@ async function installSsl(domain, opts = {}) {
 module.exports = {
   NGINX_AVAILABLE, NGINX_ENABLED, SITES_DIR,
   buildSite, buildProxy, buildPhpFpmSite,
-  reload, enableSite, removeSite, installSsl,
+  reload, enableSite, removeSite, installSsl, isApexDomain,
 };

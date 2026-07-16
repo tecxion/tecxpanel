@@ -77,7 +77,7 @@ router.post('/', wrap(async (req, res) => {
   const info = queries.insertWebsite.run({ domain: siteDomain, type, php: php ? 1 : 0, ssl: 0, status: 'active', listen_port: listenPort, php_version: phpVersion || null });
   audit(req.user.username, clientIp(req), 'website.create', siteDomain);
   // Si se pidió HTTPS (y hay dominio), intentamos instalarlo sin bloquear la respuesta.
-  if (ssl && !usePort) await nginx.installSsl(siteDomain, { www: true }).catch(() => {});
+  if (ssl && !usePort) await nginx.installSsl(siteDomain).catch(() => {});
   ok(res, { success: true, id: info.lastInsertRowid, port: listenPort });
 }));
 
@@ -97,7 +97,16 @@ router.delete('/:id', wrap(async (req, res) => {
 router.post('/:id/ssl', wrap(async (req, res) => {
   const site = queries.getWebsite.get(+req.params.id);
   if (!site) return fail(res, 404, 'Sitio no encontrado');
-  await nginx.installSsl(site.domain, { www: true });
+  if (site.listen_port) { const e = new Error('SSL requiere un dominio; este sitio se sirve por IP:puerto.'); e.http = 400; throw e; }
+  try {
+    await nginx.installSsl(site.domain);
+  } catch (err) {
+    // Exponemos el motivo real de certbot (DNS que no apunta aquí, puerto 80
+    // cerrado, rate-limit de Let's Encrypt...) en vez de un 500 opaco.
+    err.http = 502;
+    err.message = `Certbot no pudo emitir el certificado: ${err.message}`;
+    throw err;
+  }
   queries.setWebsiteSsl.run(site.id);
   audit(req.user.username, clientIp(req), 'website.ssl', site.domain);
   ok(res);
