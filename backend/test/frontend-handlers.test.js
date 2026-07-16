@@ -40,14 +40,18 @@ function handlerCalls(text) {
   return names;
 }
 
-// Extrae nombres de función definidos a nivel superior en un fichero JS
-function definedFunctions(text) {
+// Extrae nombres definidos a nivel superior: funciones, arrow-functions y
+// bindings globales (`let dbTools = {...}`, `const SSL_CAT = ...`). Todos
+// comparten el mismo scope global entre <script>, así que un duplicado
+// de cualquiera de ellos rompe la app (SyntaxError al parsear el segundo
+// let/const, o handler colgado si es una función).
+function definedTopLevel(text) {
   const names = [];
   const declRe = /^(?:async\s+)?function\s+([a-zA-Z_$][\w$]*)/gm;
-  const arrowRe = /^(?:const|let)\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:async\s*)?\(/gm;
+  const bindingRe = /^(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*=/gm;
   let m;
   while ((m = declRe.exec(text))) names.push(m[1]);
-  while ((m = arrowRe.exec(text))) names.push(m[1]);
+  while ((m = bindingRe.exec(text))) names.push(m[1]);
   return names;
 }
 
@@ -67,7 +71,7 @@ test('handlers inline: definidos exactamente una vez en frontend/js/', () => {
   // Definiciones: conteo global por nombre en todos los JS del frontend
   const defCount = new Map();
   for (const f of jsFiles) {
-    for (const n of definedFunctions(fs.readFileSync(f, 'utf8'))) {
+    for (const n of definedTopLevel(fs.readFileSync(f, 'utf8'))) {
       defCount.set(n, (defCount.get(n) || 0) + 1);
     }
   }
@@ -76,5 +80,5 @@ test('handlers inline: definidos exactamente una vez en frontend/js/', () => {
   assert.deepStrictEqual(missing, [], `Handlers sin definición: ${missing.join(', ')}`);
 
   const dupes = [...defCount].filter(([, c]) => c > 1).map(([n]) => n);
-  assert.deepStrictEqual(dupes, [], `Funciones definidas más de una vez: ${dupes.join(', ')}`);
+  assert.deepStrictEqual(dupes, [], `Nombres definidos más de una vez a nivel superior: ${dupes.join(', ')}`);
 });

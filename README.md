@@ -82,8 +82,9 @@ El proyecto está estructurado de forma limpia y desacoplada:
 │   ├── views/             # Plantillas HTML cargadas dinámicamente (sidebar, páginas)
 │   ├── css/
 │   │   └── styles.css     # Estilos CSS modernos
-│   └── js/
-│       └── app.js         # Lógica del cliente (~1700 líneas)
+│   └── js/                # Split por dominio, sin bundler
+│       ├── core.js        # Globals + helpers compartidos (carga 1º)
+│       └── <dominio>.js   # 20 ficheros (auth, dashboard, apps, files, mail, dns...)
 ├── data/
 │   └── txpl.db            # Base de datos SQLite del panel (se crea en el arranque)
 ├── public/                # Assets estáticos (logotipos servidos por el panel)
