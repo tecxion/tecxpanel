@@ -117,6 +117,22 @@ if [[ -f "$SCRIPT_DIR/txpl-nginx.conf" ]]; then
     fi
 fi
 
+# Límite de subida: las instalaciones antiguas tienen un vhost del panel sin
+# "client_max_body_size", así que subir un .zip da 413. Lo aplicamos a nivel
+# global vía conf.d (se incluye dentro de http{}) sin tocar el vhost con SSL/WS.
+# Idempotente: solo se crea si falta.
+UPLOAD_CONF=/etc/nginx/conf.d/txpl-upload.conf
+if [[ ! -f "$UPLOAD_CONF" ]]; then
+    echo 'client_max_body_size 512M;' > "$UPLOAD_CONF"
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx
+        log "✅ Límite de subida (512M) aplicado para archivos grandes"
+    else
+        rm -f "$UPLOAD_CONF"
+        warn "No se pudo aplicar el límite de subida; revisa con: nginx -t"
+    fi
+fi
+
 sep
 echo -e "${BOLD}${GREEN}✅ Actualización completada${RESET}"
 echo ""

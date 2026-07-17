@@ -217,6 +217,7 @@ async function uploadBinary(file, destPath) {
     body: file,
   });
   if (r.status === 401) { doLogout(); return { success: false }; }
+  if (r.status === 413) return { success: false, tooBig: true };
   try { return await r.json(); } catch (_) { return { success: r.ok }; }
 }
 
@@ -230,7 +231,7 @@ async function processEntries(entries) {
   const total = fileItems.length;
   if (total === 0) { toast('La carpeta está vacía', 'error'); return; }
 
-  let done = 0, errors = 0;
+  let done = 0, errors = 0, tooBig = false;
   showProgress(0, total, '');
 
   for (const item of allItems) {
@@ -243,7 +244,7 @@ async function processEntries(entries) {
       showProgress(done, total, file.name);
       const r = await uploadBinary(file, item.destPath);
       if (r?.success) done++;
-      else errors++;
+      else { errors++; if (r?.tooBig) tooBig = true; }
     } catch (_) { errors++; }
     showProgress(done, total, '');
   }
@@ -251,6 +252,7 @@ async function processEntries(entries) {
   showProgress(total, total, '');
   hideProgress();
   if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
+  else if (tooBig) toast('Archivo demasiado grande para el servidor (nginx). Sube el límite: client_max_body_size.', 'error');
   else toast(`${done} subidos, ${errors} fallidos`, 'error');
   loadFiles();
 }
@@ -261,7 +263,7 @@ async function uploadFlatFiles(fileList) {
   const total = files.length;
   if (total === 0) return;
 
-  let done = 0, errors = 0;
+  let done = 0, errors = 0, tooBig = false;
   showProgress(0, total, '');
 
   for (const file of files) {
@@ -269,7 +271,7 @@ async function uploadFlatFiles(fileList) {
       showProgress(done, total, file.name);
       const r = await uploadBinary(file, currentFilePath + '/' + file.name);
       if (r?.success) done++;
-      else errors++;
+      else { errors++; if (r?.tooBig) tooBig = true; }
     } catch (_) { errors++; }
     showProgress(done, total, '');
   }
@@ -277,6 +279,7 @@ async function uploadFlatFiles(fileList) {
   showProgress(total, total, '');
   hideProgress();
   if (errors === 0) toast(`${done} archivo${done > 1 ? 's' : ''} subido${done > 1 ? 's' : ''}`, 'success');
+  else if (tooBig) toast('Archivo demasiado grande para el servidor (nginx). Sube el límite: client_max_body_size.', 'error');
   else toast(`${done} subidos, ${errors} fallidos`, 'error');
   loadFiles();
 }
