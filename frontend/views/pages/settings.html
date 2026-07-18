@@ -24,6 +24,20 @@
     <div class="form-group"><label>Contraseña actual (para confirmar)</label><input type="password" id="set-rec-pass"></div>
     <button class="btn btn-primary" onclick="saveRecovery()"><i class="ti ti-device-floppy"></i> Guardar recuperación</button>
   </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="ti ti-palette"></i> Apariencia</div>
+    </div>
+    <div class="form-group">
+      <label>Tema del panel</label>
+      <select id="set-theme" onchange="setThemePref(this.value)">
+        <option value="system">Según el sistema</option>
+        <option value="dark">Oscuro</option>
+        <option value="light">Claro</option>
+      </select>
+    </div>
+    <p class="text-muted" style="font-size:12px">"Según el sistema" sigue la preferencia de tu dispositivo.</p>
+  </div>
 </div>
 <div class="card">
   <div class="card-header">

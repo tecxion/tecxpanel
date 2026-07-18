@@ -84,6 +84,36 @@ function closeModal(id) {
 
 // Cerrar la modal al hacer clic fuera de ella (en el fondo oscuro) se vincula dinámicamente en bootApp
 
+// ── Tema (claro/oscuro/sistema) ──────────────────────────────
+// La preferencia vive en localStorage ('txpl_theme'); el anti-flash del
+// index.html la aplica antes del primer pintado. Aquí solo se gestiona
+// el cambio en caliente y la sincronización de los controles.
+function themePref() {
+  try { return localStorage.getItem('txpl_theme') || 'system'; } catch (_) { return 'system'; }
+}
+function applyTheme(pref) {
+  const light = pref === 'light' ||
+    (pref === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+  const ic = document.getElementById('theme-toggle-icon');
+  if (ic) ic.className = 'ti ti-' + (light ? 'moon' : 'sun');
+}
+function setThemePref(pref) {
+  try { localStorage.setItem('txpl_theme', pref); } catch (_) {}
+  applyTheme(pref);
+  const sel = document.getElementById('set-theme');
+  if (sel) sel.value = pref;
+}
+function toggleTheme() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  setThemePref(light ? 'dark' : 'light');
+}
+// Si la preferencia es "system", seguir los cambios del SO en vivo.
+if (window.matchMedia) {
+  const mq = matchMedia('(prefers-color-scheme: light)');
+  if (mq.addEventListener) mq.addEventListener('change', () => { if (themePref() === 'system') applyTheme('system'); });
+}
+
 // ── Navigation ────────────────────────────────────────────────
 // navigate: cambia de página en la SPA. Oculta todas las páginas, muestra la
 // elegida y llama a su función de carga (loadDashboard, loadWebsites, etc.).
@@ -245,7 +275,10 @@ function bindModalOverlayEvents() {
 async function bootApp() {
   await loadTemplates();
   bindModalOverlayEvents();
-  
+  applyTheme(themePref());
+  const themeSel = document.getElementById('set-theme');
+  if (themeSel) themeSel.value = themePref();
+
   // Re-run setup logic for DOM elements that were loaded dynamically
   const nameEl = document.getElementById('app-name');
   const pathEl = document.getElementById('app-path');
@@ -253,7 +286,7 @@ async function bootApp() {
   if (pathEl) pathEl.addEventListener('input', updateAppPathPreview);
   setupDragDrop();
   setupDeployDrops();
-  
+
   // Check auth
   await checkAuth();
 }
