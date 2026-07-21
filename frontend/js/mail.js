@@ -170,12 +170,12 @@ async function loadMailboxes() {
   const el = document.getElementById('mail-mailboxes'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
   if (!r.mailboxes.length) { el.innerHTML = '<div class="empty-state">' + emptyState('mail-off', 'Sin buzones aún') + '</div>'; return; }
-  el.innerHTML = '<table class="table"><tbody>' + r.mailboxes.map((b) => `<tr>
+  el.innerHTML = '<div class="table-wrap"><table class="table"><tbody>' + r.mailboxes.map((b) => `<tr>
     <td>${esc(b.address)}</td>
     <td style="text-align:right">
       <button class="btn btn-sm" onclick="mailPassword('${esc(b.address)}')"><i class="ti ti-key"></i></button>
       <button class="btn btn-sm btn-danger" onclick="mailDeleteMailbox('${esc(b.address)}')"><i class="ti ti-trash"></i></button>
-    </td></tr>`).join('') + '</tbody></table>';
+    </td></tr>`).join('') + '</tbody></table></div>';
 }
 
 async function mailAddMailbox() {
@@ -205,10 +205,10 @@ async function loadAliases() {
   const el = document.getElementById('mail-aliases'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
   if (!r.aliases.length) { el.innerHTML = '<div class="empty-state">' + emptyState('at-off', 'Sin alias') + '</div>'; return; }
-  el.innerHTML = '<table class="table"><tbody>' + r.aliases.map((a) => `<tr>
+  el.innerHTML = '<div class="table-wrap"><table class="table"><tbody>' + r.aliases.map((a) => `<tr>
     <td>${esc(a.source)} → ${esc(a.destination)}</td>
     <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="mailDeleteAlias('${esc(a.source)}','${esc(a.destination)}')"><i class="ti ti-trash"></i></button></td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
 }
 
 async function mailAddAlias() {
@@ -237,12 +237,12 @@ async function mailLoadDns() {
   const r = await req('GET', '/mail/dns');
   const el = document.getElementById('mail-dns'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No disponible')}</p>`; return; }
-  el.innerHTML = '<table class="table"><thead><tr><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead><tbody>' +
+  el.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead><tbody>' +
     r.records.map((rec) => `<tr>
       <td>${esc(rec.type)}${rec.priority ? ' (' + rec.priority + ')' : ''}</td>
       <td><code>${esc(rec.name)}</code></td>
       <td><code>${esc(rec.value || '—')}</code>${rec.note ? `<br><span class="muted">${esc(rec.note)}</span>` : ''}</td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
   el.innerHTML += `
     <div style="margin-top:10px">
       <button class="btn btn-sm btn-primary" onclick="mailDnsPreview()"><i class="ti ti-world-upload"></i> Publicar en DNS del panel</button>
@@ -271,8 +271,8 @@ async function mailDnsPreview() {
         <button class="btn btn-sm" onclick="closeModal('modal-mail-dns')"><i class="ti ti-x"></i></button>
       </div>
       <div style="padding:1rem;max-height:50vh;overflow:auto">
-        <table class="table"><thead><tr><th>Acción</th><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead>
-        <tbody>${rows}</tbody></table>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Acción</th><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
         ${skipped}
       </div>
       <div class="modal-footer">

@@ -45,7 +45,7 @@ async function loadCron() {
   if (!data) return;
   const list = document.getElementById('cron-list');
   if (!data.jobs.length) { list.innerHTML = '<div class="empty-state">' + emptyState('clock-off', 'Sin tareas programadas — usa el formulario para crear la primera') + '</div>'; return; }
-  list.innerHTML = '<table class="table"><thead><tr><th>Nombre</th><th>Programación</th><th>Comando</th><th>Estado</th><th></th></tr></thead><tbody>' +
+  list.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Nombre</th><th>Programación</th><th>Comando</th><th>Estado</th><th></th></tr></thead><tbody>' +
     data.jobs.map((j) => `<tr>
       <td>${esc(j.name)}</td>
       <td><code>${esc(`${j.minute} ${j.hour} ${j.dom} ${j.month} ${j.dow}`)}</code></td>
@@ -56,7 +56,7 @@ async function loadCron() {
         <button class="btn btn-sm" onclick="cronToggle(${j.id})"><i class="ti ti-power"></i></button>
         <button class="btn btn-sm" onclick="cronViewLog(${j.id})"><i class="ti ti-file-text"></i></button>
         <button class="btn btn-sm btn-danger" onclick="cronDelete(${j.id})"><i class="ti ti-trash"></i></button>
-      </td></tr>`).join('') + '</tbody></table>';
+      </td></tr>`).join('') + '</tbody></table></div>';
   window._cronJobs = data.jobs;
 }
 

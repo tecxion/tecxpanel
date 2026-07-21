@@ -81,7 +81,7 @@ async function loadN8nWorkflows(baseUrl) {
   if (!r || !r.workflows) { el.textContent = 'No pude cargar los workflows.'; return; }
   if (r.workflows.length === 0) { el.textContent = 'Aún no hay workflows. Créalos en n8n.'; return; }
   const safeBase = esc(baseUrl);
-  el.innerHTML = '<table><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
+  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
     + r.workflows.map((w) => {
       const toggle = w.active
         ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow('${esc(w.id)}', true)">Desactivar</button>`
@@ -95,7 +95,7 @@ async function loadN8nWorkflows(baseUrl) {
         <td>${w.active ? '<span class="badge badge-green">activo</span>' : '<span class="badge">inactivo</span>'}</td>
         <td>${toggle} <a class="btn btn-sm" href="${editUrl}" target="_blank" rel="noopener">Abrir en n8n</a></td>
       </tr>`;
-    }).join('') + '</tbody></table>';
+    }).join('') + '</tbody></table></div>';
 }
 
 async function loadN8nExecutions() {
@@ -104,12 +104,12 @@ async function loadN8nExecutions() {
   if (!r || !r.executions) { el.textContent = 'No pude cargar las ejecuciones.'; return; }
   if (r.executions.length === 0) { el.textContent = 'Sin ejecuciones todavía.'; return; }
   const icon = (s) => s === 'success' ? '✓' : (s === 'error' ? '✗' : '⏳');
-  el.innerHTML = '<table><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
+  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
     + r.executions.map((e) => `<tr>
         <td>${esc(e.workflowName)}</td>
         <td>${icon(e.status)} ${esc(e.status)}</td>
         <td>${e.startedAt ? new Date(e.startedAt).toLocaleString() : '—'}</td>
-      </tr>`).join('') + '</tbody></table>';
+      </tr>`).join('') + '</tbody></table></div>';
 }
 
 // Instalación por streaming (reutiliza el patrón de streamPlugin).

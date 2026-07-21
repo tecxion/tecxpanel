@@ -13,7 +13,7 @@ async function loadBackups() {
 
   const list = document.getElementById('backups-list');
   if (!data.backups.length) { list.innerHTML = '<div class="empty-state">' + emptyState('archive-off', 'Sin copias de seguridad aún — pulsa «Backup ahora»') + '</div>'; return; }
-  list.innerHTML = '<table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Origen</th><th>Tamaño</th><th>Estado</th><th></th></tr></thead><tbody>' +
+  list.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Origen</th><th>Tamaño</th><th>Estado</th><th></th></tr></thead><tbody>' +
     data.backups.map((b) => `<tr>
       <td>${esc(b.created_at)}</td>
       <td>${esc(b.kind)}</td>
@@ -25,7 +25,7 @@ async function loadBackups() {
         <button class="btn btn-sm" onclick="backupUpload(${b.id})" title="Subir al remoto"><i class="ti ti-cloud-upload"></i></button>
         <button class="btn btn-sm" onclick="backupDownload(${b.id})"><i class="ti ti-download"></i></button>
         <button class="btn btn-sm btn-danger" onclick="backupDelete(${b.id})"><i class="ti ti-trash"></i></button>
-      </td></tr>`).join('') + '</tbody></table>';
+      </td></tr>`).join('') + '</tbody></table></div>';
   loadBackupRemote();
 }
 
@@ -107,7 +107,7 @@ async function loadRemoteBackups() {
   const el = document.getElementById('remote-list'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudo listar')}</p>`; return; }
   if (!r.items.length) { el.innerHTML = '<p class="muted">Sin backups en el remoto.</p>'; return; }
-  el.innerHTML = '<table class="table"><thead><tr><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th></th></tr></thead><tbody>' +
+  el.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th></th></tr></thead><tbody>' +
     r.items.map((it) => `<tr>
       <td><code>${esc(it.name)}</code></td>
       <td>${fmtBytes(it.size)}</td>
@@ -115,7 +115,7 @@ async function loadRemoteBackups() {
       <td style="text-align:right">
         <button class="btn btn-sm" onclick="backupRemoteRestore('${esc(it.name)}')"><i class="ti ti-restore"></i></button>
         <button class="btn btn-sm btn-danger" onclick="backupRemoteDelete('${esc(it.name)}')"><i class="ti ti-trash"></i></button>
-      </td></tr>`).join('') + '</tbody></table>';
+      </td></tr>`).join('') + '</tbody></table></div>';
 }
 
 async function backupRemoteRestore(filename) {

@@ -20,6 +20,7 @@
   --border2:#2E3240;
   --accent:#E8A020;
   --accent2:#C88010;
+  --accent-text:#E8A020;
   --accent-glow:rgba(232,160,32,0.07);
   --text-primary:#EEEEF0;
   --text-secondary:#8B8FA8;
@@ -52,6 +53,7 @@
   --border2:#D5D8DF;
   --accent:#E8A020;
   --accent2:#B57407;
+  --accent-text:#8A5A05;
   --accent-glow:rgba(232,160,32,0.10);
   --text-primary:#1A1C22;
   --text-secondary:#5A5F73;
@@ -80,7 +82,7 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
 .login-logo{text-align:center;margin-bottom:2rem}
 .login-logo .txpl-mark{
   font-size:2.5rem;font-weight:800;letter-spacing:-2px;
-  color:var(--accent);
+  color:var(--accent-text);
 }
 .login-logo p{color:var(--text-muted);font-size:12px;margin-top:4px}
 .login-field{margin-bottom:1rem}
@@ -132,8 +134,8 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
   font-size:1.6rem;font-family:var(--display);font-weight:700;letter-spacing:-1px;
   color:var(--text-primary);
 }
-.logo-txpl span{color:var(--accent)}
-.logo-sub{font-size:10px;font-family:var(--mono);color:var(--accent);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.logo-txpl span{color:var(--accent-text)}
+.logo-sub{font-size:10px;font-family:var(--mono);color:var(--accent-text);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
 
 .sidebar-section{
   padding:1rem 0.75rem 0.25rem;
@@ -147,7 +149,7 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
 }
 .nav-item:hover{color:var(--text-primary);background:var(--bg-hover)}
 .nav-item.active{
-  color:var(--accent);background:transparent;
+  color:var(--accent-text);background:transparent;
 }
 .nav-item.active::before{
   content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
@@ -193,7 +195,7 @@ body{font-family:var(--font);background:var(--bg-app);color:var(--text-primary);
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
 .card-title{font-size:14px;font-family:var(--display);font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px}
-.card-title i{color:var(--accent);font-size:17px}
+.card-title i{color:var(--accent-text);font-size:17px}
 
 /* ── Stat Cards ── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem}
@@ -237,7 +239,7 @@ tr:last-child td{border-bottom:none}
 .badge-yellow{background:rgba(255,214,10,0.12);color:var(--yellow)}
 .badge-blue{background:rgba(100,172,255,0.12);color:var(--blue)}
 .badge-purple{background:rgba(100,172,255,0.12);color:var(--blue)}
-.badge-amber{background:rgba(232,160,32,0.15);color:var(--accent)}
+.badge-amber{background:rgba(232,160,32,0.15);color:var(--accent-text)}
 .badge::before{content:'•';font-size:8px}
 
 /* ── Gauge ── */
@@ -282,7 +284,7 @@ tr:last-child td{border-bottom:none}
 .deploy-step{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;color:var(--text-secondary)}
 .deploy-step .ti{font-size:16px}
 .deploy-step.pending{opacity:0.5}
-.deploy-step.active{color:var(--accent)}
+.deploy-step.active{color:var(--accent-text)}
 .deploy-step.ok{color:var(--green)}
 .deploy-step.err{color:var(--red)}
 
@@ -308,7 +310,7 @@ tr:last-child td{border-bottom:none}
 }
 .palette-item i{font-size:17px;color:var(--text-muted)}
 .palette-item:hover,.palette-item.sel{background:var(--bg-hover);color:var(--text-primary)}
-.palette-item.sel i{color:var(--accent)}
+.palette-item.sel i{color:var(--accent-text)}
 .palette-empty{padding:1.5rem;text-align:center;color:var(--text-muted);font-size:13px}
 
 /* ── Terminal ── */
@@ -343,7 +345,7 @@ canvas.sparkline{width:100%;height:60px}
   cursor:pointer;border-bottom:2px solid transparent;transition:all var(--transition);
 }
 .tab:hover{color:var(--text-primary)}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab.active{color:var(--accent-text);border-bottom-color:var(--accent)}
 
 /* ── Notifications ── */
 .toast{
@@ -382,7 +384,7 @@ canvas.sparkline{width:100%;height:60px}
 
 /* ── Misc ── */
 .text-muted{color:var(--text-muted)}
-.text-accent{color:var(--accent)}
+.text-accent{color:var(--accent-text)}
 .mt-1{margin-top:0.5rem}.mt-2{margin-top:1rem}.mt-3{margin-top:1.5rem}
 .flex{display:flex}.items-center{align-items:center}.gap-2{gap:0.5rem}.gap-3{gap:0.75rem}
 .ml-auto{margin-left:auto}

@@ -132,8 +132,9 @@ function closePalette() {
 
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault();
     const open = document.getElementById('palette-overlay')?.classList.contains('open');
+    if (!open && currentPage === 'terminal') return; // deja pasar Ctrl+K a la terminal (kill-line de readline)
+    e.preventDefault();
     if (open) closePalette(); else if (TOKEN) openPalette();
     return;
   }

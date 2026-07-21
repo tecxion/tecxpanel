@@ -102,12 +102,12 @@ async function loadDnsZones() {
   const el = document.getElementById('dns-zones'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
   if (!r.zones.length) { el.innerHTML = '<div class="empty-state">' + emptyState('world-search', 'Sin zonas DNS aún — crea la primera con el formulario de arriba') + '</div>'; return; }
-  el.innerHTML = '<table class="table"><tbody>' + r.zones.map((z) => `<tr>
+  el.innerHTML = '<div class="table-wrap"><table class="table"><tbody>' + r.zones.map((z) => `<tr>
     <td>${esc(z.name)}</td>
     <td style="text-align:right">
       <button class="btn btn-sm" onclick="dnsOpenZone('${esc(z.name)}')"><i class="ti ti-edit"></i> Registros</button>
       <button class="btn btn-sm btn-danger" onclick="dnsDeleteZone('${esc(z.name)}')"><i class="ti ti-trash"></i></button>
-    </td></tr>`).join('') + '</tbody></table>';
+    </td></tr>`).join('') + '</tbody></table></div>';
 }
 
 async function dnsAddZone() {
@@ -143,14 +143,14 @@ async function loadDnsRecords() {
   const r = await req('GET', `/dns/zones/${encodeURIComponent(_dnsZone)}/records`);
   const el = document.getElementById('dns-records'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
-  el.innerHTML = '<table class="table"><thead><tr><th>Nombre</th><th>Tipo</th><th>TTL</th><th>Valor</th><th></th></tr></thead><tbody>' +
+  el.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Nombre</th><th>Tipo</th><th>TTL</th><th>Valor</th><th></th></tr></thead><tbody>' +
     r.records.map((rec) => `<tr>
       <td><code>${esc(rec.name)}</code></td>
       <td>${esc(rec.type)}</td>
       <td>${esc(String(rec.ttl))}</td>
       <td><code>${esc(rec.content)}</code></td>
       <td style="text-align:right">${rec.type === 'SOA' || rec.type === 'NS' ? '' : `<button class="btn btn-sm btn-danger" onclick="dnsDeleteRecord('${esc(rec.name)}','${esc(rec.type)}')"><i class="ti ti-trash"></i></button>`}</td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
 }
 
 async function dnsAddRecord() {
@@ -182,8 +182,8 @@ async function dnsDelegation() {
     : '<span style="color:#d97706">⚠️ Pendiente: cambia los NS del dominio en tu registrador</span>';
   el.innerHTML = `<p>${estado}</p>
     <p class="muted">Crea estos <b>glue records</b> en tu registrador y apunta los NS del dominio a ellos:</p>
-    <table class="table"><tbody>` +
+    <div class="table-wrap"><table class="table"><tbody>` +
     r.glue.map((g) => `<tr><td>${esc(g.type)}</td><td><code>${esc(g.name)}</code></td><td><code>${esc(g.value)}</code></td></tr>`).join('') +
-    `</tbody></table>` +
+    `</tbody></table></div>` +
     (r.ns_found && r.ns_found.length ? `<p class="muted">NS detectados ahora: ${esc(r.ns_found.join(', '))}</p>` : '');
 }
