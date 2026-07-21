@@ -43,6 +43,9 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 ## 🚀 Características Principales
 
+- 🎨 **Tema Claro/Oscuro**: Interfaz adaptable al tema del sistema o elegible manualmente en Ajustes. Preferencia guardada y respuesta anti-flash al cargar.
+- 🔍 **Búsqueda Global (Ctrl+K / Cmd+K)**: Palette de comandos integrada con 19 secciones de navegación, acciones de creación rápida y búsqueda de recursos (sitios, apps, bases de datos, contenedores) con caché inteligente.
+- 📱 **Diseño Responsive Móvil**: Interface completa funcional en smartphones y tablets con sidebar off-canvas, navegación adaptada y grids responsivos para gestionar tu VPS desde cualquier dispositivo.
 - 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
 - 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python, React y TypeScript a través de PM2. Soporta carga en `.zip`/`.tar.gz` o **clonado desde Git con auto-deploy por webhook**, y gestión de archivos `.env`. En **Python** aísla cada app en su propio **virtualenv (`.venv`)** y distingue **servicio web** (con puerto y proxy) de **worker/bot** (sin puerto, p. ej. un bot de Telegram), con comando de arranque editable.
 - 🎁 **Catálogo de aplicaciones**: Instala WordPress, Ghost, Nextcloud, Vaultwarden y Uptime Kuma con un clic, en Docker, nativo (PHP-FPM) o PM2 según prefieras, con dominio + SSL opcionales y base de datos gestionada.
