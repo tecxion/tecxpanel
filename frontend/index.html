@@ -208,10 +208,19 @@
 <!-- ═══════════════════ MODALS ═══════════════════ -->
 <div id="modals-mount"></div>
 
+<!-- Command Palette (Ctrl+K) -->
+<div id="palette-overlay" onclick="if(event.target===this)closePalette()">
+  <div class="palette-box">
+    <input id="palette-input" type="text" placeholder="Buscar sección, acción o recurso…  (Ctrl+K)" oninput="paletteUpdate()" autocomplete="off">
+    <div id="palette-list"></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script src="js/core.js?v=20260718"></script>
+<script src="js/palette.js?v=20260718"></script>
 <script src="js/auth.js?v=20260718"></script>
 <script src="js/dashboard.js?v=20260718"></script>
 <script src="js/websites.js?v=20260718"></script>

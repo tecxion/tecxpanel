@@ -21,7 +21,7 @@ function walk(dir, ext) {
 }
 
 // Nombres que pueden aparecer invocados en un handler pero no son funciones nuestras
-const BUILTINS = new Set(['event', 'this', 'window', 'document', 'alert', 'confirm', 'prompt']);
+const BUILTINS = new Set(['event', 'this', 'window', 'document', 'alert', 'confirm', 'prompt', 'if']);
 
 // Extrae nombres de función invocados dentro de atributos on*="..."
 function handlerCalls(text) {
@@ -81,4 +81,25 @@ test('handlers inline: definidos exactamente una vez en frontend/js/', () => {
 
   const dupes = [...defCount].filter(([, c]) => c > 1).map(([n]) => n);
   assert.deepStrictEqual(dupes, [], `Nombres definidos más de una vez a nivel superior: ${dupes.join(', ')}`);
+});
+
+test('palette: acciones referencian funciones, páginas y modales existentes', () => {
+  const paletteSrc = fs.readFileSync(path.join(FRONTEND, 'js', 'palette.js'), 'utf8');
+  const m = paletteSrc.match(/const PALETTE_ACTIONS = (\[[\s\S]*?\n\]);/);
+  assert.ok(m, 'PALETTE_ACTIONS no encontrado en palette.js');
+  const actions = new Function(`return ${m[1]}`)(); // array literal, sin referencias externas
+
+  const jsFiles = walk(path.join(FRONTEND, 'js'), '.js');
+  const defined = new Set();
+  for (const f of jsFiles) for (const n of definedTopLevel(fs.readFileSync(f, 'utf8'))) defined.add(n);
+
+  const htmlAll = [path.join(FRONTEND, 'index.html'), ...walk(path.join(FRONTEND, 'views'), '.html')]
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+
+  for (const a of actions) {
+    assert.ok(a.label && a.page, `Acción sin label/page: ${JSON.stringify(a)}`);
+    assert.ok(htmlAll.includes(`id="page-${a.page}"`), `Página inexistente: ${a.page}`);
+    if (a.fn) assert.ok(defined.has(a.fn), `Función inexistente en acción "${a.label}": ${a.fn}`);
+    if (a.modal) assert.ok(htmlAll.includes(`id="${a.modal}"`), `Modal inexistente en acción "${a.label}": ${a.modal}`);
+  }
 });
