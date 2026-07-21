@@ -120,11 +120,15 @@
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar-mount">
   </aside>
+  <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <!-- MAIN -->
   <main class="main">
     <!-- TOPBAR -->
     <div class="topbar">
+      <button class="btn btn-sm sidebar-burger" onclick="toggleSidebar()" aria-label="Abrir menú">
+        <i class="ti ti-menu-2"></i>
+      </button>
       <span class="topbar-title" id="page-title">Dashboard</span>
       <span class="topbar-subtitle" id="server-hostname">—</span>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">

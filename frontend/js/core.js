@@ -124,6 +124,11 @@ if (window.matchMedia) {
   if (mq.addEventListener) mq.addEventListener('change', () => { if (themePref() === 'system') applyTheme('system'); });
 }
 
+// ── Sidebar móvil (off-canvas) ───────────────────────────────
+function toggleSidebar() {
+  document.body.classList.toggle('sidebar-open');
+}
+
 // ── Navigation ────────────────────────────────────────────────
 // navigate: cambia de página en la SPA. Oculta todas las páginas, muestra la
 // elegida y llama a su función de carga (loadDashboard, loadWebsites, etc.).
@@ -149,6 +154,7 @@ function navigate(el) {
   if (currentPage === 'terminal' && page !== 'terminal') termCleanup();
   if (currentPage === 'logs' && page !== 'logs') logsLiveStop();
   currentPage = page;
+  document.body.classList.remove('sidebar-open'); // cierra la sidebar móvil al navegar
 
   if (page === 'logs') loadLogsPage();
   if (page === 'websites') loadWebsites();
