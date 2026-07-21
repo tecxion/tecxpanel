@@ -12,7 +12,7 @@ async function loadBackups() {
   document.getElementById('bk-retention').value = s.retention_days || 7;
 
   const list = document.getElementById('backups-list');
-  if (!data.backups.length) { list.innerHTML = '<p class="muted">Aún no hay copias de seguridad.</p>'; return; }
+  if (!data.backups.length) { list.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('archive-off', 'Sin copias de seguridad aún — pulsa «Backup ahora»') + '</td></tr>'; return; }
   list.innerHTML = '<table class="table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Origen</th><th>Tamaño</th><th>Estado</th><th></th></tr></thead><tbody>' +
     data.backups.map((b) => `<tr>
       <td>${esc(b.created_at)}</td>

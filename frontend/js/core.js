@@ -82,6 +82,16 @@ function closeModal(id) {
   }
 }
 
+// emptyState: contenido de un estado vacío (icono + mensaje + CTA opcional).
+// Devuelve el HTML interno; el llamador lo envuelve en su celda/div con
+// class="empty-state". ctaOnclick es código inline (patrón onclick del panel).
+function emptyState(icon, message, ctaLabel, ctaOnclick) {
+  const cta = ctaLabel
+    ? `<br><button class="btn btn-primary btn-sm mt-2" onclick="${esc(ctaOnclick)}"><i class="ti ti-plus"></i> ${esc(ctaLabel)}</button>`
+    : '';
+  return `<i class="ti ti-${esc(icon)}"></i><br>${esc(message)}${cta}`;
+}
+
 // Cerrar la modal al hacer clic fuera de ella (en el fondo oscuro) se vincula dinámicamente en bootApp
 
 // ── Tema (claro/oscuro/sistema) ──────────────────────────────

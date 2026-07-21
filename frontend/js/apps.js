@@ -5,7 +5,7 @@ async function loadApps() {
   const data = await req('GET', '/apps');
   if (!data) return;
   const tb = document.getElementById('apps-table');
-  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-brand-nodejs"></i><br>Sin aplicaciones aún</td></tr>'; return; }
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('brand-nodejs', 'Sin aplicaciones aún', 'Desplegar aplicación', "resetDeployModal();openModal('modal-new-app')") + '</td></tr>'; return; }
 
   const typeColors = { nodejs:'badge-green', typescript:'badge-blue', react:'badge-blue', python:'badge-yellow' };
   tb.innerHTML = data.map(a => `

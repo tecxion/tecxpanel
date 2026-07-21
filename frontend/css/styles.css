@@ -388,6 +388,7 @@ canvas.sparkline{width:100%;height:60px}
 .ml-auto{margin-left:auto}
 .empty-state{text-align:center;padding:3rem;color:var(--text-muted)}
 .empty-state i{font-size:3rem;opacity:0.3;display:block;margin-bottom:1rem}
+.empty-state .btn{margin-top:1rem}
 .domain-pill{
   font-family:var(--mono);font-size:11.5px;
   background:var(--bg-hover);padding:3px 8px;border-radius:var(--radius-sm);color:var(--cyan);

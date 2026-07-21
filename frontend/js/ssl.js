@@ -37,7 +37,7 @@ async function loadSSL() {
         </div>
       </td>
     </tr>`;
-  }).join('') : '<tr><td colspan="5" class="empty-state"><i class="ti ti-certificate-off"></i><br>No hay certificados emitidos</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="empty-state">' + emptyState('certificate-off', 'No hay certificados emitidos') + '</td></tr>';
 
   body.innerHTML = `
     <div class="table-wrap">

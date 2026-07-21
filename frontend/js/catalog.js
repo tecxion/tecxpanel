@@ -13,8 +13,14 @@ async function loadCatalog() {
 
   window._catalogApps = data.apps;
 
-  body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">`
-    + data.apps.map((a) => {
+  const hasInstalledApps = data.apps.some(a => a.installed);
+  let html = '';
+  if (!hasInstalledApps && data.apps.length > 0) {
+    html = '<div class="card" style="text-align:center;padding:3rem"><div class="empty-state">' + emptyState('apps-off', 'Sin aplicaciones instaladas desde el catálogo') + '</div><p style="margin-top:2rem;color:var(--text-secondary)">Explora el catálogo abajo para instalar aplicaciones.</p></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-top:1.5rem">';
+  } else {
+    html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">`;
+  }
+  html += data.apps.map((a) => {
       const modeBadges = a.modes.map((m) => `<span class="badge">${esc(CATALOG_MODE_LABELS[m] || m)}</span>`).join(' ');
       const dbBadge = a.db ? `<span class="badge badge-amber">${esc(String(a.db).toUpperCase())}</span>` : '';
 
@@ -52,6 +58,7 @@ async function loadCatalog() {
         ${actionsBlock}
       </div>`;
     }).join('') + `</div>`;
+  body.innerHTML = html;
 }
 
 // catalogInstallModal: abre el diálogo de instalación (modo, dominio, SSL) para una app.

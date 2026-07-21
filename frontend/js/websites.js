@@ -6,7 +6,7 @@ async function loadWebsites() {
   const data = await req('GET', '/websites');
   if (!data) return;
   const tb = document.getElementById('websites-table');
-  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-world-off"></i><br>Sin sitios web aún</td></tr>'; return; }
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('world-off', 'Sin sitios web aún', 'Crear sitio web', "openModal('modal-new-site')") + '</td></tr>'; return; }
   tb.innerHTML = data.map(s => {
     const isPort = !!s.listen_port;
     const accessUrl = isPort ? `http://${serverIp || location.hostname}:${s.listen_port}` : `http://${s.domain}`;

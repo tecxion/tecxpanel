@@ -169,7 +169,7 @@ async function loadMailboxes() {
   const r = await req('GET', '/mail/mailboxes');
   const el = document.getElementById('mail-mailboxes'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
-  if (!r.mailboxes.length) { el.innerHTML = '<p class="muted">Aún no hay buzones.</p>'; return; }
+  if (!r.mailboxes.length) { el.innerHTML = '<tr><td colspan="2" class="empty-state">' + emptyState('mail-off', 'Sin buzones aún') + '</td></tr>'; return; }
   el.innerHTML = '<table class="table"><tbody>' + r.mailboxes.map((b) => `<tr>
     <td>${esc(b.address)}</td>
     <td style="text-align:right">
@@ -204,7 +204,7 @@ async function loadAliases() {
   const r = await req('GET', '/mail/aliases');
   const el = document.getElementById('mail-aliases'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
-  if (!r.aliases.length) { el.innerHTML = '<p class="muted">Aún no hay alias.</p>'; return; }
+  if (!r.aliases.length) { el.innerHTML = '<tr><td colspan="2" class="empty-state">' + emptyState('at-off', 'Sin alias') + '</td></tr>'; return; }
   el.innerHTML = '<table class="table"><tbody>' + r.aliases.map((a) => `<tr>
     <td>${esc(a.source)} → ${esc(a.destination)}</td>
     <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="mailDeleteAlias('${esc(a.source)}','${esc(a.destination)}')"><i class="ti ti-trash"></i></button></td>

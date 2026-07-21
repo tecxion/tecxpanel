@@ -16,7 +16,7 @@ async function loadDockerContainers() {
   }
 
   if (!data.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="empty-state">No hay contenedores creados en el sistema.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('brand-docker', 'No hay contenedores creados en el sistema', 'Nuevo contenedor', "openModal('modal-new-container')") + '</td></tr>';
     return;
   }
 

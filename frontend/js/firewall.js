@@ -10,7 +10,7 @@ async function loadFirewall() {
 
   const tb = document.getElementById('firewall-table');
   const rules = (data.rules || []).filter(r => r.num);
-  if (!rules.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-state">Sin reglas</td></tr>'; return; }
+  if (!rules.length) { tb.innerHTML = '<tr><td colspan="5" class="empty-state">' + emptyState('shield-off', 'Sin reglas de firewall', 'Nueva regla', "openModal('modal-new-rule')") + '</td></tr>'; return; }
   tb.innerHTML = rules.map(r => `
     <tr>
       <td style="color:var(--text-muted);font-family:var(--mono)">${r.num}</td>

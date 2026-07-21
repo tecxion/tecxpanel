@@ -11,7 +11,7 @@ async function loadDatabases() {
   const data = await req('GET', '/databases');
   if (!data) return;
   const tb = document.getElementById('databases-table');
-  if (!data.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="ti ti-database-off"></i><br>Sin bases de datos</td></tr>'; return; }
+  if (!data.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state">' + emptyState('database-off', 'Sin bases de datos', 'Nueva base de datos', "openModal('modal-new-db')") + '</td></tr>'; return; }
   tb.innerHTML = data.map(d => {
     const toolBtn = d.type === 'mysql'
       ? `<button class="btn btn-sm" onclick="openTool('pma')" title="Abrir phpMyAdmin"><i class="ti ti-table"></i> phpMyAdmin</button>`
