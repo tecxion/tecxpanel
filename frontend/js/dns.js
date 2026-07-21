@@ -101,7 +101,7 @@ async function loadDnsZones() {
   const r = await req('GET', '/dns/zones');
   const el = document.getElementById('dns-zones'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No se pudieron cargar')}</p>`; return; }
-  if (!r.zones.length) { el.innerHTML = '<tr><td colspan="2" class="empty-state">' + emptyState('world-search', 'Sin zonas DNS aún — crea la primera con el formulario de arriba') + '</td></tr>'; return; }
+  if (!r.zones.length) { el.innerHTML = '<div class="empty-state">' + emptyState('world-search', 'Sin zonas DNS aún — crea la primera con el formulario de arriba') + '</div>'; return; }
   el.innerHTML = '<table class="table"><tbody>' + r.zones.map((z) => `<tr>
     <td>${esc(z.name)}</td>
     <td style="text-align:right">

@@ -44,7 +44,7 @@ async function loadCron() {
   const data = await req('GET', '/cron');
   if (!data) return;
   const list = document.getElementById('cron-list');
-  if (!data.jobs.length) { list.innerHTML = '<tr><td colspan="5" class="empty-state">' + emptyState('clock-off', 'Sin tareas programadas — usa el formulario para crear la primera') + '</td></tr>'; return; }
+  if (!data.jobs.length) { list.innerHTML = '<div class="empty-state">' + emptyState('clock-off', 'Sin tareas programadas — usa el formulario para crear la primera') + '</div>'; return; }
   list.innerHTML = '<table class="table"><thead><tr><th>Nombre</th><th>Programación</th><th>Comando</th><th>Estado</th><th></th></tr></thead><tbody>' +
     data.jobs.map((j) => `<tr>
       <td>${esc(j.name)}</td>
