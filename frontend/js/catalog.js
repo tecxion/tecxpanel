@@ -96,7 +96,7 @@ function catalogInstallModal(id) {
         ${app.db ? `<p style="font-size:12px;color:var(--text-muted)"><i class="ti ti-info-circle"></i> Se creará una base de datos ${esc(String(app.db).toUpperCase())} gestionada por el panel.</p>` : ''}
       </div>
       <div class="modal-footer">
-        <button class="btn" onclick="closeModal('modal-catalog-install')">Cancelar</button>
+        <button class="btn" onclick="closeModal('modal-catalog-install')"><i class="ti ti-x"></i> Cancelar</button>
         <button class="btn btn-primary" onclick="catalogInstall('${esc(app.id)}')">Instalar</button>
       </div>
     </div>
@@ -146,7 +146,7 @@ function catalogUninstallModal(id) {
         ${app.db ? `<div class="form-group"><label><input type="checkbox" id="cat-purge-db"> Borrar también la BASE DE DATOS — irreversible</label></div>` : ''}
       </div>
       <div class="modal-footer">
-        <button class="btn" onclick="closeModal('modal-catalog-uninstall')">Cancelar</button>
+        <button class="btn" onclick="closeModal('modal-catalog-uninstall')"><i class="ti ti-x"></i> Cancelar</button>
         <button class="btn btn-danger" onclick="catalogUninstallGo('${esc(app.id)}')">Desinstalar</button>
       </div>
     </div>

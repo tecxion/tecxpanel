@@ -349,7 +349,7 @@ async function editFile(path) {
         <textarea id="file-editor" style="width:100%;height:100%;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none">${esc(r.content)}</textarea>
       </div>
       <div class="modal-footer">
-        <button class="btn" onclick="closeModal('modal-edit-file')">Cancelar</button>
+        <button class="btn" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i> Cancelar</button>
         <button class="btn btn-primary" onclick="saveFile('${esc(path)}')"><i class="ti ti-check"></i> Guardar</button>
       </div>
     </div>

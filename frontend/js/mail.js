@@ -276,7 +276,7 @@ async function mailDnsPreview() {
         ${skipped}
       </div>
       <div class="modal-footer">
-        <button class="btn" onclick="closeModal('modal-mail-dns')">Cancelar</button>
+        <button class="btn" onclick="closeModal('modal-mail-dns')"><i class="ti ti-x"></i> Cancelar</button>
         <button class="btn btn-primary" onclick="mailDnsPublish()"><i class="ti ti-check"></i> Publicar</button>
       </div>
     </div>`;
