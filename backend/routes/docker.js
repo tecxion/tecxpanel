@@ -560,14 +560,14 @@ router.post('/deploy/build', wrap(async (req, res) => {
 }));
 
 // Paso 3 (Asistente Git): clonar repositorio desde GitHub/Git, compilar Dockerfile/plantilla
-// (logs en vivo), crear y arrancar contenedor y aplicar red (firewall + dominio + HTTPS).
+// (logs en vivo con diagnóstico detallado), crear y arrancar contenedor y aplicar red.
 router.post('/deploy/git', wrap(async (req, res) => {
   const {
     name, gitRepo, gitToken, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
     hostPort, containerPort, domain, ssl, volumeName, volumePath, envs
   } = req.body || {};
 
-  // ── Validaciones previas (responden JSON antes de empezar a transmitir) ──
+  // ── Validaciones previas ──
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido (letras, números, - y _).');
   if (!gitRepo || typeof gitRepo !== 'string' || !gitRepo.trim()) {
     return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
@@ -578,22 +578,8 @@ router.post('/deploy/git', wrap(async (req, res) => {
     return fail(res, 400, 'La URL del repositorio debe comenzar por http://, https:// o git@');
   }
 
-  // Construir la URL autenticada si se proporcionó un token y no contenía ya credenciales
-  let cloneUrl = rawRepoUrl;
-  const token = (gitToken && typeof gitToken === 'string') ? gitToken.trim() : '';
-  if (token && !rawRepoUrl.includes('@')) {
-    const auth = token.includes(':') ? token : `x-access-token:${encodeURIComponent(token)}`;
-    if (rawRepoUrl.startsWith('https://')) {
-      cloneUrl = rawRepoUrl.replace('https://', `https://${auth}@`);
-    } else if (rawRepoUrl.startsWith('http://')) {
-      cloneUrl = rawRepoUrl.replace('http://', `http://${auth}@`);
-    }
-  }
-
-  // URL sanitizada para logs y auditoría (oculta el token o credenciales de la URL)
-  const displayRepoUrl = cloneUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
-
   const branch = (gitBranch && typeof gitBranch === 'string' && gitBranch.trim()) ? gitBranch.trim() : 'main';
+  const token = (gitToken && typeof gitToken === 'string') ? gitToken.trim() : '';
   const tpl = DEPLOY_TEMPLATES[template] || DEPLOY_TEMPLATES.dockerfile;
 
   // Volumen persistente (opcional)
@@ -612,7 +598,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
   if (tpl.fixedPort) effContainerPort = tpl.containerPort;
   else effContainerPort = containerPort ? parseInt(containerPort, 10) : tpl.containerPort;
 
-  // Dominio (opcional) → necesita puerto host y puerto interno conocido
+  // Dominio (opcional)
   let proxyDomain = null;
   const wantSsl = ssl === true || ssl === 'true';
   if (domain) {
@@ -633,7 +619,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
     return fail(res, 500, 'No se pudo preparar el directorio de build');
   }
 
-  // ── A partir de aquí transmitimos en vivo (igual que ZIP y plugins) ──
+  // ── Transmisión en vivo ──
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -646,25 +632,89 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
   const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
 
-  try {
-    // 1. Clonar repositorio Git
-    log(`▶ Clonando el repositorio Git ${displayRepoUrl} (rama: ${branch})...\n`);
-    let cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', branch, cloneUrl, '.'], gitOpts);
+  // Construir URLs de clonado
+  const sanitizedUrl = rawRepoUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
+  let authedUrl = rawRepoUrl;
+  if (token && !rawRepoUrl.includes('@')) {
+    const auth = token.includes(':') ? token : `x-access-token:${encodeURIComponent(token)}`;
+    if (rawRepoUrl.startsWith('https://')) authedUrl = rawRepoUrl.replace('https://', `https://${auth}@`);
+    else if (rawRepoUrl.startsWith('http://')) authedUrl = rawRepoUrl.replace('http://', `http://${auth}@`);
+  }
 
-    // Si falló con -b <branch>, intentar clonar la rama por defecto sin -b
-    if (!cloneRes.ok) {
-      log(`⚠ Falló clonado en rama "${branch}". Reintentando clonar la rama por defecto del repositorio...\n`);
-      fs.rmSync(dir, { recursive: true, force: true });
-      fs.mkdirSync(dir, { recursive: true });
-      cloneRes = await runSafe('git', ['clone', '--depth=1', cloneUrl, '.'], gitOpts);
+  try {
+    log('=================================================================\n');
+    log(`▶ INICIANDO DESPLIEGUE DESDE GIT: ${name}\n`);
+    log(`▶ Repositorio: ${sanitizedUrl}\n`);
+    log(`▶ Rama objetivo: ${branch}\n`);
+    if (token) {
+      const masked = token.length > 8 ? `${token.substring(0, 4)}...${token.substring(token.length - 4)}` : '****';
+      log(`▶ Autenticación: Token detectado (${masked}, ${token.length} caracteres)\n`);
+    } else {
+      log(`▶ Autenticación: Sin token (modo público)\n`);
+    }
+    log('=================================================================\n\n');
+
+    // Helper para intentar clonar
+    async function attemptClone(targetUrl, targetBranch, isAuthed) {
+      const args = ['clone', '--depth=1'];
+      if (targetBranch) args.push('-b', targetBranch);
+      args.push(targetUrl, '.');
+
+      const modeStr = (isAuthed ? 'autenticado' : 'público') + (targetBranch ? ` [rama: ${targetBranch}]` : ' [rama por defecto]');
+      log(`[Git] Intentando clonar (${modeStr})...\n`);
+
+      const res = await runSafe('git', args, gitOpts);
+      if (res.ok) return { ok: true, output: res.stdout };
+
+      const cleanErr = (res.stderr || res.stdout || 'Sin detalles de error')
+        .replace(/(https?:\/\/)[^@]+@/g, '$1')
+        .trim();
+      log(`[Git] Aviso/Detalle de clonado (${modeStr}):\n${cleanErr}\n\n`);
+      return { ok: false, error: cleanErr };
     }
 
-    if (!cloneRes.ok) {
-      const errOut = (cloneRes.stderr || cloneRes.stdout || 'desconocido').replace(/(https?:\/\/)[^@]+@/g, '$1');
-      log(`✖ Error al clonar el repositorio Git: ${errOut}\n`);
+    let cloneSuccess = false;
+    const cleanDir = () => { try { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); } catch (_) {} };
+
+    if (token) {
+      let r = await attemptClone(authedUrl, branch, true);
+      if (r.ok) cloneSuccess = true;
+      else {
+        cleanDir();
+        r = await attemptClone(authedUrl, null, true);
+        if (r.ok) cloneSuccess = true;
+        else {
+          log(`⚠ Falló la autenticación con token. Reintentando sin token por si el repositorio es público...\n\n`);
+          cleanDir();
+          r = await attemptClone(rawRepoUrl, branch, false);
+          if (r.ok) cloneSuccess = true;
+          else {
+            cleanDir();
+            r = await attemptClone(rawRepoUrl, null, false);
+            if (r.ok) cloneSuccess = true;
+          }
+        }
+      }
+    } else {
+      let r = await attemptClone(rawRepoUrl, branch, false);
+      if (r.ok) cloneSuccess = true;
+      else {
+        cleanDir();
+        r = await attemptClone(rawRepoUrl, null, false);
+        if (r.ok) cloneSuccess = true;
+      }
+    }
+
+    if (!cloneSuccess) {
+      log('✖ ERROR CRÍTICO: No se pudo clonar el repositorio Git tras todos los intentos.\n');
+      log('  Verifica que:\n');
+      log('  1. La URL sea correcta y el servidor tenga acceso a internet.\n');
+      log('  2. Si es un repositorio privado, que el Token de acceso tenga permisos de lectura (repo scope).\n');
+      log('  3. La rama especificada exista en el repositorio.\n');
       return finish(1);
     }
-    log('✓ Repositorio clonado correctamente.\n');
+
+    log('✓ Clonado completado con éxito.\n\n');
 
     // 2. Determinar contexto de build y Dockerfile
     let buildCwd = dir;
@@ -673,9 +723,9 @@ router.post('/deploy/git', wrap(async (req, res) => {
       const candidateSub = path.join(dir, cleanSub);
       if (fs.existsSync(candidateSub) && fs.statSync(candidateSub).isDirectory()) {
         buildCwd = candidateSub;
-        log(`✓ Usando subdirectorio de trabajo: ${cleanSub}\n`);
+        log(`✓ Subdirectorio de trabajo configurado: ${cleanSub}\n`);
       } else {
-        log(`⚠ Subdirectorio "${cleanSub}" no encontrado en el repo, usando raíz.\n`);
+        log(`⚠ Subdirectorio "${cleanSub}" no encontrado en el repo. Se usará la raíz del proyecto.\n`);
       }
     }
 
@@ -703,21 +753,24 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
     if (template === 'dockerfile' || (!template && buildDockerfilePath)) {
       if (!buildDockerfilePath) {
-        log('✖ No se encontró ningún Dockerfile en el repositorio ni en las rutas especificadas.\n');
+        log('✖ No se encontró ningún Dockerfile en el repositorio ni en la ruta especificada.\n');
         return finish(1);
       }
-      log(`Usando Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n`);
+      log(`✓ Usando Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n`);
     } else if (buildDockerfilePath) {
-      log(`Se encontró un Dockerfile en ${path.relative(dir, buildDockerfilePath)}: se usará ese en lugar de la plantilla.\n`);
+      log(`✓ Se encontró un Dockerfile en ${path.relative(dir, buildDockerfilePath)}: se usará este archivo.\n`);
     } else {
       buildDockerfilePath = path.join(buildCwd, 'Dockerfile');
       fs.writeFileSync(buildDockerfilePath, tpl.gen(effContainerPort));
-      log(`Dockerfile generado con la plantilla "${tpl.label}".\n`);
+      log(`✓ Dockerfile generado automáticamente con la plantilla "${tpl.label}".\n`);
     }
 
     // 3. Construir la imagen (salida en vivo)
     const imageTag = `txpl-app-${name}`;
-    log(`\n▶ Construyendo la imagen ${imageTag} (esto puede tardar unos minutos)...\n\n`);
+    log(`\n▶ Construyendo la imagen Docker: ${imageTag}...\n`);
+    log(`  Contexto: ${path.relative(dir, buildCwd) || '.'}\n`);
+    log(`  Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n\n`);
+
     const buildArgs = ['build', '-t', imageTag, '-f', buildDockerfilePath, '.'];
 
     const buildCode = await new Promise((resolve) => {
@@ -730,8 +783,8 @@ router.post('/deploy/git', wrap(async (req, res) => {
       child.on('error', (e) => { res.write('\n[error] ' + e.message + '\n'); resolve(1); });
       child.on('close', (c) => resolve(c === null ? 1 : c));
     });
-    if (buildCode !== 0) { log(`\n✖ Falló la construcción de la imagen (código ${buildCode}).\n`); return finish(1); }
-    log('\n✓ Imagen construida correctamente.\n');
+    if (buildCode !== 0) { log(`\n✖ Falló la compilación de la imagen Docker (código de salida ${buildCode}).\n`); return finish(1); }
+    log('\n✓ Imagen compilada correctamente.\n');
 
     // 4. Variables de entorno: inyectar PORT para Node/Python si no está definido
     let effEnvs = typeof envs === 'string' ? envs : '';
@@ -740,31 +793,31 @@ router.post('/deploy/git', wrap(async (req, res) => {
     }
 
     // 5. Crear y arrancar el contenedor
-    log('\n▶ Creando y arrancando el contenedor...\n');
+    log('\n▶ Creando y arrancando contenedor en Docker socket...\n');
     const config = buildContainerConfig({ image: imageTag, envs: effEnvs, hostPort, containerPort: effContainerPort, volumeBind, proxyDomain });
     const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
     if (createRes.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + createRes.body.toString() + '\n'); return finish(1); }
     const containerId = JSON.parse(createRes.body.toString()).Id;
     const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
     if (startRes.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + startRes.body.toString() + '\n'); return finish(1); }
-    log('✓ Contenedor arrancado.\n');
+    log(`✓ Contenedor ${name} arrancado con ID ${containerId.substring(0, 12)}.\n`);
 
     // 6. Red: firewall + dominio + HTTPS (best-effort)
-    if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall.\n`); }
+    if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`); }
     if (proxyDomain) {
-      try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Dominio ${proxyDomain} → puerto ${hostPort} (proxy Nginx activo).\n`); }
-      catch (e) { log(`⚠ El proxy del dominio falló: ${e.message}\n`); }
+      try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`); }
+      catch (e) { log(`⚠ Falló el proxy Nginx del dominio: ${e.message}\n`); }
       if (wantSsl) {
-        try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ HTTPS instalado.\n'); }
-        catch (e) { log(`⚠ HTTPS no se pudo instalar automáticamente: ${e.message}\n`); }
+        try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ SSL Let\'s Encrypt instalado.\n'); }
+        catch (e) { log(`⚠ No se pudo instalar SSL automáticamente: ${e.message}\n`); }
       }
     }
 
-    audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${displayRepoUrl})`);
-    log('\n✅ Despliegue desde Git completado con éxito.\n');
+    audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${sanitizedUrl})`);
+    log('\n✅ DESPLIEGUE DESDE GIT COMPLETADO CON ÉXITO.\n');
     finish(0);
   } catch (e) {
-    log('\n[error] ' + (e.message || e) + '\n');
+    log('\n[error] Excepción en el servidor: ' + (e.message || e) + '\n');
     finish(1);
   }
 }));
