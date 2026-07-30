@@ -563,7 +563,7 @@ router.post('/deploy/build', wrap(async (req, res) => {
 // (logs en vivo), crear y arrancar contenedor y aplicar red (firewall + dominio + HTTPS).
 router.post('/deploy/git', wrap(async (req, res) => {
   const {
-    name, gitRepo, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
+    name, gitRepo, gitToken, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
     hostPort, containerPort, domain, ssl, volumeName, volumePath, envs
   } = req.body || {};
 
@@ -573,10 +573,24 @@ router.post('/deploy/git', wrap(async (req, res) => {
     return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
   }
 
-  const repoUrl = gitRepo.trim();
-  if (!/^https?:\/\/|^git@/i.test(repoUrl)) {
+  const rawRepoUrl = gitRepo.trim();
+  if (!/^https?:\/\/|^git@/i.test(rawRepoUrl)) {
     return fail(res, 400, 'La URL del repositorio debe comenzar por http://, https:// o git@');
   }
+
+  // Construir la URL autenticada si se proporcionó un token y no contenía ya credenciales
+  let cloneUrl = rawRepoUrl;
+  const token = (gitToken && typeof gitToken === 'string') ? gitToken.trim() : '';
+  if (token && !rawRepoUrl.includes('@')) {
+    if (rawRepoUrl.startsWith('https://')) {
+      cloneUrl = rawRepoUrl.replace('https://', `https://${encodeURIComponent(token)}@`);
+    } else if (rawRepoUrl.startsWith('http://')) {
+      cloneUrl = rawRepoUrl.replace('http://', `http://${encodeURIComponent(token)}@`);
+    }
+  }
+
+  // URL sanitizada para logs y auditoría (oculta el token)
+  const displayRepoUrl = cloneUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
 
   const branch = (gitBranch && typeof gitBranch === 'string' && gitBranch.trim()) ? gitBranch.trim() : 'main';
   const tpl = DEPLOY_TEMPLATES[template] || DEPLOY_TEMPLATES.dockerfile;
@@ -629,21 +643,24 @@ router.post('/deploy/git', wrap(async (req, res) => {
     res.end('\n__TXPL_DONE__' + code);
   };
 
+  const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
+
   try {
     // 1. Clonar repositorio Git
-    log(`▶ Clonando el repositorio Git ${repoUrl} (rama: ${branch})...\n`);
-    let cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', branch, repoUrl, '.'], { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+    log(`▶ Clonando el repositorio Git ${displayRepoUrl} (rama: ${branch})...\n`);
+    let cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', branch, cloneUrl, '.'], gitOpts);
 
     // Si falló con -b <branch>, intentar clonar la rama por defecto sin -b
     if (!cloneRes.ok) {
       log(`⚠ Falló clonado en rama "${branch}". Reintentando clonar la rama por defecto del repositorio...\n`);
       fs.rmSync(dir, { recursive: true, force: true });
       fs.mkdirSync(dir, { recursive: true });
-      cloneRes = await runSafe('git', ['clone', '--depth=1', repoUrl, '.'], { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+      cloneRes = await runSafe('git', ['clone', '--depth=1', cloneUrl, '.'], gitOpts);
     }
 
     if (!cloneRes.ok) {
-      log(`✖ Error al clonar el repositorio Git: ${cloneRes.stderr || cloneRes.stdout || 'desconocido'}\n`);
+      const errOut = (cloneRes.stderr || cloneRes.stdout || 'desconocido').replace(/(https?:\/\/)[^@]+@/g, '$1');
+      log(`✖ Error al clonar el repositorio Git: ${errOut}\n`);
       return finish(1);
     }
     log('✓ Repositorio clonado correctamente.\n');
@@ -742,7 +759,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
       }
     }
 
-    audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${repoUrl})`);
+    audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${displayRepoUrl})`);
     log('\n✅ Despliegue desde Git completado con éxito.\n');
     finish(0);
   } catch (e) {

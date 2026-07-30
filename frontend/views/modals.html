@@ -418,6 +418,11 @@
           <input type="text" id="docker-git-repo" placeholder="https://github.com/tecxion/TAK-GAR.git">
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Indica la URL HTTPS del repositorio público o accesible de GitHub/Git.</div>
         </div>
+        <div class="form-group">
+          <label>Token de acceso / PAT (opcional si es privado)</label>
+          <input type="password" id="docker-git-token" placeholder="ghp_... o Personal Access Token">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Obligatorio si el repositorio es privado en GitHub o GitLab.</div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>Rama (Branch)</label>

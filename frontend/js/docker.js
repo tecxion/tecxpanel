@@ -186,7 +186,7 @@ async function createDockerContainer() {
     loadDockerContainers();
 
     // Reset inputs
-    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath', 'docker-create-domain', 'docker-git-repo', 'docker-git-branch', 'docker-git-dockerfile', 'docker-git-subdir'].forEach(id => {
+    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath', 'docker-create-domain', 'docker-git-repo', 'docker-git-branch', 'docker-git-dockerfile', 'docker-git-subdir', 'docker-git-token'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -310,6 +310,7 @@ async function deployDockerApp() {
 async function deployDockerGitApp() {
   const name = document.getElementById('docker-create-name').value.trim();
   const gitRepo = document.getElementById('docker-git-repo').value.trim();
+  const gitToken = document.getElementById('docker-git-token').value.trim();
   const gitBranch = document.getElementById('docker-git-branch').value.trim();
   const dockerfilePath = document.getElementById('docker-git-dockerfile').value.trim();
   const subDir = document.getElementById('docker-git-subdir').value.trim();
@@ -346,6 +347,7 @@ async function deployDockerGitApp() {
       headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name, gitRepo,
+        gitToken: gitToken || undefined,
         gitBranch: gitBranch || undefined,
         dockerfilePath: dockerfilePath || undefined,
         subDir: subDir || undefined,
