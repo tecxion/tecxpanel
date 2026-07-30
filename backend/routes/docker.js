@@ -625,8 +625,10 @@ router.post('/deploy/git', wrap(async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
   const log = (s) => res.write(s);
-  const finish = (code) => {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  const finish = (code, cleanup = true) => {
+    if (cleanup) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+    }
     res.end('\n__TXPL_DONE__' + code);
   };
 
@@ -736,7 +738,101 @@ router.post('/deploy/git', wrap(async (req, res) => {
       fixLfInDir(path.join(dir, 'backend'));
     } catch (_) {}
 
-    // 2. Determinar contexto de build y Dockerfile
+    // 2. Determinar si se usa Docker Compose o Dockerfile individual
+    const hasComposeFile = fs.existsSync(path.join(dir, 'docker-compose.yml')) || fs.existsSync(path.join(dir, 'docker-compose.yaml'));
+    const isComposeMode = template === 'compose' || (template === 'auto' && hasComposeFile);
+
+    let keepDir = false;
+
+    if (isComposeMode) {
+      if (!hasComposeFile && template === 'compose') {
+        log('✖ Se solicitó el modo Docker Compose pero no se encontró docker-compose.yml en la raíz del proyecto.\n');
+        return finish(1);
+      }
+
+      log('✓ Detectado archivo docker-compose.yml. Desplegando pila multicontenedor con Docker Compose...\n');
+      keepDir = true;
+
+      // Escribir archivo .env con las variables de entorno si se especificaron
+      let effEnvs = typeof envs === 'string' ? envs : '';
+      if (effEnvs.trim()) {
+        fs.writeFileSync(path.join(dir, '.env'), effEnvs);
+        log('✓ Archivo .env generado correctamente en la raíz del proyecto.\n');
+      }
+
+      // Heartbeat de 10s para mantener la conexión viva durante la descarga/compilación de servicios
+      const keepAliveTimer = setInterval(() => {
+        try { res.write(' '); } catch (_) {}
+      }, 10_000);
+
+      log('\n▶ Ejecutando: docker compose up -d --build --remove-orphans...\n\n');
+      let composeCode = await new Promise((resolve) => {
+        let child;
+        try {
+          child = spawn('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+        } catch (e) {
+          clearInterval(keepAliveTimer);
+          res.write('[error] No se pudo iniciar docker compose: ' + e.message + '\n');
+          return resolve(1);
+        }
+        child.stdout.on('data', (d) => res.write(d));
+        child.stderr.on('data', (d) => res.write(d));
+        child.on('error', (e) => {
+          clearInterval(keepAliveTimer);
+          res.write('\n[error] ' + e.message + '\n');
+          resolve(1);
+        });
+        child.on('close', (c) => resolve(c === null ? 1 : c));
+      });
+
+      if (composeCode !== 0) {
+        log('\n⚠ Reintentando con comando legacy docker-compose...\n');
+        composeCode = await new Promise((resolve) => {
+          let child;
+          try {
+            child = spawn('docker-compose', ['up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+          } catch (e) {
+            clearInterval(keepAliveTimer);
+            res.write('[error] No se pudo iniciar docker-compose: ' + e.message + '\n');
+            return resolve(1);
+          }
+          child.stdout.on('data', (d) => res.write(d));
+          child.stderr.on('data', (d) => res.write(d));
+          child.on('error', (e) => {
+            clearInterval(keepAliveTimer);
+            res.write('\n[error] ' + e.message + '\n');
+            resolve(1);
+          });
+          child.on('close', (c) => resolve(c === null ? 1 : c));
+        });
+      }
+
+      clearInterval(keepAliveTimer);
+
+      if (composeCode !== 0) {
+        log(`\n✖ Falló la compilación/arranque de Docker Compose (código de salida ${composeCode}).\n`);
+        return finish(1, false);
+      }
+
+      log('\n✓ Servicios de Docker Compose construidos y arrancados correctamente.\n');
+
+      // Red opcional para el puerto host y proxy del dominio
+      if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`); }
+      if (proxyDomain && hostPort) {
+        try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`); }
+        catch (e) { log(`⚠ Falló el proxy Nginx del dominio: ${e.message}\n`); }
+        if (wantSsl) {
+          try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ SSL Let\'s Encrypt instalado.\n'); }
+          catch (e) { log(`⚠ No se pudo instalar SSL automáticamente: ${e.message}\n`); }
+        }
+      }
+
+      audit(req.user.username, clientIp(req), 'docker.deploy_git_compose', `${name} (${sanitizedUrl})`);
+      log('\n✅ DESPLIEGUE MULTICONTENEDOR DESDE GIT COMPLETADO CON ÉXITO.\n');
+      return finish(0, false);
+    }
+
+    // 3. Determinar contexto de build y Dockerfile (Modo contenedor individual)
     let buildCwd = dir;
     if (subDir && typeof subDir === 'string' && subDir.trim()) {
       const cleanSub = subDir.trim().replace(/^\/+|\/+$/g, '');
@@ -785,7 +881,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
       log(`✓ Dockerfile generado automáticamente con la plantilla "${tpl.label}".\n`);
     }
 
-    // 3. Construir la imagen (salida en vivo con heartbeat anti-timeout)
+    // 4. Construir la imagen (salida en vivo con heartbeat anti-timeout)
     const imageTag = `txpl-app-${name}`;
     log(`\n▶ Construyendo la imagen Docker: ${imageTag}...\n`);
     log(`  Contexto: ${path.relative(dir, buildCwd) || '.'}\n`);
@@ -822,13 +918,13 @@ router.post('/deploy/git', wrap(async (req, res) => {
     if (buildCode !== 0) { log(`\n✖ Falló la compilación de la imagen Docker (código de salida ${buildCode}).\n`); return finish(1); }
     log('\n✓ Imagen compilada correctamente.\n');
 
-    // 4. Variables de entorno: inyectar PORT para Node/Python si no está definido
+    // 5. Variables de entorno: inyectar PORT para Node/Python si no está definido
     let effEnvs = typeof envs === 'string' ? envs : '';
     if ((template === 'node' || template === 'python') && effContainerPort && !/^\s*PORT\s*=/m.test(effEnvs)) {
       effEnvs = (effEnvs ? effEnvs + '\n' : '') + `PORT=${effContainerPort}`;
     }
 
-    // 5. Crear y arrancar el contenedor (elimina contenedor previo con el mismo nombre si existía)
+    // 6. Crear y arrancar el contenedor (elimina contenedor previo con el mismo nombre si existía)
     log('\n▶ Creando y arrancando contenedor en Docker socket...\n');
     if (name) {
       try {
@@ -843,7 +939,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
     if (startRes.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + startRes.body.toString() + '\n'); return finish(1); }
     log(`✓ Contenedor ${name} arrancado con ID ${containerId.substring(0, 12)}.\n`);
 
-    // 6. Red: firewall + dominio + HTTPS (best-effort)
+    // 7. Red: firewall + dominio + HTTPS (best-effort)
     if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`); }
     if (proxyDomain) {
       try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`); }

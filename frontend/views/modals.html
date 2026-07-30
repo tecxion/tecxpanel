@@ -429,8 +429,10 @@
             <input type="text" id="docker-git-branch" placeholder="main">
           </div>
           <div class="form-group">
-            <label>Plantilla (si no hay Dockerfile)</label>
+            <label>Modo de compilación / Plantilla</label>
             <select id="docker-git-template">
+              <option value="auto" selected>Auto-detectar (docker-compose.yml o Dockerfile)</option>
+              <option value="compose">Docker Compose (docker-compose.yml)</option>
               <option value="dockerfile">Usar Dockerfile del repositorio</option>
               <option value="node">Node.js</option>
               <option value="python">Python</option>
