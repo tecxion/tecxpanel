@@ -828,8 +828,13 @@ router.post('/deploy/git', wrap(async (req, res) => {
       effEnvs = (effEnvs ? effEnvs + '\n' : '') + `PORT=${effContainerPort}`;
     }
 
-    // 5. Crear y arrancar el contenedor
+    // 5. Crear y arrancar el contenedor (elimina contenedor previo con el mismo nombre si existía)
     log('\n▶ Creando y arrancando contenedor en Docker socket...\n');
+    if (name) {
+      try {
+        await dockerRequest('DELETE', `/containers/${encodeURIComponent(name.trim())}?v=1&force=1`);
+      } catch (_) {}
+    }
     const config = buildContainerConfig({ image: imageTag, envs: effEnvs, hostPort, containerPort: effContainerPort, volumeBind, proxyDomain });
     const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
     if (createRes.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + createRes.body.toString() + '\n'); return finish(1); }
