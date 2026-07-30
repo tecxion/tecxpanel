@@ -8,6 +8,7 @@ const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { isValidDomain, RE_APP_NAME } = require('../lib/validators');
 const nginx = require('../lib/nginx');
+const dockerDeploy = require('../lib/dockerDeploy');
 const { audit } = require('../database');
 
 const router = express.Router();
@@ -17,6 +18,28 @@ const DOCKER_BUILDS_DIR = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data',
 // Nombre del vhost de Nginx asociado a un contenedor con dominio. Se usa el
 // dominio para poder localizarlo y borrarlo al eliminar el contenedor.
 const dockerConfName = (domain) => `txpl-docker-${domain}`;
+
+// Capa de red de un despliegue Docker (best-effort, con salida en vivo via `log`):
+// abre el puerto en UFW, publica el proxy Nginx del dominio y, si se pide, instala SSL.
+// Reutilizado por los despliegues por streaming (build, git single y git compose).
+async function applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl }) {
+  if (hostPort) {
+    await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
+    log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`);
+  }
+  if (proxyDomain && hostPort) {
+    try {
+      await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false }));
+      log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`);
+    } catch (e) {
+      log(`⚠ El proxy del dominio falló: ${e.message}\n`);
+    }
+    if (wantSsl) {
+      try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ HTTPS (SSL) instalado.\n'); }
+      catch (e) { log(`⚠ HTTPS no se pudo instalar automáticamente: ${e.message}\n`); }
+    }
+  }
+}
 
 // Helper to make native HTTP requests to the Docker UNIX socket
 function dockerRequest(method, path, body = null) {
@@ -446,20 +469,22 @@ router.post('/deploy/build', wrap(async (req, res) => {
   if (!fs.existsSync(path.join(dir, 'upload.zip'))) return fail(res, 400, 'Primero sube el código de tu app (ZIP).');
 
   // Volumen persistente (opcional)
-  let volumeBind = null;
-  if (volumeName || volumePath) {
-    const vName = String(volumeName || '').trim();
-    const vPath = String(volumePath || '').trim();
-    if (!vName || !vPath) return fail(res, 400, 'Para el volumen indica el nombre y la ruta, o deja ambos vacíos.');
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(vName)) return fail(res, 400, 'Nombre de volumen inválido.');
-    if (!vPath.startsWith('/') || vPath.includes('..')) return fail(res, 400, 'La ruta del contenedor debe ser absoluta y sin "..".');
-    volumeBind = `${vName}:${vPath}`;
-  }
+  const volChk = dockerDeploy.parseVolumeBind(volumeName, volumePath);
+  if (!volChk.ok) return fail(res, 400, volChk.error);
+  const volumeBind = volChk.bind;
 
   // Puerto interno efectivo según la plantilla
   let effContainerPort;
-  if (tpl.fixedPort) effContainerPort = tpl.containerPort;
-  else effContainerPort = containerPort ? parseInt(containerPort, 10) : tpl.containerPort;
+  if (tpl.fixedPort) {
+    effContainerPort = tpl.containerPort;
+  } else if (containerPort) {
+    effContainerPort = parseInt(containerPort, 10);
+    if (!Number.isInteger(effContainerPort) || effContainerPort < 1 || effContainerPort > 65535) {
+      return fail(res, 400, 'Puerto Contenedor inválido (debe ser un número entre 1 y 65535).');
+    }
+  } else {
+    effContainerPort = tpl.containerPort;
+  }
 
   // Dominio (opcional) → necesita puerto host y puerto interno conocido
   let proxyDomain = null;
@@ -540,15 +565,7 @@ router.post('/deploy/build', wrap(async (req, res) => {
     log('✓ Contenedor arrancado.\n');
 
     // 6. Red: firewall + dominio + HTTPS (best-effort)
-    if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall.\n`); }
-    if (proxyDomain) {
-      try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Dominio ${proxyDomain} → puerto ${hostPort} (proxy Nginx activo).\n`); }
-      catch (e) { log(`⚠ El proxy del dominio falló: ${e.message}\n`); }
-      if (wantSsl) {
-        try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ HTTPS instalado.\n'); }
-        catch (e) { log(`⚠ HTTPS no se pudo instalar automáticamente: ${e.message}\n`); }
-      }
-    }
+    await applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl });
 
     audit(req.user.username, clientIp(req), 'docker.deploy', `${name} (${tpl.label})`);
     log('\n✅ Despliegue completado con éxito.\n');
@@ -571,13 +588,9 @@ router.post('/deploy/git', wrap(async (req, res) => {
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido (letras, números, - y _).');
 
   // Puerto host (1-65535) si se indica; null si se deja vacío.
-  let hostPort = null;
-  if (hostPortRaw !== undefined && hostPortRaw !== null && String(hostPortRaw).trim() !== '') {
-    hostPort = parseInt(hostPortRaw, 10);
-    if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) {
-      return fail(res, 400, 'Puerto Host inválido (debe ser un número entre 1 y 65535).');
-    }
-  }
+  const hpChk = dockerDeploy.validatePort(hostPortRaw);
+  if (!hpChk.ok) return fail(res, 400, 'Puerto Host inválido (debe ser un número entre 1 y 65535).');
+  const hostPort = hpChk.port;
   if (!gitRepo || typeof gitRepo !== 'string' || !gitRepo.trim()) {
     return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
   }
@@ -592,20 +605,22 @@ router.post('/deploy/git', wrap(async (req, res) => {
   const tpl = DEPLOY_TEMPLATES[template] || DEPLOY_TEMPLATES.dockerfile;
 
   // Volumen persistente (opcional)
-  let volumeBind = null;
-  if (volumeName || volumePath) {
-    const vName = String(volumeName || '').trim();
-    const vPath = String(volumePath || '').trim();
-    if (!vName || !vPath) return fail(res, 400, 'Para el volumen indica el nombre y la ruta, o deja ambos vacíos.');
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(vName)) return fail(res, 400, 'Nombre de volumen inválido.');
-    if (!vPath.startsWith('/') || vPath.includes('..')) return fail(res, 400, 'La ruta del contenedor debe ser absoluta y sin "..".');
-    volumeBind = `${vName}:${vPath}`;
-  }
+  const volChk = dockerDeploy.parseVolumeBind(volumeName, volumePath);
+  if (!volChk.ok) return fail(res, 400, volChk.error);
+  const volumeBind = volChk.bind;
 
   // Puerto interno efectivo según la plantilla
   let effContainerPort;
-  if (tpl.fixedPort) effContainerPort = tpl.containerPort;
-  else effContainerPort = containerPort ? parseInt(containerPort, 10) : tpl.containerPort;
+  if (tpl.fixedPort) {
+    effContainerPort = tpl.containerPort;
+  } else if (containerPort) {
+    effContainerPort = parseInt(containerPort, 10);
+    if (!Number.isInteger(effContainerPort) || effContainerPort < 1 || effContainerPort > 65535) {
+      return fail(res, 400, 'Puerto Contenedor inválido (debe ser un número entre 1 y 65535).');
+    }
+  } else {
+    effContainerPort = tpl.containerPort;
+  }
 
   // Dominio (opcional)
   let proxyDomain = null;
@@ -670,27 +685,13 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
   const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
 
-  // Autenticación sin exponer el token: se envía como cabecera Authorization vía
-  // variables de entorno GIT_CONFIG_* (git >= 2.31). Así el token NO aparece en la
-  // línea de comandos (ps aux) ni queda escrito en .git/config del repo clonado.
-  const sanitizedUrl = rawRepoUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
-  let authEnv = {};
-  if (token && !rawRepoUrl.includes('@') && /^https?:\/\//i.test(rawRepoUrl)) {
-    const cred = token.includes(':') ? token : `x-access-token:${token}`;
-    const basic = Buffer.from(cred).toString('base64');
-    authEnv = {
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: 'http.extraHeader',
-      GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
-    };
-  }
+  // Autenticación sin exponer el token (cabecera vía GIT_CONFIG_*, no en argv ni
+  // en .git/config) y URL saneada para mostrar en logs. Ver lib/dockerDeploy.
+  const sanitizedUrl = dockerDeploy.sanitizeRepoUrl(rawRepoUrl);
+  const authEnv = dockerDeploy.buildGitAuthEnv(token, rawRepoUrl);
 
   // Jaula: una ruta derivada del repo (subdirectorio, Dockerfile) nunca debe salir de `dir`.
-  const insideBuild = (p) => {
-    const r = path.resolve(p);
-    const base = path.resolve(dir);
-    return r === base || r.startsWith(base + path.sep);
-  };
+  const insideBuild = (p) => dockerDeploy.isInsideBase(dir, p);
 
   try {
     log('=================================================================\n');
@@ -837,15 +838,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
       log('\n✓ Servicios de Docker Compose construidos y arrancados correctamente.\n');
 
       // Red opcional para el puerto host y proxy del dominio
-      if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`); }
-      if (proxyDomain && hostPort) {
-        try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`); }
-        catch (e) { log(`⚠ Falló el proxy Nginx del dominio: ${e.message}\n`); }
-        if (wantSsl) {
-          try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ SSL Let\'s Encrypt instalado.\n'); }
-          catch (e) { log(`⚠ No se pudo instalar SSL automáticamente: ${e.message}\n`); }
-        }
-      }
+      await applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl });
 
       audit(req.user.username, clientIp(req), 'docker.deploy_git_compose', `${name} (${sanitizedUrl})`);
       log('\n✅ DESPLIEGUE MULTICONTENEDOR DESDE GIT COMPLETADO CON ÉXITO.\n');
@@ -951,15 +944,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
     log(`✓ Contenedor ${name} arrancado con ID ${containerId.substring(0, 12)}.\n`);
 
     // 7. Red: firewall + dominio + HTTPS (best-effort)
-    if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`); }
-    if (proxyDomain) {
-      try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`); }
-      catch (e) { log(`⚠ Falló el proxy Nginx del dominio: ${e.message}\n`); }
-      if (wantSsl) {
-        try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ SSL Let\'s Encrypt instalado.\n'); }
-        catch (e) { log(`⚠ No se pudo instalar SSL automáticamente: ${e.message}\n`); }
-      }
-    }
+    await applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl });
 
     audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${sanitizedUrl})`);
     log('\n✅ DESPLIEGUE DESDE GIT COMPLETADO CON ÉXITO.\n');

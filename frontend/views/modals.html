@@ -413,6 +413,10 @@
 
       <!-- Git section (desplegar desde GitHub / Git) -->
       <div id="docker-git-section" style="display:none">
+        <div style="font-size:12px;background:rgba(232,160,32,0.12);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:1rem;color:var(--text-secondary)">
+          <i class="ti ti-alert-triangle" style="color:var(--accent)"></i>
+          Despliega solo repositorios en los que confías: su <strong>Dockerfile</strong> o <strong>docker-compose.yml</strong> se ejecuta en tu servidor con acceso al sistema.
+        </div>
         <div class="form-group">
           <label>URL del Repositorio Git / GitHub</label>
           <input type="text" id="docker-git-repo" placeholder="https://github.com/tecxion/TAK-GAR.git">
