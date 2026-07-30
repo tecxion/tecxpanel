@@ -716,6 +716,26 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
     log('✓ Clonado completado con éxito.\n\n');
 
+    // Normalizar finales de línea (CRLF -> LF) en scripts ejecutables (gradlew, mvnw, *.sh)
+    try {
+      const fixLfInDir = (targetDir) => {
+        if (!fs.existsSync(targetDir)) return;
+        const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+        for (const e of entries) {
+          const fullPath = path.join(targetDir, e.name);
+          if (e.isFile() && (e.name === 'gradlew' || e.name === 'mvnw' || e.name.endsWith('.sh'))) {
+            const content = fs.readFileSync(fullPath, 'utf8');
+            if (content.includes('\r')) {
+              fs.writeFileSync(fullPath, content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+              log(`✓ Finales de línea corregidos (CRLF -> LF) en ${path.relative(dir, fullPath)}\n`);
+            }
+          }
+        }
+      };
+      fixLfInDir(dir);
+      fixLfInDir(path.join(dir, 'backend'));
+    } catch (_) {}
+
     // 2. Determinar contexto de build y Dockerfile
     let buildCwd = dir;
     if (subDir && typeof subDir === 'string' && subDir.trim()) {
@@ -771,7 +791,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
     log(`  Contexto: ${path.relative(dir, buildCwd) || '.'}\n`);
     log(`  Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n\n`);
 
-    const buildArgs = ['build', '-t', imageTag, '-f', buildDockerfilePath, '.'];
+    const buildArgs = ['build', '--no-cache', '-t', imageTag, '-f', buildDockerfilePath, '.'];
 
     const buildCode = await new Promise((resolve) => {
       let child;
