@@ -582,14 +582,15 @@ router.post('/deploy/git', wrap(async (req, res) => {
   let cloneUrl = rawRepoUrl;
   const token = (gitToken && typeof gitToken === 'string') ? gitToken.trim() : '';
   if (token && !rawRepoUrl.includes('@')) {
+    const auth = token.includes(':') ? token : `x-access-token:${encodeURIComponent(token)}`;
     if (rawRepoUrl.startsWith('https://')) {
-      cloneUrl = rawRepoUrl.replace('https://', `https://${encodeURIComponent(token)}@`);
+      cloneUrl = rawRepoUrl.replace('https://', `https://${auth}@`);
     } else if (rawRepoUrl.startsWith('http://')) {
-      cloneUrl = rawRepoUrl.replace('http://', `http://${encodeURIComponent(token)}@`);
+      cloneUrl = rawRepoUrl.replace('http://', `http://${auth}@`);
     }
   }
 
-  // URL sanitizada para logs y auditoría (oculta el token)
+  // URL sanitizada para logs y auditoría (oculta el token o credenciales de la URL)
   const displayRepoUrl = cloneUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
 
   const branch = (gitBranch && typeof gitBranch === 'string' && gitBranch.trim()) ? gitBranch.trim() : 'main';
