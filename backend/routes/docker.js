@@ -766,40 +766,40 @@ router.post('/deploy/git', wrap(async (req, res) => {
       }, 10_000);
 
       log('\n▶ Ejecutando: docker compose up -d --build --remove-orphans...\n\n');
-      let composeCode = await new Promise((resolve) => {
+      let composeCode = 1;
+      let composeEnoent = false;
+
+      composeCode = await new Promise((resolve) => {
         let child;
         try {
           child = spawn('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
         } catch (e) {
-          clearInterval(keepAliveTimer);
-          res.write('[error] No se pudo iniciar docker compose: ' + e.message + '\n');
+          if (e.code === 'ENOENT') composeEnoent = true;
           return resolve(1);
         }
         child.stdout.on('data', (d) => res.write(d));
         child.stderr.on('data', (d) => res.write(d));
         child.on('error', (e) => {
-          clearInterval(keepAliveTimer);
-          res.write('\n[error] ' + e.message + '\n');
+          if (e.code === 'ENOENT') composeEnoent = true;
+          else res.write('\n[error] ' + e.message + '\n');
           resolve(1);
         });
         child.on('close', (c) => resolve(c === null ? 1 : c));
       });
 
-      if (composeCode !== 0) {
-        log('\n⚠ Reintentando con comando legacy docker-compose...\n');
+      if (composeEnoent) {
+        log('\n⚠ Comandos "docker compose" no encontrado. Reintentando con comando legacy docker-compose...\n');
         composeCode = await new Promise((resolve) => {
           let child;
           try {
             child = spawn('docker-compose', ['up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
           } catch (e) {
-            clearInterval(keepAliveTimer);
             res.write('[error] No se pudo iniciar docker-compose: ' + e.message + '\n');
             return resolve(1);
           }
           child.stdout.on('data', (d) => res.write(d));
           child.stderr.on('data', (d) => res.write(d));
           child.on('error', (e) => {
-            clearInterval(keepAliveTimer);
             res.write('\n[error] ' + e.message + '\n');
             resolve(1);
           });
