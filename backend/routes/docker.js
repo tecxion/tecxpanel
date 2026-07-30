@@ -785,7 +785,7 @@ router.post('/deploy/git', wrap(async (req, res) => {
       log(`✓ Dockerfile generado automáticamente con la plantilla "${tpl.label}".\n`);
     }
 
-    // 3. Construir la imagen (salida en vivo)
+    // 3. Construir la imagen (salida en vivo con heartbeat anti-timeout)
     const imageTag = `txpl-app-${name}`;
     log(`\n▶ Construyendo la imagen Docker: ${imageTag}...\n`);
     log(`  Contexto: ${path.relative(dir, buildCwd) || '.'}\n`);
@@ -793,15 +793,31 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
     const buildArgs = ['build', '--no-cache', '-t', imageTag, '-f', buildDockerfilePath, '.'];
 
+    // Heartbeat de 10s para evitar timeout de Nginx/proxy (proxy_read_timeout 60s) durante compilaciones largas (Gradle/Kotlin)
+    const keepAliveTimer = setInterval(() => {
+      try { res.write(' '); } catch (_) {}
+    }, 10_000);
+
     const buildCode = await new Promise((resolve) => {
       let child;
       try {
         child = spawn('docker', buildArgs, { cwd: buildCwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
-      } catch (e) { res.write('[error] No se pudo iniciar docker build: ' + e.message + '\n'); return resolve(1); }
+      } catch (e) {
+        clearInterval(keepAliveTimer);
+        res.write('[error] No se pudo iniciar docker build: ' + e.message + '\n');
+        return resolve(1);
+      }
       child.stdout.on('data', (d) => res.write(d));
       child.stderr.on('data', (d) => res.write(d));
-      child.on('error', (e) => { res.write('\n[error] ' + e.message + '\n'); resolve(1); });
-      child.on('close', (c) => resolve(c === null ? 1 : c));
+      child.on('error', (e) => {
+        clearInterval(keepAliveTimer);
+        res.write('\n[error] ' + e.message + '\n');
+        resolve(1);
+      });
+      child.on('close', (c) => {
+        clearInterval(keepAliveTimer);
+        resolve(c === null ? 1 : c);
+      });
     });
     if (buildCode !== 0) { log(`\n✖ Falló la compilación de la imagen Docker (código de salida ${buildCode}).\n`); return finish(1); }
     log('\n✓ Imagen compilada correctamente.\n');
