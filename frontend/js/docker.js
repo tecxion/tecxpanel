@@ -95,16 +95,20 @@ function switchDockerTab(tab) {
   document.getElementById('tab-docker-image').classList.toggle('active', tab === 'image');
   document.getElementById('tab-docker-file').classList.toggle('active', tab === 'file');
   document.getElementById('tab-docker-deploy').classList.toggle('active', tab === 'deploy');
+  document.getElementById('tab-docker-git').classList.toggle('active', tab === 'git');
   document.getElementById('docker-image-section').style.display = tab === 'image' ? 'block' : 'none';
   document.getElementById('docker-file-section').style.display = tab === 'file' ? 'block' : 'none';
   document.getElementById('docker-deploy-section').style.display = tab === 'deploy' ? 'block' : 'none';
+  document.getElementById('docker-git-section').style.display = tab === 'git' ? 'block' : 'none';
   // El botón cambia de texto según la pestaña
   const btn = document.getElementById('docker-create-btn');
-  if (btn) btn.innerHTML = tab === 'deploy'
-    ? '<i class="ti ti-rocket"></i> Desplegar'
-    : '<i class="ti ti-plus"></i> Crear y Arrancar';
-  if (tab !== 'deploy') document.getElementById('docker-deploy-progress').style.display = 'none';
-  else onDeployTemplateChange();
+  if (btn) {
+    if (tab === 'deploy') btn.innerHTML = '<i class="ti ti-rocket"></i> Desplegar';
+    else if (tab === 'git') btn.innerHTML = '<i class="ti ti-brand-github"></i> Desplegar desde Git';
+    else btn.innerHTML = '<i class="ti ti-plus"></i> Crear y Arrancar';
+  }
+  if (tab !== 'deploy' && tab !== 'git') document.getElementById('docker-deploy-progress').style.display = 'none';
+  else if (tab === 'deploy') onDeployTemplateChange();
 }
 
 // Ajusta la ayuda y el puerto interno por defecto según la plantilla elegida.
@@ -128,6 +132,7 @@ function onDeployTemplateChange() {
 // pestaña activa es "Desplegar mi app", delega en deployDockerApp().
 async function createDockerContainer() {
   if (currentDockerTab === 'deploy') { deployDockerApp(); return; }
+  if (currentDockerTab === 'git') { deployDockerGitApp(); return; }
   const name = document.getElementById('docker-create-name').value.trim();
   const hostPort = document.getElementById('docker-create-hostport').value.trim();
   const containerPort = document.getElementById('docker-create-contport').value.trim();
@@ -181,7 +186,7 @@ async function createDockerContainer() {
     loadDockerContainers();
 
     // Reset inputs
-    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath', 'docker-create-domain'].forEach(id => {
+    ['docker-create-name', 'docker-create-image', 'docker-create-file', 'docker-create-hostport', 'docker-create-contport', 'docker-create-envs', 'docker-create-volname', 'docker-create-volpath', 'docker-create-domain', 'docker-git-repo', 'docker-git-branch', 'docker-git-dockerfile', 'docker-git-subdir'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -300,6 +305,97 @@ async function deployDockerApp() {
     setTimeout(() => closeModal('modal-new-container'), 2500);
   }
 }
+
+// Asistente "Desplegar desde Git": clona repo, construye Dockerfile/plantilla y arranca con logs en vivo.
+async function deployDockerGitApp() {
+  const name = document.getElementById('docker-create-name').value.trim();
+  const gitRepo = document.getElementById('docker-git-repo').value.trim();
+  const gitBranch = document.getElementById('docker-git-branch').value.trim();
+  const dockerfilePath = document.getElementById('docker-git-dockerfile').value.trim();
+  const subDir = document.getElementById('docker-git-subdir').value.trim();
+  const template = document.getElementById('docker-git-template').value;
+  const hostPort = document.getElementById('docker-create-hostport').value.trim();
+  const containerPort = document.getElementById('docker-create-contport').value.trim();
+  const domain = document.getElementById('docker-create-domain').value.trim();
+  const ssl = document.getElementById('docker-create-ssl').checked;
+  const envs = document.getElementById('docker-create-envs').value;
+  const volumeName = document.getElementById('docker-create-volname').value.trim();
+  const volumePath = document.getElementById('docker-create-volpath').value.trim();
+
+  if (!gitRepo) { toast('Indica la URL del repositorio Git / GitHub', 'error'); return; }
+  if (!name) { toast('Indica un nombre para tu app / contenedor', 'error'); return; }
+  if (!/^[a-zA-Z0-9_-]{1,40}$/.test(name)) { toast('Nombre inválido (letras, números, - y _)', 'error'); return; }
+  if ((volumeName && !volumePath) || (!volumeName && volumePath)) { toast('Para el volumen, rellena nombre y ruta o deja ambos vacíos', 'error'); return; }
+  if (domain && !hostPort) { toast('Para usar un dominio indica también el Puerto Host', 'error'); return; }
+
+  const progress = document.getElementById('docker-deploy-progress');
+  const logEl = document.getElementById('docker-deploy-log');
+  const spinner = document.getElementById('docker-deploy-spinner');
+  const btn = document.getElementById('docker-create-btn');
+  progress.style.display = 'block';
+  spinner.style.display = 'inline';
+  btn.disabled = true;
+  logEl.textContent = 'Conectando con el servidor e iniciando el clonado de Git...\n';
+
+  const DONE = '__TXPL_DONE__';
+  let exitCode = 1;
+
+  try {
+    const r = await fetch(API + '/api/docker/deploy/git', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, gitRepo,
+        gitBranch: gitBranch || undefined,
+        dockerfilePath: dockerfilePath || undefined,
+        subDir: subDir || undefined,
+        template,
+        hostPort: hostPort ? parseInt(hostPort, 10) : undefined,
+        containerPort: containerPort ? parseInt(containerPort, 10) : undefined,
+        domain: domain || undefined,
+        ssl: ssl || undefined,
+        volumeName: volumeName || undefined,
+        volumePath: volumePath || undefined,
+        envs: envs || undefined
+      })
+    });
+    if (r.status === 401) { doLogout(); return; }
+    if (r.status >= 400) {
+      const j = await r.json().catch(() => ({}));
+      logEl.textContent += '✖ ' + (j.error || ('Error ' + r.status)) + '\n';
+      spinner.style.display = 'none'; btn.disabled = false;
+      toast(j.error || 'Error al desplegar desde Git', 'error');
+      return;
+    }
+    if (!r.body) { logEl.textContent += 'El navegador no soporta streaming.'; spinner.style.display = 'none'; btn.disabled = false; return; }
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += dec.decode(value, { stream: true });
+      let display = buffer;
+      const idx = buffer.indexOf(DONE);
+      if (idx >= 0) { exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0; display = buffer.slice(0, idx); }
+      logEl.textContent = display;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  } catch (e) {
+    logEl.textContent += '\n✖ Error de conexión: ' + (e?.message || e) + '\n';
+  }
+
+  spinner.style.display = 'none';
+  btn.disabled = false;
+  const success = exitCode === 0;
+  toast(success ? 'App desplegada desde Git con éxito' : 'El despliegue desde Git terminó con errores', success ? 'success' : 'error');
+  loadDockerContainers();
+  if (success) {
+    setTimeout(() => closeModal('modal-new-container'), 2500);
+  }
+}
+
 
 // deleteDockerContainer: elimina un contenedor (con confirmación).
 async function deleteDockerContainer(id, name) {

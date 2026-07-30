@@ -364,7 +364,8 @@
       <div class="tabs" style="margin-bottom:1.25rem">
         <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i class="ti ti-brand-docker"></i> Usar Imagen</div>
         <div class="tab" id="tab-docker-file" onclick="switchDockerTab('file')"><i class="ti ti-file-code"></i> Escribir Dockerfile</div>
-        <div class="tab" id="tab-docker-deploy" onclick="switchDockerTab('deploy')"><i class="ti ti-rocket"></i> Desplegar mi app</div>
+        <div class="tab" id="tab-docker-deploy" onclick="switchDockerTab('deploy')"><i class="ti ti-rocket"></i> Subir ZIP</div>
+        <div class="tab" id="tab-docker-git" onclick="switchDockerTab('git')"><i class="ti ti-brand-github"></i> Desplegar desde Git</div>
       </div>
 
       <div class="form-group">
@@ -390,7 +391,7 @@
         </div>
       </div>
 
-      <!-- Deploy section (asistente) -->
+      <!-- Deploy section (asistente ZIP) -->
       <div id="docker-deploy-section" style="display:none">
         <div class="form-group">
           <label>Tipo de aplicación (plantilla)</label>
@@ -407,6 +408,43 @@
           <label>Código de tu app (archivo .zip)</label>
           <input type="file" id="docker-deploy-file" accept=".zip">
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sube tu proyecto comprimido en .zip. El panel generará el Dockerfile, construirá la imagen y arrancará el contenedor. Indica un <strong>Nombre</strong> y un <strong>Puerto Host</strong> abajo.</div>
+        </div>
+      </div>
+
+      <!-- Git section (desplegar desde GitHub / Git) -->
+      <div id="docker-git-section" style="display:none">
+        <div class="form-group">
+          <label>URL del Repositorio Git / GitHub</label>
+          <input type="text" id="docker-git-repo" placeholder="https://github.com/tecxion/TAK-GAR.git">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Indica la URL HTTPS del repositorio público o accesible de GitHub/Git.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Rama (Branch)</label>
+            <input type="text" id="docker-git-branch" placeholder="main">
+          </div>
+          <div class="form-group">
+            <label>Plantilla (si no hay Dockerfile)</label>
+            <select id="docker-git-template">
+              <option value="dockerfile">Usar Dockerfile del repositorio</option>
+              <option value="node">Node.js</option>
+              <option value="python">Python</option>
+              <option value="php">PHP</option>
+              <option value="static">Sitio estático</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Ruta del Dockerfile (opcional)</label>
+            <input type="text" id="docker-git-dockerfile" placeholder="backend/Dockerfile">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ruta relativa dentro del repositorio si no está en la raíz (ej: backend/Dockerfile).</div>
+          </div>
+          <div class="form-group">
+            <label>Subdirectorio de la app (opcional)</label>
+            <input type="text" id="docker-git-subdir" placeholder="backend">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Carpeta raíz de la app si está en una subcarpeta (ej: backend).</div>
+          </div>
         </div>
       </div>
 

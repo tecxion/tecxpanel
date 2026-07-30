@@ -559,6 +559,198 @@ router.post('/deploy/build', wrap(async (req, res) => {
   }
 }));
 
+// Paso 3 (Asistente Git): clonar repositorio desde GitHub/Git, compilar Dockerfile/plantilla
+// (logs en vivo), crear y arrancar contenedor y aplicar red (firewall + dominio + HTTPS).
+router.post('/deploy/git', wrap(async (req, res) => {
+  const {
+    name, gitRepo, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
+    hostPort, containerPort, domain, ssl, volumeName, volumePath, envs
+  } = req.body || {};
+
+  // ── Validaciones previas (responden JSON antes de empezar a transmitir) ──
+  if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido (letras, números, - y _).');
+  if (!gitRepo || typeof gitRepo !== 'string' || !gitRepo.trim()) {
+    return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
+  }
+
+  const repoUrl = gitRepo.trim();
+  if (!/^https?:\/\/|^git@/i.test(repoUrl)) {
+    return fail(res, 400, 'La URL del repositorio debe comenzar por http://, https:// o git@');
+  }
+
+  const branch = (gitBranch && typeof gitBranch === 'string' && gitBranch.trim()) ? gitBranch.trim() : 'main';
+  const tpl = DEPLOY_TEMPLATES[template] || DEPLOY_TEMPLATES.dockerfile;
+
+  // Volumen persistente (opcional)
+  let volumeBind = null;
+  if (volumeName || volumePath) {
+    const vName = String(volumeName || '').trim();
+    const vPath = String(volumePath || '').trim();
+    if (!vName || !vPath) return fail(res, 400, 'Para el volumen indica el nombre y la ruta, o deja ambos vacíos.');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(vName)) return fail(res, 400, 'Nombre de volumen inválido.');
+    if (!vPath.startsWith('/') || vPath.includes('..')) return fail(res, 400, 'La ruta del contenedor debe ser absoluta y sin "..".');
+    volumeBind = `${vName}:${vPath}`;
+  }
+
+  // Puerto interno efectivo según la plantilla
+  let effContainerPort;
+  if (tpl.fixedPort) effContainerPort = tpl.containerPort;
+  else effContainerPort = containerPort ? parseInt(containerPort, 10) : tpl.containerPort;
+
+  // Dominio (opcional) → necesita puerto host y puerto interno conocido
+  let proxyDomain = null;
+  const wantSsl = ssl === true || ssl === 'true';
+  if (domain) {
+    const d = String(domain).trim();
+    if (!isValidDomain(d)) return fail(res, 400, 'Dominio inválido.');
+    if (!hostPort) return fail(res, 400, 'Para usar un dominio necesitas indicar un Puerto Host.');
+    proxyDomain = d;
+  }
+  if (hostPort && !effContainerPort) {
+    return fail(res, 400, 'Indica el puerto interno de tu app (Puerto Contenedor).');
+  }
+
+  const dir = path.join(DOCKER_BUILDS_DIR, name);
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    return fail(res, 500, 'No se pudo preparar el directorio de build');
+  }
+
+  // ── A partir de aquí transmitimos en vivo (igual que ZIP y plugins) ──
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const log = (s) => res.write(s);
+  const finish = (code) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+    res.end('\n__TXPL_DONE__' + code);
+  };
+
+  try {
+    // 1. Clonar repositorio Git
+    log(`▶ Clonando el repositorio Git ${repoUrl} (rama: ${branch})...\n`);
+    let cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', branch, repoUrl, '.'], { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+
+    // Si falló con -b <branch>, intentar clonar la rama por defecto sin -b
+    if (!cloneRes.ok) {
+      log(`⚠ Falló clonado en rama "${branch}". Reintentando clonar la rama por defecto del repositorio...\n`);
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.mkdirSync(dir, { recursive: true });
+      cloneRes = await runSafe('git', ['clone', '--depth=1', repoUrl, '.'], { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+    }
+
+    if (!cloneRes.ok) {
+      log(`✖ Error al clonar el repositorio Git: ${cloneRes.stderr || cloneRes.stdout || 'desconocido'}\n`);
+      return finish(1);
+    }
+    log('✓ Repositorio clonado correctamente.\n');
+
+    // 2. Determinar contexto de build y Dockerfile
+    let buildCwd = dir;
+    if (subDir && typeof subDir === 'string' && subDir.trim()) {
+      const cleanSub = subDir.trim().replace(/^\/+|\/+$/g, '');
+      const candidateSub = path.join(dir, cleanSub);
+      if (fs.existsSync(candidateSub) && fs.statSync(candidateSub).isDirectory()) {
+        buildCwd = candidateSub;
+        log(`✓ Usando subdirectorio de trabajo: ${cleanSub}\n`);
+      } else {
+        log(`⚠ Subdirectorio "${cleanSub}" no encontrado en el repo, usando raíz.\n`);
+      }
+    }
+
+    // Ruta del Dockerfile
+    let buildDockerfilePath = null;
+    if (dockerfilePath && typeof dockerfilePath === 'string' && dockerfilePath.trim()) {
+      const relPath = dockerfilePath.trim().replace(/^\/+/g, '');
+      if (fs.existsSync(path.join(buildCwd, relPath))) {
+        buildDockerfilePath = path.join(buildCwd, relPath);
+      } else if (fs.existsSync(path.join(dir, relPath))) {
+        buildDockerfilePath = path.join(dir, relPath);
+      }
+    }
+
+    // Auto-detectar si no se especificó o no se encontró
+    if (!buildDockerfilePath) {
+      if (fs.existsSync(path.join(buildCwd, 'Dockerfile'))) {
+        buildDockerfilePath = path.join(buildCwd, 'Dockerfile');
+      } else if (fs.existsSync(path.join(dir, 'Dockerfile'))) {
+        buildDockerfilePath = path.join(dir, 'Dockerfile');
+      } else if (fs.existsSync(path.join(dir, 'backend', 'Dockerfile'))) {
+        buildDockerfilePath = path.join(dir, 'backend', 'Dockerfile');
+      }
+    }
+
+    if (template === 'dockerfile' || (!template && buildDockerfilePath)) {
+      if (!buildDockerfilePath) {
+        log('✖ No se encontró ningún Dockerfile en el repositorio ni en las rutas especificadas.\n');
+        return finish(1);
+      }
+      log(`Usando Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n`);
+    } else if (buildDockerfilePath) {
+      log(`Se encontró un Dockerfile en ${path.relative(dir, buildDockerfilePath)}: se usará ese en lugar de la plantilla.\n`);
+    } else {
+      buildDockerfilePath = path.join(buildCwd, 'Dockerfile');
+      fs.writeFileSync(buildDockerfilePath, tpl.gen(effContainerPort));
+      log(`Dockerfile generado con la plantilla "${tpl.label}".\n`);
+    }
+
+    // 3. Construir la imagen (salida en vivo)
+    const imageTag = `txpl-app-${name}`;
+    log(`\n▶ Construyendo la imagen ${imageTag} (esto puede tardar unos minutos)...\n\n`);
+    const buildArgs = ['build', '-t', imageTag, '-f', buildDockerfilePath, '.'];
+
+    const buildCode = await new Promise((resolve) => {
+      let child;
+      try {
+        child = spawn('docker', buildArgs, { cwd: buildCwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+      } catch (e) { res.write('[error] No se pudo iniciar docker build: ' + e.message + '\n'); return resolve(1); }
+      child.stdout.on('data', (d) => res.write(d));
+      child.stderr.on('data', (d) => res.write(d));
+      child.on('error', (e) => { res.write('\n[error] ' + e.message + '\n'); resolve(1); });
+      child.on('close', (c) => resolve(c === null ? 1 : c));
+    });
+    if (buildCode !== 0) { log(`\n✖ Falló la construcción de la imagen (código ${buildCode}).\n`); return finish(1); }
+    log('\n✓ Imagen construida correctamente.\n');
+
+    // 4. Variables de entorno: inyectar PORT para Node/Python si no está definido
+    let effEnvs = typeof envs === 'string' ? envs : '';
+    if ((template === 'node' || template === 'python') && effContainerPort && !/^\s*PORT\s*=/m.test(effEnvs)) {
+      effEnvs = (effEnvs ? effEnvs + '\n' : '') + `PORT=${effContainerPort}`;
+    }
+
+    // 5. Crear y arrancar el contenedor
+    log('\n▶ Creando y arrancando el contenedor...\n');
+    const config = buildContainerConfig({ image: imageTag, envs: effEnvs, hostPort, containerPort: effContainerPort, volumeBind, proxyDomain });
+    const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
+    if (createRes.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + createRes.body.toString() + '\n'); return finish(1); }
+    const containerId = JSON.parse(createRes.body.toString()).Id;
+    const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
+    if (startRes.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + startRes.body.toString() + '\n'); return finish(1); }
+    log('✓ Contenedor arrancado.\n');
+
+    // 6. Red: firewall + dominio + HTTPS (best-effort)
+    if (hostPort) { await runSafe('ufw', ['allow', `${hostPort}/tcp`]); log(`✓ Puerto ${hostPort} abierto en el firewall.\n`); }
+    if (proxyDomain) {
+      try { await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false })); log(`✓ Dominio ${proxyDomain} → puerto ${hostPort} (proxy Nginx activo).\n`); }
+      catch (e) { log(`⚠ El proxy del dominio falló: ${e.message}\n`); }
+      if (wantSsl) {
+        try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ HTTPS instalado.\n'); }
+        catch (e) { log(`⚠ HTTPS no se pudo instalar automáticamente: ${e.message}\n`); }
+      }
+    }
+
+    audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${repoUrl})`);
+    log('\n✅ Despliegue desde Git completado con éxito.\n');
+    finish(0);
+  } catch (e) {
+    log('\n[error] ' + (e.message || e) + '\n');
+    finish(1);
+  }
+}));
+
 // Define global paths
 const TXPL_DIR = process.env.TXPL_DIR || '/opt/txpl';
 const DATA_DIR = path.join(TXPL_DIR, 'data');
