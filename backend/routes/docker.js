@@ -564,11 +564,20 @@ router.post('/deploy/build', wrap(async (req, res) => {
 router.post('/deploy/git', wrap(async (req, res) => {
   const {
     name, gitRepo, gitToken, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
-    hostPort, containerPort, domain, ssl, volumeName, volumePath, envs
+    hostPort: hostPortRaw, containerPort, domain, ssl, volumeName, volumePath, envs
   } = req.body || {};
 
   // ── Validaciones previas ──
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido (letras, números, - y _).');
+
+  // Puerto host (1-65535) si se indica; null si se deja vacío.
+  let hostPort = null;
+  if (hostPortRaw !== undefined && hostPortRaw !== null && String(hostPortRaw).trim() !== '') {
+    hostPort = parseInt(hostPortRaw, 10);
+    if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) {
+      return fail(res, 400, 'Puerto Host inválido (debe ser un número entre 1 y 65535).');
+    }
+  }
   if (!gitRepo || typeof gitRepo !== 'string' || !gitRepo.trim()) {
     return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
   }
@@ -632,16 +641,56 @@ router.post('/deploy/git', wrap(async (req, res) => {
     res.end('\n__TXPL_DONE__' + code);
   };
 
+  // Ejecuta un proceso con salida en vivo y timeout máximo: evita que un build o
+  // un "compose up" colgado deje la petición abierta para siempre. Devuelve
+  // { code, enoent }: code 124 si se abortó por timeout; enoent true si el binario no existe.
+  const MAX_BUILD_MS = 30 * 60 * 1000; // 30 min
+  const spawnLive = (cmd, args, cwd) => new Promise((resolve) => {
+    let child, enoent = false, timedOut = false;
+    try {
+      child = spawn(cmd, args, { cwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+    } catch (e) {
+      if (e.code === 'ENOENT') enoent = true; else res.write('[error] ' + e.message + '\n');
+      return resolve({ code: 1, enoent });
+    }
+    const to = setTimeout(() => { timedOut = true; try { child.kill('SIGKILL'); } catch (_) {} }, MAX_BUILD_MS);
+    child.stdout.on('data', (d) => res.write(d));
+    child.stderr.on('data', (d) => res.write(d));
+    child.on('error', (e) => {
+      clearTimeout(to);
+      if (e.code === 'ENOENT') enoent = true; else res.write('\n[error] ' + e.message + '\n');
+      resolve({ code: 1, enoent });
+    });
+    child.on('close', (c) => {
+      clearTimeout(to);
+      if (timedOut) { res.write('\n[error] Timeout: el proceso superó los 30 minutos y fue abortado.\n'); return resolve({ code: 124, enoent }); }
+      resolve({ code: c === null ? 1 : c, enoent });
+    });
+  });
+
   const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
 
-  // Construir URLs de clonado
+  // Autenticación sin exponer el token: se envía como cabecera Authorization vía
+  // variables de entorno GIT_CONFIG_* (git >= 2.31). Así el token NO aparece en la
+  // línea de comandos (ps aux) ni queda escrito en .git/config del repo clonado.
   const sanitizedUrl = rawRepoUrl.replace(/(https?:\/\/)[^@]+@/, '$1');
-  let authedUrl = rawRepoUrl;
-  if (token && !rawRepoUrl.includes('@')) {
-    const auth = token.includes(':') ? token : `x-access-token:${encodeURIComponent(token)}`;
-    if (rawRepoUrl.startsWith('https://')) authedUrl = rawRepoUrl.replace('https://', `https://${auth}@`);
-    else if (rawRepoUrl.startsWith('http://')) authedUrl = rawRepoUrl.replace('http://', `http://${auth}@`);
+  let authEnv = {};
+  if (token && !rawRepoUrl.includes('@') && /^https?:\/\//i.test(rawRepoUrl)) {
+    const cred = token.includes(':') ? token : `x-access-token:${token}`;
+    const basic = Buffer.from(cred).toString('base64');
+    authEnv = {
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'http.extraHeader',
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+    };
   }
+
+  // Jaula: una ruta derivada del repo (subdirectorio, Dockerfile) nunca debe salir de `dir`.
+  const insideBuild = (p) => {
+    const r = path.resolve(p);
+    const base = path.resolve(dir);
+    return r === base || r.startsWith(base + path.sep);
+  };
 
   try {
     log('=================================================================\n');
@@ -657,18 +706,19 @@ router.post('/deploy/git', wrap(async (req, res) => {
     log('=================================================================\n\n');
 
     // Helper para intentar clonar
-    async function attemptClone(targetUrl, targetBranch, isAuthed) {
+    async function attemptClone(targetBranch, isAuthed) {
       const args = ['clone', '--depth=1'];
       if (targetBranch) args.push('-b', targetBranch);
-      args.push(targetUrl, '.');
+      args.push(rawRepoUrl, '.');
 
       const modeStr = (isAuthed ? 'autenticado' : 'público') + (targetBranch ? ` [rama: ${targetBranch}]` : ' [rama por defecto]');
       log(`[Git] Intentando clonar (${modeStr})...\n`);
 
-      const res = await runSafe('git', args, gitOpts);
-      if (res.ok) return { ok: true, output: res.stdout };
+      const opts = isAuthed ? { ...gitOpts, env: { ...gitOpts.env, ...authEnv } } : gitOpts;
+      const r = await runSafe('git', args, opts);
+      if (r.ok) return { ok: true, output: r.stdout };
 
-      const cleanErr = (res.stderr || res.stdout || 'Sin detalles de error')
+      const cleanErr = (r.stderr || r.stdout || 'Sin detalles de error')
         .replace(/(https?:\/\/)[^@]+@/g, '$1')
         .trim();
       log(`[Git] Aviso/Detalle de clonado (${modeStr}):\n${cleanErr}\n\n`);
@@ -679,30 +729,30 @@ router.post('/deploy/git', wrap(async (req, res) => {
     const cleanDir = () => { try { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true }); } catch (_) {} };
 
     if (token) {
-      let r = await attemptClone(authedUrl, branch, true);
+      let r = await attemptClone(branch, true);
       if (r.ok) cloneSuccess = true;
       else {
         cleanDir();
-        r = await attemptClone(authedUrl, null, true);
+        r = await attemptClone(null, true);
         if (r.ok) cloneSuccess = true;
         else {
           log(`⚠ Falló la autenticación con token. Reintentando sin token por si el repositorio es público...\n\n`);
           cleanDir();
-          r = await attemptClone(rawRepoUrl, branch, false);
+          r = await attemptClone(branch, false);
           if (r.ok) cloneSuccess = true;
           else {
             cleanDir();
-            r = await attemptClone(rawRepoUrl, null, false);
+            r = await attemptClone(null, false);
             if (r.ok) cloneSuccess = true;
           }
         }
       }
     } else {
-      let r = await attemptClone(rawRepoUrl, branch, false);
+      let r = await attemptClone(branch, false);
       if (r.ok) cloneSuccess = true;
       else {
         cleanDir();
-        r = await attemptClone(rawRepoUrl, null, false);
+        r = await attemptClone(null, false);
         if (r.ok) cloneSuccess = true;
       }
     }
@@ -717,6 +767,10 @@ router.post('/deploy/git', wrap(async (req, res) => {
     }
 
     log('✓ Clonado completado con éxito.\n\n');
+
+    // Quitar .git: el build/compose no lo necesita y así no queda ninguna URL de
+    // remoto ni historia en el directorio (que en modo compose se conserva).
+    try { fs.rmSync(path.join(dir, '.git'), { recursive: true, force: true }); } catch (_) {}
 
     // Normalizar finales de línea (CRLF -> LF) en scripts ejecutables (gradlew, mvnw, *.sh)
     try {
@@ -766,45 +820,11 @@ router.post('/deploy/git', wrap(async (req, res) => {
       }, 10_000);
 
       log('\n▶ Ejecutando: docker compose up -d --build --remove-orphans...\n\n');
-      let composeCode = 1;
-      let composeEnoent = false;
-
-      composeCode = await new Promise((resolve) => {
-        let child;
-        try {
-          child = spawn('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
-        } catch (e) {
-          if (e.code === 'ENOENT') composeEnoent = true;
-          return resolve(1);
-        }
-        child.stdout.on('data', (d) => res.write(d));
-        child.stderr.on('data', (d) => res.write(d));
-        child.on('error', (e) => {
-          if (e.code === 'ENOENT') composeEnoent = true;
-          else res.write('\n[error] ' + e.message + '\n');
-          resolve(1);
-        });
-        child.on('close', (c) => resolve(c === null ? 1 : c));
-      });
+      let { code: composeCode, enoent: composeEnoent } = await spawnLive('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], dir);
 
       if (composeEnoent) {
-        log('\n⚠ Comandos "docker compose" no encontrado. Reintentando con comando legacy docker-compose...\n');
-        composeCode = await new Promise((resolve) => {
-          let child;
-          try {
-            child = spawn('docker-compose', ['up', '-d', '--build', '--remove-orphans'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
-          } catch (e) {
-            res.write('[error] No se pudo iniciar docker-compose: ' + e.message + '\n');
-            return resolve(1);
-          }
-          child.stdout.on('data', (d) => res.write(d));
-          child.stderr.on('data', (d) => res.write(d));
-          child.on('error', (e) => {
-            res.write('\n[error] ' + e.message + '\n');
-            resolve(1);
-          });
-          child.on('close', (c) => resolve(c === null ? 1 : c));
-        });
+        log('\n⚠ Comando "docker compose" no encontrado. Reintentando con el comando legacy docker-compose...\n');
+        ({ code: composeCode } = await spawnLive('docker-compose', ['up', '-d', '--build', '--remove-orphans'], dir));
       }
 
       clearInterval(keepAliveTimer);
@@ -837,6 +857,10 @@ router.post('/deploy/git', wrap(async (req, res) => {
     if (subDir && typeof subDir === 'string' && subDir.trim()) {
       const cleanSub = subDir.trim().replace(/^\/+|\/+$/g, '');
       const candidateSub = path.join(dir, cleanSub);
+      if (!insideBuild(candidateSub)) {
+        log('✖ Subdirectorio inválido: la ruta sale del repositorio.\n');
+        return finish(1);
+      }
       if (fs.existsSync(candidateSub) && fs.statSync(candidateSub).isDirectory()) {
         buildCwd = candidateSub;
         log(`✓ Subdirectorio de trabajo configurado: ${cleanSub}\n`);
@@ -849,10 +873,16 @@ router.post('/deploy/git', wrap(async (req, res) => {
     let buildDockerfilePath = null;
     if (dockerfilePath && typeof dockerfilePath === 'string' && dockerfilePath.trim()) {
       const relPath = dockerfilePath.trim().replace(/^\/+/g, '');
-      if (fs.existsSync(path.join(buildCwd, relPath))) {
-        buildDockerfilePath = path.join(buildCwd, relPath);
-      } else if (fs.existsSync(path.join(dir, relPath))) {
-        buildDockerfilePath = path.join(dir, relPath);
+      const c1 = path.join(buildCwd, relPath);
+      const c2 = path.join(dir, relPath);
+      if ((fs.existsSync(c1) && !insideBuild(c1)) || (fs.existsSync(c2) && !insideBuild(c2))) {
+        log('✖ Ruta de Dockerfile inválida: sale del repositorio.\n');
+        return finish(1);
+      }
+      if (fs.existsSync(c1)) {
+        buildDockerfilePath = c1;
+      } else if (fs.existsSync(c2)) {
+        buildDockerfilePath = c2;
       }
     }
 
@@ -894,27 +924,8 @@ router.post('/deploy/git', wrap(async (req, res) => {
       try { res.write(' '); } catch (_) {}
     }, 10_000);
 
-    const buildCode = await new Promise((resolve) => {
-      let child;
-      try {
-        child = spawn('docker', buildArgs, { cwd: buildCwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
-      } catch (e) {
-        clearInterval(keepAliveTimer);
-        res.write('[error] No se pudo iniciar docker build: ' + e.message + '\n');
-        return resolve(1);
-      }
-      child.stdout.on('data', (d) => res.write(d));
-      child.stderr.on('data', (d) => res.write(d));
-      child.on('error', (e) => {
-        clearInterval(keepAliveTimer);
-        res.write('\n[error] ' + e.message + '\n');
-        resolve(1);
-      });
-      child.on('close', (c) => {
-        clearInterval(keepAliveTimer);
-        resolve(c === null ? 1 : c);
-      });
-    });
+    const { code: buildCode } = await spawnLive('docker', buildArgs, buildCwd);
+    clearInterval(keepAliveTimer);
     if (buildCode !== 0) { log(`\n✖ Falló la compilación de la imagen Docker (código de salida ${buildCode}).\n`); return finish(1); }
     log('\n✓ Imagen compilada correctamente.\n');
 
