@@ -32,6 +32,13 @@ test('buildGitAuthEnv: sin token, URL ssh, o URL con @ => {}', () => {
   assert.deepStrictEqual(buildGitAuthEnv('tok', 'https://user:x@github.com/a/b.git'), {});
 });
 
+test('buildAuthedRepoUrl: inyecta token en URL de clonado HTTPS', () => {
+  const { buildAuthedRepoUrl } = require('../lib/dockerDeploy');
+  assert.strictEqual(buildAuthedRepoUrl('ghp_XYZ', 'https://github.com/a/b.git'), 'https://x-access-token:ghp_XYZ@github.com/a/b.git');
+  assert.strictEqual(buildAuthedRepoUrl('usr:pwd', 'https://github.com/a/b.git'), 'https://usr:pwd@github.com/a/b.git');
+  assert.strictEqual(buildAuthedRepoUrl('', 'https://github.com/a/b.git'), 'https://github.com/a/b.git');
+});
+
 test('isInsideBase: permite subrutas, rechaza traversal', () => {
   const base = '/opt/txpl/data/docker-builds/miapp';
   assert.strictEqual(isInsideBase(base, path.join(base, 'backend')), true);

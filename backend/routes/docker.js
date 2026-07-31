@@ -742,16 +742,20 @@ router.post('/deploy/git', wrap(async (req, res) => {
 
     // Helper para intentar clonar
     async function attemptClone(targetBranch, isAuthed) {
+      const repoUrlToUse = (isAuthed && token) ? dockerDeploy.buildAuthedRepoUrl(token, rawRepoUrl) : rawRepoUrl;
       const args = ['clone', '--depth=1'];
       if (targetBranch) args.push('-b', targetBranch);
-      args.push(rawRepoUrl, '.');
+      args.push(repoUrlToUse, '.');
 
       const modeStr = (isAuthed ? 'autenticado' : 'público') + (targetBranch ? ` [rama: ${targetBranch}]` : ' [rama por defecto]');
       log(`[Git] Intentando clonar (${modeStr})...\n`);
 
       const opts = isAuthed ? { ...gitOpts, env: { ...gitOpts.env, ...authEnv } } : gitOpts;
       const r = await runSafe('git', args, opts);
-      if (r.ok) return { ok: true, output: r.stdout };
+      if (r.ok) {
+        try { await runSafe('git', ['remote', 'set-url', 'origin', sanitizedUrl], { cwd: dir }); } catch (_) {}
+        return { ok: true, output: r.stdout };
+      }
 
       const cleanErr = (r.stderr || r.stdout || 'Sin detalles de error')
         .replace(/(https?:\/\/)[^@]+@/g, '$1')

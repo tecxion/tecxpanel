@@ -25,6 +25,16 @@ function buildGitAuthEnv(token, rawRepoUrl) {
   };
 }
 
+// Inyecta el token en la URL de clonado HTTPS para compatibilidad total con GitHub PAT
+function buildAuthedRepoUrl(token, rawRepoUrl) {
+  const t = String(token || '').trim();
+  const url = String(rawRepoUrl || '').trim();
+  if (!t || !/^https?:\/\//i.test(url)) return url;
+  if (url.includes('@')) return url;
+  const cred = t.includes(':') ? t : `x-access-token:${t}`;
+  return url.replace(/^(https?:\/\/)/i, `$1${cred}@`);
+}
+
 // Jaula anti-traversal: true si `p` (tras resolver) queda dentro de `baseDir`.
 function isInsideBase(baseDir, p) {
   const base = path.resolve(baseDir);
@@ -51,4 +61,4 @@ function parseVolumeBind(volumeName, volumePath) {
   return { ok: true, bind: `${vName}:${vPath}` };
 }
 
-module.exports = { sanitizeRepoUrl, buildGitAuthEnv, isInsideBase, validatePort, parseVolumeBind };
+module.exports = { sanitizeRepoUrl, buildGitAuthEnv, buildAuthedRepoUrl, isInsideBase, validatePort, parseVolumeBind };
