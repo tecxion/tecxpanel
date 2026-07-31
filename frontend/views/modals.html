@@ -355,15 +355,15 @@
 
 <!-- Docker Logs -->
 <div class="modal-overlay" id="modal-docker-logs">
-  <div class="modal" style="max-width:760px">
+  <div class="modal" style="width:92%;max-width:1050px;height:85vh;max-height:850px;display:flex;flex-direction:column">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-file-text" style="color:var(--cyan)"></i> Logs del Contenedor &mdash;
         <span id="docker-logs-title"></span></div>
       <button class="btn btn-sm" onclick="closeModal('modal-docker-logs')"><i class="ti ti-x"></i></button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" style="flex:1;overflow:hidden;padding:1.25rem;display:flex;flex-direction:column;min-height:0">
       <pre id="docker-logs-output"
-        style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:450px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+        style="width:100%;flex:1;background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-docker-logs')"><i class="ti ti-x"></i> Cerrar</button>
@@ -373,15 +373,15 @@
 
 <!-- Docker Edit Modal (Generic for Dockerfile / docker-compose.yml) -->
 <div class="modal-overlay" id="modal-docker-edit">
-  <div class="modal" style="width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+  <div class="modal" style="width:92%;max-width:1050px;height:85vh;max-height:850px;display:flex;flex-direction:column">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-edit" style="color:var(--cyan)"></i> Editar <span
           id="docker-edit-title"></span></div>
       <button class="btn btn-sm" onclick="closeModal('modal-docker-edit')"><i class="ti ti-x"></i></button>
     </div>
-    <div class="modal-body" style="flex:1;overflow:hidden;padding:1rem;display:flex;flex-direction:column;gap:12px">
+    <div class="modal-body" style="flex:1;overflow:hidden;padding:1.25rem;display:flex;flex-direction:column;gap:12px;min-height:0">
       <textarea id="docker-edit-textarea"
-        style="width:100%;flex:1;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none"></textarea>
+        style="width:100%;flex:1;min-height:300px;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-family:var(--mono);font-size:13px;line-height:1.5;resize:none;outline:none"></textarea>
       <div id="docker-edit-hint" style="font-size:11px;color:var(--text-muted)"></div>
       <div id="docker-edit-progress" style="display:none;margin-top:4px">
         <div style="font-weight:600;font-size:12px;margin-bottom:4px;display:flex;align-items:center;gap:6px">
