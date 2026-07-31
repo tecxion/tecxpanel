@@ -114,7 +114,8 @@ Ejecuta el siguiente comando como `root` o usando `sudo`:
 git clone https://github.com/TU_USUARIO/tecxpanel.git && cd tecxpanel && sudo bash txpl-setup.sh
 ```
 
-Al terminar, la consola imprimirá la dirección de acceso y las credenciales de administrador autogeneradas.
+>[!WARNING]
+>Al terminar, la consola imprimirá la dirección de acceso y las credenciales de administrador autogeneradas.
 
 ### 🔄 Actualizar el panel
 

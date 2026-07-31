@@ -65,12 +65,15 @@
     <!-- Paso 1: formulario -->
     <div class="modal-body" id="deploy-form">
       <div class="tabs" style="margin-bottom:1.25rem">
-        <div class="tab active" id="tab-deploy-zip" onclick="switchDeployTab('zip')"><i class="ti ti-file-zip"></i> Subir archivo ZIP</div>
-        <div class="tab" id="tab-deploy-git" onclick="switchDeployTab('git')"><i class="ti ti-git-fork"></i> Clonar desde Git</div>
+        <div class="tab active" id="tab-deploy-zip" onclick="switchDeployTab('zip')"><i class="ti ti-file-zip"></i>
+          Subir archivo ZIP</div>
+        <div class="tab" id="tab-deploy-git" onclick="switchDeployTab('git')"><i class="ti ti-git-fork"></i> Clonar
+          desde Git</div>
       </div>
 
       <div class="form-row">
-        <div class="form-group"><label>Nombre de la app</label><input type="text" id="app-name" placeholder="mi-api"></div>
+        <div class="form-group"><label>Nombre de la app</label><input type="text" id="app-name" placeholder="mi-api">
+        </div>
         <div class="form-group">
           <label>Puerto</label>
           <input type="number" id="app-port" placeholder="3000">
@@ -79,9 +82,11 @@
       <div class="form-group">
         <label>Ruta base</label>
         <input type="text" id="app-path" value="/var/www" placeholder="/var/www">
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se crear&aacute; <strong><code><span id="app-path-preview">/var/www/nombre-app</span>/</code></strong></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se crear&aacute;
+          <strong><code><span id="app-path-preview">/var/www/nombre-app</span>/</code></strong></div>
       </div>
-      <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain" placeholder="api.ejemplo.com"></div>
+      <div class="form-group"><label>Dominio (opcional)</label><input type="text" id="app-domain"
+          placeholder="api.ejemplo.com"></div>
 
       <!-- ZIP section -->
       <div id="deploy-zip-section">
@@ -92,7 +97,8 @@
             <span id="deploy-zip-label">Arrastra el .zip o haz clic</span>
             <input type="file" id="deploy-zip" accept=".zip,.tar.gz,.tgz,.tar" style="display:none">
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Comprime tu proyecto <strong>sin</strong> <code>node_modules</code> ni <code>.next</code>.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Comprime tu proyecto <strong>sin</strong>
+            <code>node_modules</code> ni <code>.next</code>.</div>
         </div>
 
         <div class="form-group">
@@ -122,7 +128,8 @@
 
     <!-- Paso 2: consola de despliegue -->
     <div class="modal-body" id="deploy-progress" style="display:none">
-      <div id="py-confirm" style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div id="py-confirm"
+        style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)">
         <div style="font-weight:600;margin-bottom:8px"><i class="ti ti-brand-python"></i> Configura tu app Python</div>
         <div class="form-group">
           <label>Tipo de app</label>
@@ -138,18 +145,23 @@
         <div class="form-group">
           <label>Comando de arranque</label>
           <input type="text" id="py-cmd" placeholder="python bot.py">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ej.: <code>python bot.py</code>, <code>gunicorn -w 2 app:app</code>, <code>uvicorn main:app --host 0.0.0.0 --port 8000</code></div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ej.: <code>python bot.py</code>,
+            <code>gunicorn -w 2 app:app</code>, <code>uvicorn main:app --host 0.0.0.0 --port 8000</code></div>
         </div>
         <button class="btn btn-primary" id="py-confirm-btn"><i class="ti ti-check"></i> Continuar despliegue</button>
       </div>
       <div id="deploy-steps" style="margin-bottom:12px"></div>
-      <pre id="deploy-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+      <pre id="deploy-log"
+        style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
     </div>
 
     <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-new-app')" id="deploy-cancel-btn"><i class="ti ti-x"></i> Cancelar</button>
-      <button class="btn btn-primary" onclick="startDeploy()" id="deploy-start-btn"><i class="ti ti-rocket"></i> Desplegar</button>
-      <button class="btn btn-success" onclick="closeModal('modal-new-app');loadApps()" id="deploy-done-btn" style="display:none"><i class="ti ti-check"></i> Listo</button>
+      <button class="btn" onclick="closeModal('modal-new-app')" id="deploy-cancel-btn"><i class="ti ti-x"></i>
+        Cancelar</button>
+      <button class="btn btn-primary" onclick="startDeploy()" id="deploy-start-btn"><i class="ti ti-rocket"></i>
+        Desplegar</button>
+      <button class="btn btn-success" onclick="closeModal('modal-new-app');loadApps()" id="deploy-done-btn"
+        style="display:none"><i class="ti ti-check"></i> Listo</button>
     </div>
   </div>
 </div>
@@ -158,19 +170,21 @@
 <div class="modal-overlay" id="modal-app-console">
   <div class="modal" style="max-width:760px">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Consola &mdash; <span id="console-app-name"></span></div>
+      <div class="modal-title"><i class="ti ti-terminal-2" style="color:var(--accent)"></i> Consola &mdash; <span
+          id="console-app-name"></span></div>
       <button class="btn btn-sm" onclick="closeModal('modal-app-console')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <pre id="console-output" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12.5px;line-height:1.5;padding:14px;border-radius:var(--radius);height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0 0 12px 0;border:1px solid var(--border)"></pre>
+      <pre id="console-output"
+        style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12.5px;line-height:1.5;padding:14px;border-radius:var(--radius);height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0 0 12px 0;border:1px solid var(--border)"></pre>
       <div style="display:flex;gap:8px;align-items:center">
         <span style="font-family:var(--mono);color:var(--accent);font-weight:600">$</span>
         <input type="text" id="console-cmd" placeholder="npm install" autocomplete="off" spellcheck="false"
-          onkeydown="consoleKeydown(event)"
-          style="flex:1;font-family:var(--mono);font-size:13px">
+          onkeydown="consoleKeydown(event)" style="flex:1;font-family:var(--mono);font-size:13px">
         <button class="btn btn-primary" onclick="runAppCommand()"><i class="ti ti-player-play"></i> Ejecutar</button>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Los comandos se ejecutan en la carpeta de la app. Tiempo m&aacute;ximo: 5 min.</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Los comandos se ejecutan en la carpeta de la
+        app. Tiempo m&aacute;ximo: 5 min.</div>
     </div>
   </div>
 </div>
@@ -189,10 +203,13 @@
           <option value="postgresql">PostgreSQL</option>
         </select>
       </div>
-      <div class="form-group"><label>Nombre de la BD</label><input type="text" id="db-name" placeholder="mi_base_datos"></div>
+      <div class="form-group"><label>Nombre de la BD</label><input type="text" id="db-name" placeholder="mi_base_datos">
+      </div>
       <div class="form-row">
-        <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="db-user" placeholder="Auto-generado"></div>
-        <div class="form-group"><label>Contraseña (opcional)</label><input type="password" id="db-pass" placeholder="Auto-generada"></div>
+        <div class="form-group"><label>Usuario (opcional)</label><input type="text" id="db-user"
+            placeholder="Auto-generado"></div>
+        <div class="form-group"><label>Contraseña (opcional)</label><input type="password" id="db-pass"
+            placeholder="Auto-generada"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -206,21 +223,31 @@
 <div class="modal-overlay" id="modal-new-rule">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Nueva regla de firewall</div>
+      <div class="modal-title"><i class="ti ti-shield-lock" style="color:var(--accent)"></i> Nueva regla de firewall
+      </div>
       <button class="btn btn-sm" onclick="closeModal('modal-new-rule')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-row">
         <div class="form-group"><label>Acción</label>
-          <select id="rule-action"><option value="allow">ALLOW (permitir)</option><option value="deny">DENY (bloquear)</option></select>
+          <select id="rule-action">
+            <option value="allow">ALLOW (permitir)</option>
+            <option value="deny">DENY (bloquear)</option>
+          </select>
         </div>
-        <div class="form-group"><label>Puerto</label><input type="text" id="rule-port" placeholder="80, 443, 3000..."></div>
+        <div class="form-group"><label>Puerto</label><input type="text" id="rule-port" placeholder="80, 443, 3000...">
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Protocolo</label>
-          <select id="rule-proto"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="">Ambos</option></select>
+          <select id="rule-proto">
+            <option value="tcp">TCP</option>
+            <option value="udp">UDP</option>
+            <option value="">Ambos</option>
+          </select>
         </div>
-        <div class="form-group"><label>Desde IP (vacío = any)</label><input type="text" id="rule-from" placeholder="0.0.0.0/0"></div>
+        <div class="form-group"><label>Desde IP (vacío = any)</label><input type="text" id="rule-from"
+            placeholder="0.0.0.0/0"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -238,7 +265,8 @@
       <button class="btn btn-sm" onclick="closeModal('modal-new-folder')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label>Nombre de la carpeta</label><input type="text" id="folder-name" placeholder="mi_carpeta"></div>
+      <div class="form-group"><label>Nombre de la carpeta</label><input type="text" id="folder-name"
+          placeholder="mi_carpeta"></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-folder')"><i class="ti ti-x"></i> Cancelar</button>
@@ -255,7 +283,8 @@
       <button class="btn btn-sm" onclick="closeModal('modal-new-file')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label>Nombre del archivo</label><input type="text" id="file-name" placeholder="index.html"></div>
+      <div class="form-group"><label>Nombre del archivo</label><input type="text" id="file-name"
+          placeholder="index.html"></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-file')"><i class="ti ti-x"></i> Cancelar</button>
@@ -268,43 +297,54 @@
 <div class="modal-overlay" id="modal-git-info">
   <div class="modal" style="max-width:640px">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-git-fork" style="color:var(--accent)"></i> Configuración Git y Despliegue</div>
+      <div class="modal-title"><i class="ti ti-git-fork" style="color:var(--accent)"></i> Configuración Git y Despliegue
+      </div>
       <button class="btn btn-sm" onclick="closeModal('modal-git-info')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-group">
         <label>Repositorio Git</label>
-        <div class="form-control-static" id="git-info-repo" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-family:var(--mono);font-size:12.5px;border:1px solid var(--border)">—</div>
+        <div class="form-control-static" id="git-info-repo"
+          style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-family:var(--mono);font-size:12.5px;border:1px solid var(--border)">
+          —</div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>Rama</label>
-          <div class="form-control-static" id="git-info-branch" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">—</div>
+          <div class="form-control-static" id="git-info-branch"
+            style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">
+            —</div>
         </div>
         <div class="form-group">
           <label>Última actualización</label>
-          <div class="form-control-static" id="git-info-updated" style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">—</div>
+          <div class="form-control-static" id="git-info-updated"
+            style="background:var(--bg-card2);padding:8px 12px;border-radius:var(--radius);font-size:13px;border:1px solid var(--border)">
+            —</div>
         </div>
       </div>
-      
+
       <div class="form-group">
         <label>Webhook URL (Auto-despliegue automático en push)</label>
         <div style="display:flex;gap:8px">
-          <input type="text" id="git-info-webhook" readonly style="flex:1;font-family:var(--mono);font-size:12px;background:var(--bg-card2)">
+          <input type="text" id="git-info-webhook" readonly
+            style="flex:1;font-family:var(--mono);font-size:12px;background:var(--bg-card2)">
           <button class="btn" onclick="copyWebhookUrl()"><i class="ti ti-copy"></i> Copiar</button>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Configura este Webhook en GitHub/GitLab (Content type: application/json) para desplegar al hacer push.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Configura este Webhook en GitHub/GitLab
+          (Content type: application/json) para desplegar al hacer push.</div>
       </div>
 
       <div class="form-group mt-2">
-        <button class="btn btn-primary" style="width:100%" onclick="triggerGitPull()"><i class="ti ti-refresh"></i> Sincronizar y Desplegar Ahora (Manual Git Pull)</button>
+        <button class="btn btn-primary" style="width:100%" onclick="triggerGitPull()"><i class="ti ti-refresh"></i>
+          Sincronizar y Desplegar Ahora (Manual Git Pull)</button>
       </div>
 
       <div id="git-pull-progress" style="display:none;margin-top:1rem">
         <div style="font-weight:600;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px">
           <i class="ti ti-loader-2 ti-spin" style="color:var(--accent)"></i> Procesando despliegue manual...
         </div>
-        <pre id="git-pull-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+        <pre id="git-pull-log"
+          style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
       </div>
     </div>
     <div class="modal-footer">
@@ -317,11 +357,13 @@
 <div class="modal-overlay" id="modal-docker-logs">
   <div class="modal" style="max-width:760px">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-file-text" style="color:var(--cyan)"></i> Logs del Contenedor &mdash; <span id="docker-logs-title"></span></div>
+      <div class="modal-title"><i class="ti ti-file-text" style="color:var(--cyan)"></i> Logs del Contenedor &mdash;
+        <span id="docker-logs-title"></span></div>
       <button class="btn btn-sm" onclick="closeModal('modal-docker-logs')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <pre id="docker-logs-output" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:450px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+      <pre id="docker-logs-output"
+        style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:12px;line-height:1.5;padding:14px;border-radius:var(--radius);height:450px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-docker-logs')"><i class="ti ti-x"></i> Cerrar</button>
@@ -333,22 +375,28 @@
 <div class="modal-overlay" id="modal-docker-edit">
   <div class="modal" style="width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-edit" style="color:var(--cyan)"></i> Editar <span id="docker-edit-title"></span></div>
+      <div class="modal-title"><i class="ti ti-edit" style="color:var(--cyan)"></i> Editar <span
+          id="docker-edit-title"></span></div>
       <button class="btn btn-sm" onclick="closeModal('modal-docker-edit')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" style="flex:1;overflow:hidden;padding:1rem;display:flex;flex-direction:column;gap:12px">
-      <textarea id="docker-edit-textarea" style="width:100%;flex:1;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none"></textarea>
+      <textarea id="docker-edit-textarea"
+        style="width:100%;flex:1;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none"></textarea>
       <div id="docker-edit-hint" style="font-size:11px;color:var(--text-muted)"></div>
       <div id="docker-edit-progress" style="display:none;margin-top:4px">
         <div style="font-weight:600;font-size:12px;margin-bottom:4px;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-loader-2 ti-spin" style="color:var(--accent)"></i> Sincronizando y ejecutando comando en segundo plano...
+          <i class="ti ti-loader-2 ti-spin" style="color:var(--accent)"></i> Sincronizando y ejecutando comando en
+          segundo plano...
         </div>
-        <pre id="docker-edit-log" style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:11.5px;line-height:1.4;padding:10px;border-radius:var(--radius);height:150px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
+        <pre id="docker-edit-log"
+          style="background:#0c0e12;color:#d4d4d4;font-family:var(--mono);font-size:11.5px;line-height:1.4;padding:10px;border-radius:var(--radius);height:150px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0;border:1px solid var(--border)"></pre>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeModal('modal-docker-edit')" id="docker-edit-cancel-btn"><i class="ti ti-x"></i> Cancelar</button>
-      <button class="btn btn-primary" onclick="saveDockerFile()" id="docker-edit-save-btn"><i class="ti ti-device-floppy"></i> Guardar y Aplicar</button>
+      <button class="btn" onclick="closeModal('modal-docker-edit')" id="docker-edit-cancel-btn"><i class="ti ti-x"></i>
+        Cancelar</button>
+      <button class="btn btn-primary" onclick="saveDockerFile()" id="docker-edit-save-btn"><i
+          class="ti ti-device-floppy"></i> Guardar y Aplicar</button>
     </div>
   </div>
 </div>
@@ -357,15 +405,20 @@
 <div class="modal-overlay" id="modal-new-container">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title"><i class="ti ti-brand-docker" style="color:var(--cyan)"></i> Crear Contenedor Docker</div>
+      <div class="modal-title"><i class="ti ti-brand-docker" style="color:var(--cyan)"></i> Crear Contenedor Docker
+      </div>
       <button class="btn btn-sm" onclick="closeModal('modal-new-container')"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
       <div class="tabs" style="margin-bottom:1.25rem">
-        <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i class="ti ti-brand-docker"></i> Usar Imagen</div>
-        <div class="tab" id="tab-docker-file" onclick="switchDockerTab('file')"><i class="ti ti-file-code"></i> Escribir Dockerfile</div>
-        <div class="tab" id="tab-docker-deploy" onclick="switchDockerTab('deploy')"><i class="ti ti-rocket"></i> Subir ZIP</div>
-        <div class="tab" id="tab-docker-git" onclick="switchDockerTab('git')"><i class="ti ti-brand-github"></i> Desplegar desde Git</div>
+        <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i
+            class="ti ti-brand-docker"></i> Usar Imagen</div>
+        <div class="tab" id="tab-docker-file" onclick="switchDockerTab('file')"><i class="ti ti-file-code"></i> Escribir
+          Dockerfile</div>
+        <div class="tab" id="tab-docker-deploy" onclick="switchDockerTab('deploy')"><i class="ti ti-rocket"></i> Subir
+          ZIP</div>
+        <div class="tab" id="tab-docker-git" onclick="switchDockerTab('git')"><i class="ti ti-brand-github"></i>
+          Desplegar desde Git</div>
       </div>
 
       <div class="form-group">
@@ -378,7 +431,8 @@
         <div class="form-group">
           <label>Imagen de Docker</label>
           <input type="text" id="docker-create-image" placeholder="nginx:alpine">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si no existe localmente, se descargará automáticamente desde Docker Hub.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si no existe localmente, se descargará
+            automáticamente desde Docker Hub.</div>
         </div>
       </div>
 
@@ -386,8 +440,11 @@
       <div id="docker-file-section" style="display:none">
         <div class="form-group">
           <label>Contenido del Dockerfile</label>
-          <textarea id="docker-create-file" placeholder="FROM nginx:alpine&#10;COPY index.html /usr/share/nginx/html/&#10;EXPOSE 80" style="width:100%;height:180px;font-family:var(--mono);font-size:12.5px;padding:8px"></textarea>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se compilará una nueva imagen local en tu VPS al vuelo.</div>
+          <textarea id="docker-create-file"
+            placeholder="FROM nginx:alpine&#10;COPY index.html /usr/share/nginx/html/&#10;EXPOSE 80"
+            style="width:100%;height:180px;font-family:var(--mono);font-size:12.5px;padding:8px"></textarea>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se compilará una nueva imagen local en tu
+            VPS al vuelo.</div>
         </div>
       </div>
 
@@ -407,25 +464,31 @@
         <div class="form-group">
           <label>Código de tu app (archivo .zip)</label>
           <input type="file" id="docker-deploy-file" accept=".zip">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sube tu proyecto comprimido en .zip. El panel generará el Dockerfile, construirá la imagen y arrancará el contenedor. Indica un <strong>Nombre</strong> y un <strong>Puerto Host</strong> abajo.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Sube tu proyecto comprimido en .zip. El
+            panel generará el Dockerfile, construirá la imagen y arrancará el contenedor. Indica un
+            <strong>Nombre</strong> y un <strong>Puerto Host</strong> abajo.</div>
         </div>
       </div>
 
       <!-- Git section (desplegar desde GitHub / Git) -->
       <div id="docker-git-section" style="display:none">
-        <div style="font-size:12px;background:rgba(232,160,32,0.12);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:1rem;color:var(--text-secondary)">
+        <div
+          style="font-size:12px;background:rgba(232,160,32,0.12);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:1rem;color:var(--text-secondary)">
           <i class="ti ti-alert-triangle" style="color:var(--accent)"></i>
-          Despliega solo repositorios en los que confías: su <strong>Dockerfile</strong> o <strong>docker-compose.yml</strong> se ejecuta en tu servidor con acceso al sistema.
+          Despliega solo repositorios en los que confías: su <strong>Dockerfile</strong> o
+          <strong>docker-compose.yml</strong> se ejecuta en tu servidor con acceso al sistema.
         </div>
         <div class="form-group">
           <label>URL del Repositorio Git / GitHub</label>
-          <input type="text" id="docker-git-repo" placeholder="https://github.com/tecxion/TAK-GAR.git">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Indica la URL HTTPS del repositorio público o accesible de GitHub/Git.</div>
+          <input type="text" id="docker-git-repo" placeholder="https://github.com/tuusuario/turepositorio.git">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Indica la URL HTTPS del repositorio público
+            o accesible de GitHub/Git.</div>
         </div>
         <div class="form-group">
           <label>Token de acceso / PAT (opcional si es privado)</label>
           <input type="password" id="docker-git-token" placeholder="ghp_... o Personal Access Token">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Obligatorio si el repositorio es privado en GitHub o GitLab.</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Obligatorio si el repositorio es privado en
+            GitHub o GitLab.</div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -449,12 +512,14 @@
           <div class="form-group">
             <label>Ruta del Dockerfile (opcional)</label>
             <input type="text" id="docker-git-dockerfile" placeholder="backend/Dockerfile">
-            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ruta relativa dentro del repositorio si no está en la raíz (ej: backend/Dockerfile).</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Ruta relativa dentro del repositorio si
+              no está en la raíz (ej: backend/Dockerfile).</div>
           </div>
           <div class="form-group">
             <label>Subdirectorio de la app (opcional)</label>
             <input type="text" id="docker-git-subdir" placeholder="backend">
-            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Carpeta raíz de la app si está en una subcarpeta (ej: backend).</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Carpeta raíz de la app si está en una
+              subcarpeta (ej: backend).</div>
           </div>
         </div>
       </div>
@@ -473,7 +538,8 @@
       <div class="form-group">
         <label>Dominio (opcional)</label>
         <input type="text" id="docker-create-domain" placeholder="app.midominio.com">
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si lo indicas, el panel crea un proxy Nginx para acceder por el dominio (requiere un Puerto Host). El DNS del dominio debe apuntar a este servidor.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Si lo indicas, el panel crea un proxy Nginx
+          para acceder por el dominio (requiere un Puerto Host). El DNS del dominio debe apuntar a este servidor.</div>
       </div>
       <div class="form-group" style="flex-direction:row;align-items:center;gap:8px">
         <input type="checkbox" id="docker-create-ssl" style="width:auto;margin:0">
@@ -481,13 +547,17 @@
       </div>
       <div class="form-group">
         <label>Variables de entorno (opcional)</label>
-        <textarea id="docker-create-envs" placeholder="KEY=VALUE&#10;PORT=80" style="width:100%;height:100px;font-family:var(--mono);font-size:12px;padding:8px"></textarea>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Escribe una variable KEY=VALUE por línea.</div>
+        <textarea id="docker-create-envs" placeholder="KEY=VALUE&#10;PORT=80"
+          style="width:100%;height:100px;font-family:var(--mono);font-size:12px;padding:8px"></textarea>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Escribe una variable KEY=VALUE por línea.
+        </div>
       </div>
 
       <div class="form-group">
         <label>Datos persistentes (volumen, opcional)</label>
-        <div style="font-size:11px;color:var(--text-muted);margin:-2px 0 8px">Guarda los datos en un volumen con nombre para que <strong>no se pierdan al recrear o actualizar</strong> el contenedor. Déjalo en blanco si tu app no guarda datos.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin:-2px 0 8px">Guarda los datos en un volumen con nombre
+          para que <strong>no se pierdan al recrear o actualizar</strong> el contenedor. Déjalo en blanco si tu app no
+          guarda datos.</div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -502,13 +572,16 @@
 
       <!-- Logs en vivo del despliegue -->
       <div id="docker-deploy-progress" style="display:none;margin-top:1rem">
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px"><i class="ti ti-loader-2 ti-spin" id="docker-deploy-spinner"></i> Despliegue en curso...</div>
-        <pre id="docker-deploy-log" style="background:var(--bg-app,#0b0e14);color:#cfe3ee;max-height:280px;overflow:auto;padding:10px;border-radius:8px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0"></pre>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px"><i class="ti ti-loader-2 ti-spin"
+            id="docker-deploy-spinner"></i> Despliegue en curso...</div>
+        <pre id="docker-deploy-log"
+          style="background:var(--bg-app,#0b0e14);color:#cfe3ee;max-height:280px;overflow:auto;padding:10px;border-radius:8px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0"></pre>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-container')"><i class="ti ti-x"></i> Cancelar</button>
-      <button class="btn btn-primary" id="docker-create-btn" onclick="createDockerContainer()"><i class="ti ti-plus"></i> Crear y Arrancar</button>
+      <button class="btn btn-primary" id="docker-create-btn" onclick="createDockerContainer()"><i
+          class="ti ti-plus"></i> Crear y Arrancar</button>
     </div>
   </div>
 </div>
