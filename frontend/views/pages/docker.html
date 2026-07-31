@@ -1,11 +1,14 @@
 <div class="flex items-center gap-3" style="margin-bottom:1.25rem; flex-wrap:wrap">
-  <button class="btn btn-primary" onclick="openModal('modal-new-container')">
+  <button class="btn btn-primary" onclick="openGitDeployModal()">
+    <i class="ti ti-brand-github"></i> Desplegar desde Git
+  </button>
+  <button class="btn btn-secondary" onclick="openModal('modal-new-container')">
     <i class="ti ti-plus"></i> Crear contenedor
   </button>
-  <button class="btn btn-primary" onclick="openDockerEditModal('dockerfile')">
+  <button class="btn btn-secondary" onclick="openDockerEditModal('dockerfile')">
     <i class="ti ti-file-code"></i> Editar Dockerfile
   </button>
-  <button class="btn btn-primary" onclick="openDockerEditModal('compose')">
+  <button class="btn btn-secondary" onclick="openDockerEditModal('compose')">
     <i class="ti ti-file-settings"></i> Editar Docker Compose
   </button>
   <button class="btn btn-sm" onclick="loadDockerContainers()" style="margin-left:auto"><i class="ti ti-refresh"></i> Actualizar</button>

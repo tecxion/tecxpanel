@@ -100,6 +100,11 @@ async function viewDockerLogs(id, name) {
 
 let currentDockerTab = 'image';
 
+function openGitDeployModal() {
+  openModal('modal-new-container');
+  switchDockerTab('git');
+}
+
 function switchDockerTab(tab) {
   currentDockerTab = tab;
   document.getElementById('tab-docker-image').classList.toggle('active', tab === 'image');
