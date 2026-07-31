@@ -403,13 +403,13 @@
 
 <!-- New Docker Container -->
 <div class="modal-overlay" id="modal-new-container">
-  <div class="modal">
+  <div class="modal" style="width:90%;max-width:850px;max-height:85vh;display:flex;flex-direction:column">
     <div class="modal-header">
       <div class="modal-title"><i class="ti ti-brand-docker" style="color:var(--cyan)"></i> Crear Contenedor Docker
       </div>
       <button class="btn btn-sm" onclick="closeModal('modal-new-container')"><i class="ti ti-x"></i></button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" style="flex:1;overflow-y:auto;padding:1.25rem">
       <div class="tabs" style="margin-bottom:1.25rem">
         <div class="tab active" id="tab-docker-image" onclick="switchDockerTab('image')"><i
             class="ti ti-brand-docker"></i> Usar Imagen</div>
@@ -442,7 +442,7 @@
           <label>Contenido del Dockerfile</label>
           <textarea id="docker-create-file"
             placeholder="FROM nginx:alpine&#10;COPY index.html /usr/share/nginx/html/&#10;EXPOSE 80"
-            style="width:100%;height:180px;font-family:var(--mono);font-size:12.5px;padding:8px"></textarea>
+            style="width:100%;min-height:260px;font-family:var(--mono);font-size:12.5px;line-height:1.5;padding:12px;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);outline:none"></textarea>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Se compilará una nueva imagen local en tu
             VPS al vuelo.</div>
         </div>

@@ -340,13 +340,13 @@ async function editFile(path) {
   modal.id = 'modal-edit-file';
   modal.dataset.dynamic = 'true';
   modal.innerHTML = `
-    <div class="modal" style="width:90%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal" style="width:92%;max-width:1050px;height:85vh;max-height:850px;display:flex;flex-direction:column">
       <div class="modal-header">
         <div class="modal-title"><i class="ti ti-edit" style="color:var(--accent)"></i> Editar: ${esc(name)}</div>
         <button class="btn btn-sm" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i></button>
       </div>
-      <div style="flex:1;overflow:hidden;padding:1rem;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
-        <textarea id="file-editor" style="width:100%;height:100%;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--mono);font-size:13px;resize:none;outline:none">${esc(r.content)}</textarea>
+      <div class="modal-body" style="flex:1;overflow:hidden;padding:1.25rem;display:flex;flex-direction:column;min-height:0">
+        <textarea id="file-editor" style="width:100%;flex:1;min-height:300px;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-family:var(--mono);font-size:13px;line-height:1.5;resize:none;outline:none">${esc(r.content)}</textarea>
       </div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i> Cancelar</button>
