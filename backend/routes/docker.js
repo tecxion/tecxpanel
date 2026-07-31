@@ -850,6 +850,9 @@ const deployGitHandler = wrap(async (req, res) => {
 
       // Escribir archivo .env con las variables de entorno si se especificaron
       let effEnvs = typeof envs === 'string' ? envs : '';
+      if (proxyDomain && !/^\s*DOMAIN\s*=/m.test(effEnvs)) {
+        effEnvs = (effEnvs ? effEnvs + '\n' : '') + `DOMAIN=${proxyDomain}`;
+      }
       if (effEnvs.trim()) {
         fs.writeFileSync(path.join(dir, '.env'), effEnvs);
         log('✓ Archivo .env generado correctamente en la raíz del proyecto.\n');
@@ -872,6 +875,7 @@ const deployGitHandler = wrap(async (req, res) => {
 
       if (composeCode !== 0) {
         log(`\n✖ Falló la compilación/arranque de Docker Compose (código de salida ${composeCode}).\n`);
+        log('💡 Consejo: Si tu docker-compose.yml requiere variables de entorno (como DOMAIN), agrégalas en el área "Variables de entorno (opcional)" del formulario de despliegue.\n');
         return finish(1, false);
       }
 
