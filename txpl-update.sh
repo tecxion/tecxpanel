@@ -90,7 +90,7 @@ else
     warn "El panel no parece estar online. Restaurando backup..."
     cp -r "$BACKUP_DIR/backend/." "$TXPL_DIR/backend/"
     cp -r "$BACKUP_DIR/frontend/." "$TXPL_DIR/frontend/"
-    pm2 restart txpl-panel
+    pm2 restart txpl-panel || pm2 start "$TXPL_DIR/ecosystem.config.js" --env production
     err "Actualización fallida. Backup restaurado. Revisa: pm2 logs txpl-panel"
 fi
 
