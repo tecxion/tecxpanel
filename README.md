@@ -126,19 +126,52 @@ sudo bash txpl-update.sh
 
 El script hace `git pull`, reinstala dependencias si cambiaron y recarga el panel con PM2 sin pérdida de servicio.
 
-### ⚙️ Instalación Personalizada
+### 🔑 Configuración del archivo `.env` y Gestión de Credenciales
 
-Puedes predefinir variables de entorno antes de lanzar el instalador:
+En producción, la configuración principal de TecXPaneL reside exclusivamente en **/opt/txpl/.env**. El archivo contiene las claves maestras de seguridad, puertos y contraseñas de administración.
 
-```bash
-export ADMIN_USER="admin"
-export ADMIN_PASS="tu-contraseña-segura"
-export PANEL_DOMAIN="panel.tudominio.com"
-export INSTALL_MYSQL=1
-export INSTALL_PG=0
+> [!IMPORTANT]
+> El archivo `/opt/txpl/.env` debe estar protegido con permisos estrictos de lectura solo para root (`chmod 600 /opt/txpl/.env`) y **nunca** subirse a repositorios públicos.
 
-sudo -E bash txpl-setup.sh
+#### Estructura recomendada del archivo `/opt/txpl/.env`:
+
+```env
+# Puerto interno del servidor backend (Proxy Nginx atiende en 8080/8443)
+TXPL_PORT=8585
+TXPL_DIR=/opt/txpl
+SITES_DIR=/var/www
+
+# Clave secreta para firmar tokens JWT de sesión — MÍNIMO 32 CARACTERES.
+# Genera una clave segura ejecutando: openssl rand -hex 32
+JWT_SECRET=f9a87d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e
+
+# Tiempo de vida de la sesión administrativa (8h, 1d, 30m)
+TXPL_TOKEN_TTL=8h
+
+# Usuario y contraseña para el primer acceso al panel de control.
+# En el primer arranque se encripta con bcrypt en SQLite (/opt/txpl/data/txpl.db).
+ADMIN_USER=admin
+ADMIN_PASS=TuContraseñaSuperSegura2026!
+
+# Contraseñas maestras para bases de datos (opcionales para MySQL/PostgreSQL)
+MYSQL_ROOT_PASSWORD=PasswordRootMySQL
+PG_PASSWORD=PasswordPostgreSQL
+
+# Email para notificaciones y renovación automática de certificados SSL (Let's Encrypt)
+SSL_EMAIL=admin@tudominio.com
 ```
+
+#### 🛠️ Cómo rotar o cambiar la contraseña de administración:
+
+1. **Vía CLI `txpl` (Recomendado)**:
+   ```bash
+   sudo txpl reset-password
+   ```
+2. **Vía `.env`**:
+   Define `ADMIN_PASS=NuevaPassword` en `/opt/txpl/.env` y reinicia el panel forzando la rotación:
+   ```bash
+   TXPL_RESET_ADMIN_PASS=1 sudo bash txpl-update.sh
+   ```
 
 ---
 
