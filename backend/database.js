@@ -229,6 +229,8 @@ db.exec(`
     volume_name TEXT,
     volume_path TEXT,
     envs TEXT,
+    sub_dir TEXT,
+    dockerfile_path TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -241,6 +243,9 @@ try { db.exec("ALTER TABLE websites ADD COLUMN listen_port INTEGER"); } catch (_
 try { db.exec("ALTER TABLE websites ADD COLUMN php_version TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE apps ADD COLUMN git_repo TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE apps ADD COLUMN git_branch TEXT"); } catch (_) {}
+// Persistencia del subdirectorio y ruta al Dockerfile para el re-despliegue Git de contenedores.
+try { db.exec("ALTER TABLE docker_deploys ADD COLUMN sub_dir TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE docker_deploys ADD COLUMN dockerfile_path TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE apps ADD COLUMN webhook_secret TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN email TEXT"); } catch (_) {}
 try { db.exec("ALTER TABLE users ADD COLUMN security_question TEXT"); } catch (_) {}
@@ -479,13 +484,13 @@ const queries = {
   listDockerDeploys:  db.prepare('SELECT * FROM docker_deploys'),
   deleteDockerDeploy: db.prepare('DELETE FROM docker_deploys WHERE container_name = ?'),
   saveDockerDeploy:   db.prepare(`
-    INSERT INTO docker_deploys (container_name, raw_repo_url, git_branch, git_token_enc, template, container_port, host_port, domain, ssl, volume_name, volume_path, envs, updated_at)
-    VALUES (@container_name, @raw_repo_url, @git_branch, @git_token_enc, @template, @container_port, @host_port, @domain, @ssl, @volume_name, @volume_path, @envs, datetime('now'))
+    INSERT INTO docker_deploys (container_name, raw_repo_url, git_branch, git_token_enc, template, container_port, host_port, domain, ssl, volume_name, volume_path, envs, sub_dir, dockerfile_path, updated_at)
+    VALUES (@container_name, @raw_repo_url, @git_branch, @git_token_enc, @template, @container_port, @host_port, @domain, @ssl, @volume_name, @volume_path, @envs, @sub_dir, @dockerfile_path, datetime('now'))
     ON CONFLICT(container_name) DO UPDATE SET
       raw_repo_url=@raw_repo_url, git_branch=@git_branch, git_token_enc=@git_token_enc,
       template=@template, container_port=@container_port, host_port=@host_port,
       domain=@domain, ssl=@ssl, volume_name=@volume_name, volume_path=@volume_path,
-      envs=@envs, updated_at=datetime('now')`),
+      envs=@envs, sub_dir=@sub_dir, dockerfile_path=@dockerfile_path, updated_at=datetime('now')`),
 };
 
 function audit(user, ip, action, detail) {

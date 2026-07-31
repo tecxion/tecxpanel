@@ -612,7 +612,9 @@ router.post('/deploy/build', wrap(async (req, res) => {
 
 // Paso 3 (Asistente Git): clonar repositorio desde GitHub/Git, compilar Dockerfile/plantilla
 // (logs en vivo con diagnóstico detallado), crear y arrancar contenedor y aplicar red.
-router.post('/deploy/git', wrap(async (req, res) => {
+// Handler del despliegue Git, extraído para que /redeploy lo invoque directamente
+// (evita el hack de rebuscar en router.stack).
+const deployGitHandler = wrap(async (req, res) => {
   const {
     name, gitRepo, gitToken, gitBranch, dockerfilePath, subDir, template = 'dockerfile',
     hostPort: hostPortRaw, containerPort, domain, ssl, volumeName, volumePath, envs
@@ -998,7 +1000,9 @@ router.post('/deploy/git', wrap(async (req, res) => {
         ssl: wantSsl ? 1 : 0,
         volume_name: volumeName || null,
         volume_path: volumePath || null,
-        envs: envs || null
+        envs: envs || null,
+        sub_dir: (typeof subDir === 'string' && subDir.trim()) ? subDir.trim() : null,
+        dockerfile_path: (typeof dockerfilePath === 'string' && dockerfilePath.trim()) ? dockerfilePath.trim() : null
       });
       log('✓ Configuración del despliegue guardada para actualizaciones automáticas futuras.\n');
     } catch (dbErr) {
@@ -1012,9 +1016,11 @@ router.post('/deploy/git', wrap(async (req, res) => {
     log('\n[error] Excepción en el servidor: ' + (e.message || e) + '\n');
     finish(1);
   }
-}));
+});
 
-// POST /api/docker/containers/:name/redeploy - Actualizar contenedor re-ejecutando el despliegue Git desde la BD
+router.post('/deploy/git', deployGitHandler);
+
+// POST /api/docker/containers/:name/redeploy - Re-ejecuta el despliegue Git desde la config guardada en la BD.
 router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
   const { name } = req.params;
   const deploy = queries.getDockerDeploy.get(name);
@@ -1024,10 +1030,12 @@ router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
 
   const gitToken = deploy.git_token_enc ? decryptText(deploy.git_token_enc) : '';
 
-  // Inyectar datos guardados en req.body y simular llamada a /deploy/git
+  // Reconstruir el body que espera /deploy/git a partir de la fila guardada.
+  // Clave `gitRepo` (el handler lo lee así, no `rawRepoUrl`). subDir/dockerfilePath
+  // se restauran para reproducir despliegues no estándar tal cual el original.
   req.body = {
     name: deploy.container_name,
-    rawRepoUrl: deploy.raw_repo_url,
+    gitRepo: deploy.raw_repo_url,
     gitBranch: deploy.git_branch,
     gitToken: gitToken || '',
     template: deploy.template,
@@ -1037,15 +1045,12 @@ router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
     ssl: deploy.ssl === 1,
     volumeName: deploy.volume_name,
     volumePath: deploy.volume_path,
-    envs: deploy.envs
+    envs: deploy.envs,
+    subDir: deploy.sub_dir || undefined,
+    dockerfilePath: deploy.dockerfile_path || undefined,
   };
 
-  // Redirigir la ejecución a la ruta /deploy/git
-  const deployRoute = router.stack.find(r => r.route && r.route.path === '/deploy/git');
-  if (deployRoute && deployRoute.route.stack && deployRoute.route.stack[0]) {
-    return deployRoute.route.stack[0].handle(req, res, next);
-  }
-  return fail(res, 500, 'No se pudo iniciar el proceso de actualización.');
+  return deployGitHandler(req, res, next);
 }));
 
 // Define global paths
