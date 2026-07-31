@@ -278,6 +278,7 @@ router.delete('/containers/:id', wrap(async (req, res) => {
     // cerrar el firewall y quitar el proxy Nginx después.
     const hostPorts = [];
     let containerName = null;
+    let proxyDomain = null;
     try {
       const insp = await dockerRequest('GET', `/containers/${id}/json`);
       if (insp.statusCode < 400) {
