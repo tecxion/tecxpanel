@@ -108,11 +108,18 @@
       <li><strong>Certbot</strong> &mdash; certificados SSL gratuitos.</li>
     </ul>
 
-    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes</h3>
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-settings" style="color:var(--accent)"></i> Ajustes y Configuración del Panel</h3>
     <p>Cambia tu contrase&ntilde;a de acceso al panel (m&iacute;nimo 8 caracteres) y protege tu cuenta:</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li><strong>2FA (TOTP):</strong> activa un segundo factor compatible con Google Authenticator, Authy y similares escaneando un c&oacute;digo QR. Al iniciar sesi&oacute;n se te pedir&aacute; el c&oacute;digo de 6 d&iacute;gitos.</li>
       <li><strong>Recuperaci&oacute;n de contrase&ntilde;a:</strong> configura un email y una pregunta de seguridad para poder recuperar el acceso si la olvidas, sin depender de servicios externos.</li>
+    </ul>
+
+    <p><strong>Configuración inicial y archivo <code>/opt/txpl/.env</code>:</strong></p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li>La configuración maestra reside en <code>/opt/txpl/.env</code>. Contiene variables clave como <code>TXPL_PORT=8585</code>, <code>JWT_SECRET</code> (m&iacute;nimo 32 caracteres aleatorios) y <code>ADMIN_PASS</code>.</li>
+      <li><strong>Restablecer contraseña olvidada por consola:</strong> ejecuta <code>sudo txpl reset-password</code> en tu VPS.</li>
+      <li><strong>Asignar tu propio dominio al panel (ej: <code>vps.tecxart.es</code>):</strong> si quieres abrir el panel directamente desde tu dominio en el puerto 80/443 sin escribir <code>:8080</code>, apunta un registro A en tu DNS hacia la IP del VPS y ejecuta en el servidor: <code>sudo txpl panel:ssl vps.tecxart.es</code>.</li>
     </ul>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-bell" style="color:var(--accent)"></i> Notificaciones</h3>
@@ -124,12 +131,18 @@
       <li>Abre tu bot recién creado y pulsa <strong>/start</strong> (Telegram no deja que un bot te escriba si no le hablas primero).</li>
       <li>En <strong>Ajustes &rarr; Notificaciones</strong>: activa Telegram, pega el token y pulsa <strong>Detectar chat</strong> (rellena tu Chat ID autom&aacute;ticamente). Elige los eventos, <strong>Guarda</strong> y pulsa <strong>Enviar prueba</strong>.</li>
     </ol>
-    <p><strong>Configurar email (SMTP):</strong> el puerto y la casilla &laquo;Conexi&oacute;n TLS directa&raquo; deben cuadrar, o el env&iacute;o falla con un error de <em>SSL wrong version number</em>:</p>
+    <p><strong>Configurar email (SMTP):</strong> debes rellenar los 4 campos clave (Host, Puerto 1-65535, Email remitente y Email destinatario). El puerto y la casilla &laquo;Conexi&oacute;n TLS directa&raquo; deben cuadrar:</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li>Puerto <strong>587</strong> &rarr; casilla <strong>desmarcada</strong> (STARTTLS, lo m&aacute;s compatible).</li>
       <li>Puerto <strong>465</strong> &rarr; casilla <strong>marcada</strong> (TLS directo).</li>
     </ul>
-    <p><strong>Con Gmail:</strong> servidor <code>smtp.gmail.com</code>, puerto <code>587</code>, casilla desmarcada. Usuario y remitente son tu direcci&oacute;n completa de Gmail, y la contrase&ntilde;a debe ser una <strong>contrase&ntilde;a de aplicaci&oacute;n</strong> (Google &rarr; Seguridad &rarr; Verificaci&oacute;n en 2 pasos &rarr; Contrase&ntilde;as de aplicaciones), no tu contrase&ntilde;a normal. Con el propio correo del panel: host <code>127.0.0.1</code>, puerto <code>587</code>, casilla desmarcada.</p>
+    <p><strong>Proveedores habituales:</strong></p>
+    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
+      <li><strong>Hostinger Mail:</strong> host <code>smtp.hostinger.com</code>, puerto <code>465</code>, casilla SSL/TLS marcada. Usuario y Remitente: <code>tu-cuenta@tudominio.com</code>.</li>
+      <li><strong>Gmail:</strong> host <code>smtp.gmail.com</code>, puerto <code>587</code>, casilla desmarcada. Usuario y Remitente son tu dirección de Gmail, y la contraseña debe ser una <strong>contraseña de aplicación</strong> de 16 caracteres (Google &rarr; Seguridad &rarr; Verificación en 2 pasos &rarr; Contraseñas de aplicaciones).</li>
+      <li><strong>Outlook / Office 365:</strong> host <code>smtp.office365.com</code>, puerto <code>587</code>, casilla desmarcada.</li>
+    </ul>
+    <p><strong>Solución al error <em>"Config SMTP incompleta o no válida"</em>:</strong> Este error indica que falta algún campo o que los emails ingresados no tienen un formato válido (<code>usuario@dominio.com</code>). Comprueba que has escrito tanto el email de salida (Remitente) como el email de recepción (Destinatario).</p>
     <p><strong>Aviso importante:</strong> si el VPS entero se cae, nada dentro de &eacute;l puede avisarte. Para ese caso usa un monitor externo (UptimeRobot, o un Uptime Kuma en otro servidor).</p>
   </div>
 </div>

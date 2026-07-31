@@ -445,19 +445,27 @@ TecXPaneL te avisa por **Telegram** y/o **email** cuando algo va mal, sin que te
 
 ### Email (SMTP)
 
-El **puerto** y la casilla **«Conexión TLS directa»** deben ser coherentes (si no, el envío falla con un error de *SSL wrong version number*):
+Para configurar avisos por correo, debes completar los 4 campos obligatorios (**Host**, **Puerto**, **Email remitente** y **Email destinatario**):
 
-| Puerto | Casilla TLS directa | Modo                                   |
+| Puerto | Casilla SSL/TLS directa | Modo |
 | :----- | :------------------ | :------------------------------------- |
-| `587`  | desmarcada          | STARTTLS (recomendado, más compatible) |
-| `465`  | marcada             | TLS implícito                          |
+| `587`  | **Desmarcada**      | STARTTLS (recomendado, el más compatible) |
+| `465`  | **Marcada**         | SSL/TLS directo |
 
-**Con Gmail:** servidor `smtp.gmail.com`, puerto `587`, casilla desmarcada. El usuario y el remitente son tu dirección completa de Gmail, y la contraseña debe ser una **contraseña de aplicación**, no tu contraseña normal.
+#### Configuraciones de proveedores comunes:
+
+* **Hostinger Mail**:
+  * **Host**: `smtp.hostinger.com` | **Puerto**: `465` | **SSL/TLS**: ☑️ *Marcado*
+  * **Usuario y Remitente**: `tu-cuenta@tudominio.com`
+* **Gmail (Requiere Contraseña de Aplicación)**:
+  * **Host**: `smtp.gmail.com` | **Puerto**: `587` | **SSL/TLS**: ☐ *Desmarcado*
+  * **Usuario y Remitente**: `tu-usuario@gmail.com`
+  * **Contraseña**: Código de 16 caracteres generado en **Cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones**.
+* **Outlook / Microsoft 365**:
+  * **Host**: `smtp.office365.com` | **Puerto**: `587` | **SSL/TLS**: ☐ *Desmarcado*
 
 > [!TIP]
-> Para generar la contraseña de aplicación de Gmail necesitas la **verificación en 2 pasos** activada; luego créala en **Cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones**. Es un código de 16 caracteres que pegas en el campo Contraseña del panel.
-
-**Con tu propio correo** (módulo Correo del panel): host `127.0.0.1`, puerto `587`, casilla desmarcada.
+> **Solución a `"Config SMTP incompleta o no válida"`**: Este error aparece si alguno de los campos clave (Host, Puerto 1-65535, Remitente o Destinatario) está vacío o el formato del correo no es válido (`usuario@dominio.com`). Revisa que hayas rellenado tanto el email de envío como el de recepción.
 
 > [!WARNING]
 > Si el VPS entero se cae, nada dentro de él puede avisarte. Para detectar una caída total usa un monitor **externo** (UptimeRobot, o un Uptime Kuma alojado en otro servidor).
