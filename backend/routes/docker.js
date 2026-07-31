@@ -9,7 +9,8 @@ const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { isValidDomain, RE_APP_NAME } = require('../lib/validators');
 const nginx = require('../lib/nginx');
 const dockerDeploy = require('../lib/dockerDeploy');
-const { audit } = require('../database');
+const { audit, queries } = require('../database');
+const { encryptText, decryptText } = require('../lib/crypto');
 
 const router = express.Router();
 const DOCKER_SOCKET = '/var/run/docker.sock';
@@ -205,7 +206,7 @@ const DEPLOY_TEMPLATES = {
 
 // ── Endpoints ──────────────────────────────────────────────────
 
-// GET /api/docker/containers - List all containers
+// GET /api/docker/containers - List all containers (enrich with git deploy info)
 router.get('/containers', wrap(async (req, res) => {
   try {
     const result = await dockerRequest('GET', '/containers/json?all=1');
@@ -213,6 +214,34 @@ router.get('/containers', wrap(async (req, res) => {
       return fail(res, result.statusCode, `Error de Docker API: ${result.body.toString()}`);
     }
     const containers = JSON.parse(result.body.toString());
+
+    // Cruzar con la tabla docker_deploys para adjuntar metadatos de Git
+    try {
+      const deploys = queries.listDockerDeploys.all();
+      const deployMap = new Map();
+      for (const d of deploys) {
+        deployMap.set(d.container_name, d);
+      }
+      for (const c of containers) {
+        const names = c.Names ? c.Names.map(n => n.replace(/^\//, '')) : [];
+        let info = null;
+        for (const n of names) {
+          if (deployMap.has(n)) {
+            info = deployMap.get(n);
+            break;
+          }
+        }
+        if (info) {
+          c.isGitDeploy = true;
+          c.gitRepo = dockerDeploy.sanitizeRepoUrl(info.raw_repo_url);
+          c.gitBranch = info.git_branch;
+          c.containerName = info.container_name;
+        }
+      }
+    } catch (dbErr) {
+      console.warn('[docker] Error al cruzar contenedores con docker_deploys:', dbErr.message);
+    }
+
     ok(res, containers);
   } catch (err) {
     console.error('[docker] Error al listar contenedores:', err.message);
@@ -248,11 +277,12 @@ router.delete('/containers/:id', wrap(async (req, res) => {
     // Antes de borrar, leer los puertos publicados y el dominio (label) para
     // cerrar el firewall y quitar el proxy Nginx después.
     const hostPorts = [];
-    let proxyDomain = null;
+    let containerName = null;
     try {
       const insp = await dockerRequest('GET', `/containers/${id}/json`);
       if (insp.statusCode < 400) {
         const info = JSON.parse(insp.body.toString());
+        if (info && info.Name) containerName = info.Name.replace(/^\//, '');
         const bindings = (info && info.HostConfig && info.HostConfig.PortBindings) || {};
         for (const arr of Object.values(bindings)) {
           for (const b of (arr || [])) {
@@ -271,6 +301,9 @@ router.delete('/containers/:id', wrap(async (req, res) => {
       }
       // Quitar el proxy Nginx del dominio si lo habíamos creado.
       if (proxyDomain) await nginx.removeSite(dockerConfName(proxyDomain));
+      if (containerName) {
+        try { queries.deleteDockerDeploy.run(containerName); } catch (_) {}
+      }
       audit(req.user.username, clientIp(req), 'docker.delete', id.substring(0, 12));
       return ok(res, { success: true });
     }
@@ -946,6 +979,27 @@ router.post('/deploy/git', wrap(async (req, res) => {
     // 7. Red: firewall + dominio + HTTPS (best-effort)
     await applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl });
 
+    // 8. Guardar metadatos del despliegue en la BD para futuras actualizaciones automáticas
+    try {
+      queries.saveDockerDeploy.run({
+        container_name: name,
+        raw_repo_url: rawRepoUrl,
+        git_branch: branch,
+        git_token_enc: token ? encryptText(token) : null,
+        template: template || 'dockerfile',
+        container_port: effContainerPort || null,
+        host_port: hostPort ? parseInt(hostPort, 10) : null,
+        domain: proxyDomain || null,
+        ssl: wantSsl ? 1 : 0,
+        volume_name: volumeName || null,
+        volume_path: volumePath || null,
+        envs: envs || null
+      });
+      log('✓ Configuración del despliegue guardada para actualizaciones automáticas futuras.\n');
+    } catch (dbErr) {
+      log('⚠ No se pudo guardar la configuración en la BD: ' + dbErr.message + '\n');
+    }
+
     audit(req.user.username, clientIp(req), 'docker.deploy_git', `${name} (${sanitizedUrl})`);
     log('\n✅ DESPLIEGUE DESDE GIT COMPLETADO CON ÉXITO.\n');
     finish(0);
@@ -953,6 +1007,40 @@ router.post('/deploy/git', wrap(async (req, res) => {
     log('\n[error] Excepción en el servidor: ' + (e.message || e) + '\n');
     finish(1);
   }
+}));
+
+// POST /api/docker/containers/:name/redeploy - Actualizar contenedor re-ejecutando el despliegue Git desde la BD
+router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
+  const { name } = req.params;
+  const deploy = queries.getDockerDeploy.get(name);
+  if (!deploy) {
+    return fail(res, 404, `No se encontró una configuración de despliegue Git guardada para "${name}".`);
+  }
+
+  const gitToken = deploy.git_token_enc ? decryptText(deploy.git_token_enc) : '';
+
+  // Inyectar datos guardados en req.body y simular llamada a /deploy/git
+  req.body = {
+    name: deploy.container_name,
+    rawRepoUrl: deploy.raw_repo_url,
+    gitBranch: deploy.git_branch,
+    gitToken: gitToken || '',
+    template: deploy.template,
+    containerPort: deploy.container_port,
+    hostPort: deploy.host_port,
+    domain: deploy.domain,
+    ssl: deploy.ssl === 1,
+    volumeName: deploy.volume_name,
+    volumePath: deploy.volume_path,
+    envs: deploy.envs
+  };
+
+  // Redirigir la ejecución a la ruta /deploy/git
+  const deployRoute = router.stack.find(r => r.route && r.route.path === '/deploy/git');
+  if (deployRoute && deployRoute.route.stack && deployRoute.route.stack[0]) {
+    return deployRoute.route.stack[0].handle(req, res, next);
+  }
+  return fail(res, 500, 'No se pudo iniciar el proceso de actualización.');
 }));
 
 // Define global paths

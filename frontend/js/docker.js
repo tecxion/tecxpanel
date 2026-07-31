@@ -44,9 +44,18 @@ async function loadDockerContainers() {
          <button class="btn btn-sm" onclick="dockerAction('${c.Id}','restart')" title="Reiniciar"><i class="ti ti-refresh"></i> Reiniciar</button>`
       : `<button class="btn btn-sm btn-success" onclick="dockerAction('${c.Id}','start')" title="Iniciar"><i class="ti ti-player-play"></i> Iniciar</button>`;
 
+    const gitBadge = c.isGitDeploy && c.gitRepo ? `<div style="font-size:10px;color:var(--primary);margin-top:2px"><i class="ti ti-brand-github"></i> ${esc(c.gitRepo)} (${esc(c.gitBranch || 'main')})</div>` : '';
+
+    const gitBtn = c.isGitDeploy
+      ? `<button class="btn btn-sm btn-outline-primary" onclick="redeployDockerGit('${esc(c.containerName || name)}')" title="Actualizar repositorio y reconstruir contenedor"><i class="ti ti-git-pull-request"></i> Actualizar Git</button>`
+      : '';
+
     return `
     <tr>
-      <td style="font-weight:600">${esc(name)}</td>
+      <td style="font-weight:600">
+        ${esc(name)}
+        ${gitBadge}
+      </td>
       <td style="font-size:12px;color:var(--text-secondary)">${esc(image)}</td>
       <td style="font-family:var(--mono);font-size:12px">${idShort}</td>
       <td>
@@ -57,6 +66,7 @@ async function loadDockerContainers() {
       <td>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           ${controlBtn}
+          ${gitBtn}
           <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
           <button class="btn btn-sm btn-danger" onclick="deleteDockerContainer('${c.Id}','${esc(name)}')" title="Eliminar contenedor"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
@@ -481,3 +491,60 @@ async function saveDockerFile() {
   saveBtn.disabled = false;
   cancelBtn.disabled = false;
 }
+
+// redeployDockerGit: actualiza un contenedor desde Git usando la configuración y el token guardados en la BD.
+async function redeployDockerGit(name) {
+  if (!confirm(`¿Deseas actualizar el contenedor "${name}" desde GitHub?\nSe descargará la última versión de la rama y se reconstruirá el contenedor automáticamente.`)) {
+    return;
+  }
+
+  document.getElementById('docker-logs-title').textContent = `Actualizando ${name} desde Git...`;
+  const logEl = document.getElementById('docker-logs-output');
+  logEl.textContent = `▶ Conectando con el servidor para actualizar "${name}" desde Git...\n\n`;
+  openModal('modal-docker-logs');
+
+  const DONE = '__TXPL_DONE__';
+  let exitCode = 1;
+
+  try {
+    const r = await fetch(API + `/api/docker/containers/${encodeURIComponent(name)}/redeploy`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }
+    });
+    if (r.status === 401) { doLogout(); return; }
+    if (r.status >= 400) {
+      const j = await r.json().catch(() => ({}));
+      logEl.textContent += '\n✖ ' + (j.error || ('Error ' + r.status)) + '\n';
+      toast(j.error || 'Error al iniciar la actualización desde Git', 'error');
+      return;
+    }
+    if (!r.body) {
+      logEl.textContent += '\n✖ El navegador no soporta lectura por streaming.';
+      return;
+    }
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += dec.decode(value, { stream: true });
+      let display = buffer;
+      const idx = buffer.indexOf(DONE);
+      if (idx >= 0) {
+        exitCode = parseInt(buffer.slice(idx + DONE.length).trim(), 10) || 0;
+        display = buffer.slice(0, idx);
+      }
+      logEl.textContent = display;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  } catch (e) {
+    logEl.textContent += '\n✖ Error de conexión: ' + (e?.message || e) + '\n';
+  }
+
+  const success = exitCode === 0;
+  toast(success ? `Contenedor "${name}" actualizado desde Git con éxito` : `La actualización de "${name}" tuvo errores`, success ? 'success' : 'error');
+  loadDockerContainers();
+}
+

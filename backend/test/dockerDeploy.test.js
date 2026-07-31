@@ -57,3 +57,19 @@ test('parseVolumeBind: ambos, ninguno, o error', () => {
   assert.strictEqual(parseVolumeBind('datos', '/x/../y').ok, false);
   assert.strictEqual(parseVolumeBind('nombre inválido', '/x').ok, false);
 });
+
+test('crypto: encriptar y desencriptar token de GitHub (AES-256-GCM)', () => {
+  const { encryptText, decryptText } = require('../lib/crypto');
+  const token = 'ghp_SampleGitHubPersonalAccessToken123456';
+  const enc = encryptText(token);
+  assert.notStrictEqual(enc, token);
+  assert.strictEqual(typeof enc, 'string');
+  assert.strictEqual(enc.split(':').length, 3);
+
+  const dec = decryptText(enc);
+  assert.strictEqual(dec, token);
+
+  assert.strictEqual(decryptText(null), null);
+  assert.strictEqual(decryptText('invalido'), null);
+});
+

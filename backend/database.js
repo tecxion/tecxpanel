@@ -214,6 +214,24 @@ db.exec(`
     db_name TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS docker_deploys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container_name TEXT NOT NULL UNIQUE,
+    raw_repo_url TEXT NOT NULL,
+    git_branch TEXT NOT NULL DEFAULT 'main',
+    git_token_enc TEXT,
+    template TEXT NOT NULL DEFAULT 'dockerfile',
+    container_port INTEGER,
+    host_port INTEGER,
+    domain TEXT,
+    ssl INTEGER NOT NULL DEFAULT 0,
+    volume_name TEXT,
+    volume_path TEXT,
+    envs TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migraciones para BDs creadas con versiones anteriores ─────
@@ -455,6 +473,19 @@ const queries = {
   listCatalogInstalls:  db.prepare('SELECT * FROM catalog_installs ORDER BY created_at DESC'),
   insertCatalogInstall: db.prepare('INSERT INTO catalog_installs (app_id, mode, domain, port, ref, db_name) VALUES (@app_id, @mode, @domain, @port, @ref, @db_name)'),
   deleteCatalogInstall: db.prepare('DELETE FROM catalog_installs WHERE app_id = ?'),
+
+  // ── Despliegues Docker desde Git ──
+  getDockerDeploy:    db.prepare('SELECT * FROM docker_deploys WHERE container_name = ?'),
+  listDockerDeploys:  db.prepare('SELECT * FROM docker_deploys'),
+  deleteDockerDeploy: db.prepare('DELETE FROM docker_deploys WHERE container_name = ?'),
+  saveDockerDeploy:   db.prepare(`
+    INSERT INTO docker_deploys (container_name, raw_repo_url, git_branch, git_token_enc, template, container_port, host_port, domain, ssl, volume_name, volume_path, envs, updated_at)
+    VALUES (@container_name, @raw_repo_url, @git_branch, @git_token_enc, @template, @container_port, @host_port, @domain, @ssl, @volume_name, @volume_path, @envs, datetime('now'))
+    ON CONFLICT(container_name) DO UPDATE SET
+      raw_repo_url=@raw_repo_url, git_branch=@git_branch, git_token_enc=@git_token_enc,
+      template=@template, container_port=@container_port, host_port=@host_port,
+      domain=@domain, ssl=@ssl, volume_name=@volume_name, volume_path=@volume_path,
+      envs=@envs, updated_at=datetime('now')`),
 };
 
 function audit(user, ip, action, detail) {
