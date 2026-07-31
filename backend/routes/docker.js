@@ -379,6 +379,15 @@ router.post('/containers/create', wrap(async (req, res) => {
       fs.mkdirSync(buildDir, { recursive: true });
       fs.writeFileSync(path.join(buildDir, 'Dockerfile'), dockerfile);
 
+      // Si se proporcionó un nombre para el contenedor, guardar también el Dockerfile en su carpeta persistente de build
+      if (name && name.trim()) {
+        try {
+          const contBuildDir = path.join(DOCKER_BUILDS_DIR, name.trim());
+          fs.mkdirSync(contBuildDir, { recursive: true });
+          fs.writeFileSync(path.join(contBuildDir, 'Dockerfile'), dockerfile);
+        } catch (_) {}
+      }
+
       console.log(`[docker] Compilando Dockerfile para la imagen: ${targetImage}...`);
       const buildRes = await runSafe('docker', ['build', '-t', targetImage, '.'], { cwd: buildDir, timeout: 300_000 });
 
@@ -1057,6 +1066,46 @@ router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
   return deployGitHandler(req, res, next);
 }));
 
+// Helper para inspeccionar los detalles reales de un contenedor existente en la API de Docker.
+async function getContainerDetails(name) {
+  let image = 'nginx:alpine';
+  let envs = [];
+  let exposedPorts = [];
+  let portMappings = [];
+  let cmd = null;
+  let workDir = null;
+
+  try {
+    const insp = await dockerRequest('GET', `/containers/${encodeURIComponent(name)}/json`);
+    if (insp.statusCode < 400) {
+      const info = JSON.parse(insp.body.toString());
+      if (info.Config) {
+        if (info.Config.Image) image = info.Config.Image;
+        if (Array.isArray(info.Config.Env)) {
+          envs = info.Config.Env.filter((e) => !e.startsWith('PATH=') && !e.startsWith('HOME='));
+        }
+        if (info.Config.ExposedPorts) {
+          exposedPorts = Object.keys(info.Config.ExposedPorts).map((p) => p.split('/')[0]);
+        }
+        if (info.Config.Cmd) cmd = info.Config.Cmd;
+        if (info.Config.WorkingDir) workDir = info.Config.WorkingDir;
+      }
+      if (info.HostConfig && info.HostConfig.PortBindings) {
+        for (const [cPort, binds] of Object.entries(info.HostConfig.PortBindings)) {
+          const cp = cPort.split('/')[0];
+          for (const b of (binds || [])) {
+            if (b && b.HostPort) {
+              portMappings.push(`${b.HostPort}:${cp}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return { image, envs, exposedPorts, portMappings, cmd, workDir };
+}
+
 // GET /api/docker/containers/:name/file/:type - Obtener Dockerfile o docker-compose.yml de un contenedor específico
 router.get('/containers/:name/file/:type', wrap(async (req, res) => {
   const { name, type } = req.params;
@@ -1086,14 +1135,36 @@ router.get('/containers/:name/file/:type', wrap(async (req, res) => {
     }
   }
 
-  // Si el archivo no existe en DOCKER_BUILDS_DIR, proporcionar plantilla inicial para editar
-  let defaultContent = '';
+  // Si no hay un archivo guardado en disco, consultar los detalles reales del contenedor
+  const details = await getContainerDetails(name);
+
   if (type === 'dockerfile') {
-    defaultContent = `FROM nginx:alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 80\n`;
+    let df = `FROM ${details.image}\n`;
+    if (details.workDir) df += `WORKDIR ${details.workDir}\n`;
+    if (details.envs.length) {
+      df += details.envs.map(e => `ENV ${e}`).join('\n') + '\n';
+    }
+    if (details.exposedPorts.length) {
+      df += details.exposedPorts.map(p => `EXPOSE ${p}`).join('\n') + '\n';
+    } else {
+      df += `EXPOSE 80\n`;
+    }
+    if (details.cmd && details.cmd.length) {
+      df += `CMD ${JSON.stringify(details.cmd)}\n`;
+    }
+    return ok(res, { content: df });
   } else {
-    defaultContent = `version: "3.8"\nservices:\n  ${name}:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n`;
+    let composeStr = `version: "3.8"\nservices:\n  ${name}:\n    image: ${details.image}\n`;
+    if (details.portMappings.length) {
+      composeStr += `    ports:\n` + details.portMappings.map(pm => `      - "${pm}"`).join('\n') + '\n';
+    } else {
+      composeStr += `    ports:\n      - "8080:80"\n`;
+    }
+    if (details.envs.length) {
+      composeStr += `    environment:\n` + details.envs.map(e => `      - ${e}`).join('\n') + '\n';
+    }
+    return ok(res, { content: composeStr });
   }
-  ok(res, { content: defaultContent });
 }));
 
 // POST /api/docker/containers/:name/file/:type - Guardar y aplicar Dockerfile o docker-compose.yml para un contenedor
