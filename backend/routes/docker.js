@@ -1057,6 +1057,127 @@ router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
   return deployGitHandler(req, res, next);
 }));
 
+// GET /api/docker/containers/:name/file/:type - Obtener Dockerfile o docker-compose.yml de un contenedor específico
+router.get('/containers/:name/file/:type', wrap(async (req, res) => {
+  const { name, type } = req.params;
+  if (!['dockerfile', 'compose'].includes(type)) {
+    return fail(res, 400, 'Tipo no válido. Debe ser dockerfile o compose.');
+  }
+  if (!RE_APP_NAME.test(name)) {
+    return fail(res, 400, 'Nombre de contenedor no válido.');
+  }
+
+  const dir = path.join(DOCKER_BUILDS_DIR, name);
+  let filePath;
+  if (type === 'dockerfile') {
+    filePath = path.join(dir, 'Dockerfile');
+  } else {
+    filePath = fs.existsSync(path.join(dir, 'docker-compose.yaml'))
+      ? path.join(dir, 'docker-compose.yaml')
+      : path.join(dir, 'docker-compose.yml');
+  }
+
+  if (fs.existsSync(filePath)) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      return ok(res, { content });
+    } catch (e) {
+      return fail(res, 500, `Error al leer el archivo: ${e.message}`);
+    }
+  }
+
+  // Si el archivo no existe en DOCKER_BUILDS_DIR, proporcionar plantilla inicial para editar
+  let defaultContent = '';
+  if (type === 'dockerfile') {
+    defaultContent = `FROM nginx:alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 80\n`;
+  } else {
+    defaultContent = `version: "3.8"\nservices:\n  ${name}:\n    image: nginx:alpine\n    ports:\n      - "8080:80"\n`;
+  }
+  ok(res, { content: defaultContent });
+}));
+
+// POST /api/docker/containers/:name/file/:type - Guardar y aplicar Dockerfile o docker-compose.yml para un contenedor
+router.post('/containers/:name/file/:type', wrap(async (req, res) => {
+  const { name, type } = req.params;
+  const { content } = req.body || {};
+
+  if (!['dockerfile', 'compose'].includes(type)) {
+    return fail(res, 400, 'Tipo no válido. Debe ser dockerfile o compose.');
+  }
+  if (!RE_APP_NAME.test(name)) {
+    return fail(res, 400, 'Nombre de contenedor no válido.');
+  }
+  if (typeof content !== 'string') {
+    return fail(res, 400, 'El contenido del archivo es requerido.');
+  }
+
+  const dir = path.join(DOCKER_BUILDS_DIR, name);
+  fs.mkdirSync(dir, { recursive: true });
+
+  if (type === 'dockerfile') {
+    const dockerfilePath = path.join(dir, 'Dockerfile');
+    fs.writeFileSync(dockerfilePath, content, 'utf8');
+
+    const imageTag = `txpl-app-${name}`;
+    console.log(`[docker] Recompilando Dockerfile de ${name} (${imageTag})...`);
+    const buildRes = await runSafe('docker', ['build', '-t', imageTag, '.'], { cwd: dir, timeout: 300_000 });
+
+    if (!buildRes.ok) {
+      const errMsg = buildRes.stderr || buildRes.stdout || 'Error al compilar Dockerfile';
+      return fail(res, 400, `Error de compilación del Dockerfile:\n${errMsg}`);
+    }
+
+    try {
+      await dockerRequest('DELETE', `/containers/${encodeURIComponent(name)}?v=1&force=1`);
+    } catch (_) {}
+
+    let deploy = null;
+    try { deploy = queries.getDockerDeploy.get(name); } catch (_) {}
+
+    const hostPort = deploy ? deploy.host_port : undefined;
+    const containerPort = deploy ? deploy.container_port : undefined;
+    const volChk = dockerDeploy.parseVolumeBind(deploy?.volume_name, deploy?.volume_path);
+    const volumeBind = volChk.bind;
+    const proxyDomain = deploy ? deploy.domain : undefined;
+    const envs = deploy ? deploy.envs : undefined;
+
+    const config = buildContainerConfig({ image: imageTag, envs, hostPort, containerPort, volumeBind, proxyDomain });
+    const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
+    if (createRes.statusCode >= 400) {
+      return fail(res, createRes.statusCode, `Imagen compilada pero falló al crear el contenedor: ${createRes.body.toString()}`);
+    }
+
+    const containerId = JSON.parse(createRes.body.toString()).Id;
+    const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
+    if (startRes.statusCode >= 400) {
+      return fail(res, startRes.statusCode, `Contenedor creado pero falló al arrancar: ${startRes.body.toString()}`);
+    }
+
+    if (hostPort) await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
+
+    audit(req.user.username, clientIp(req), 'docker.update_dockerfile', name);
+    ok(res, { success: true, output: buildRes.stdout || 'Contenedor recompilado y arrancado con éxito.' });
+  } else {
+    // compose mode
+    const composePath = path.join(dir, 'docker-compose.yml');
+    fs.writeFileSync(composePath, content, 'utf8');
+
+    console.log(`[docker] Ejecutando docker compose up para ${name}...`);
+    let composeRes = await runSafe('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], { cwd: dir, timeout: 300_000 });
+    if (!composeRes.ok) {
+      composeRes = await runSafe('docker-compose', ['up', '-d', '--build', '--remove-orphans'], { cwd: dir, timeout: 300_000 });
+    }
+
+    if (!composeRes.ok) {
+      const errMsg = composeRes.stderr || composeRes.stdout || 'Error de Docker Compose';
+      return fail(res, 400, `Error de Docker Compose:\n${errMsg}`);
+    }
+
+    audit(req.user.username, clientIp(req), 'docker.update_compose', name);
+    ok(res, { success: true, output: composeRes.stdout || 'Servicios de Docker Compose actualizados con éxito.' });
+  }
+}));
+
 // Define global paths
 const TXPL_DIR = process.env.TXPL_DIR || '/opt/txpl';
 const DATA_DIR = path.join(TXPL_DIR, 'data');

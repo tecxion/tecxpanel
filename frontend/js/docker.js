@@ -67,6 +67,8 @@ async function loadDockerContainers() {
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           ${controlBtn}
           ${gitBtn}
+          <button class="btn btn-sm" onclick="openDockerEditModal('dockerfile','${esc(c.containerName || name)}')" title="Editar Dockerfile"><i class="ti ti-file-code"></i> Dockerfile</button>
+          <button class="btn btn-sm" onclick="openDockerEditModal('compose','${esc(c.containerName || name)}')" title="Editar Docker Compose"><i class="ti ti-file-settings"></i> Compose</button>
           <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
           <button class="btn btn-sm btn-danger" onclick="deleteDockerContainer('${c.Id}','${esc(name)}')" title="Eliminar contenedor"><i class="ti ti-trash"></i> Eliminar</button>
         </div>
@@ -428,23 +430,34 @@ async function deleteDockerContainer(id, name) {
 }
 
 let currentDockerEditType = 'dockerfile';
+let currentDockerEditTarget = null;
 
-// openDockerEditModal: abre el editor del Dockerfile/compose "global" del panel.
-async function openDockerEditModal(type) {
+// openDockerEditModal: abre el editor del Dockerfile/compose ("global" o por contenedor).
+async function openDockerEditModal(type, targetContainer = null) {
   currentDockerEditType = type;
+  currentDockerEditTarget = targetContainer;
+
   const titleEl = document.getElementById('docker-edit-title');
   const textarea = document.getElementById('docker-edit-textarea');
   const hintEl = document.getElementById('docker-edit-hint');
   const progress = document.getElementById('docker-edit-progress');
   const log = document.getElementById('docker-edit-log');
 
-  const titleText = type === 'dockerfile' ? 'Dockerfile global' : 'docker-compose.yml global';
-  const hintText = type === 'dockerfile'
-    ? 'Este Dockerfile global se guarda en el VPS y al aplicar ejecuta: <strong>docker build -t txpl-global-image .</strong>'
-    : 'Este archivo define tus contenedores globales. Al aplicar ejecuta: <strong>docker compose up -d --remove-orphans</strong>';
+  const fileLabel = type === 'dockerfile' ? 'Dockerfile' : 'docker-compose.yml';
+  const targetLabel = targetContainer ? ` (${targetContainer})` : ' global';
 
-  titleEl.textContent = titleText;
-  hintEl.innerHTML = hintText;
+  titleEl.textContent = `${fileLabel}${targetLabel}`;
+
+  if (targetContainer) {
+    hintEl.innerHTML = type === 'dockerfile'
+      ? `Dockerfile de <strong>${esc(targetContainer)}</strong>. Al guardar se recompilará y arrancará el contenedor.`
+      : `docker-compose.yml de <strong>${esc(targetContainer)}</strong>. Al guardar se ejecutará <strong>docker compose up -d</strong>.`;
+  } else {
+    hintEl.innerHTML = type === 'dockerfile'
+      ? 'Este Dockerfile global se guarda en el VPS y al aplicar ejecuta: <strong>docker build -t txpl-global-image .</strong>'
+      : 'Este archivo define tus contenedores globales. Al aplicar ejecuta: <strong>docker compose up -d --remove-orphans</strong>';
+  }
+
   textarea.value = 'Cargando archivo...';
 
   progress.style.display = 'none';
@@ -452,7 +465,11 @@ async function openDockerEditModal(type) {
 
   openModal('modal-docker-edit');
 
-  const r = await req('GET', `/docker/${type}`);
+  const url = targetContainer
+    ? `/docker/containers/${encodeURIComponent(targetContainer)}/file/${type}`
+    : `/docker/${type}`;
+
+  const r = await req('GET', url);
   if (r && r.content !== undefined) {
     textarea.value = r.content;
   } else {
@@ -461,7 +478,7 @@ async function openDockerEditModal(type) {
   }
 }
 
-// saveDockerFile: guarda y aplica el Dockerfile/compose global (build o up -d).
+// saveDockerFile: guarda y aplica el Dockerfile/compose (global o por contenedor).
 async function saveDockerFile() {
   const content = document.getElementById('docker-edit-textarea').value;
   const progress = document.getElementById('docker-edit-progress');
@@ -478,7 +495,11 @@ async function saveDockerFile() {
   saveBtn.disabled = true;
   cancelBtn.disabled = true;
 
-  const r = await req('POST', `/docker/${currentDockerEditType}`, { content });
+  const url = currentDockerEditTarget
+    ? `/docker/containers/${encodeURIComponent(currentDockerEditTarget)}/file/${currentDockerEditType}`
+    : `/docker/${currentDockerEditType}`;
+
+  const r = await req('POST', url, { content });
 
   if (r?.success) {
     log.textContent += `\n[ÉXITO] Archivo guardado correctamente.\nSalida del comando:\n${r.output || 'Sin salida'}\n`;

@@ -35,4 +35,5 @@ graphify-out/
 .claude/settings.json
 .claude/settings.local.json
 
-
+# Herramientas locales / Superpowers
+.superpowers/
