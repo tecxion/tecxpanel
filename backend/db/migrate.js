@@ -57,8 +57,8 @@ function markAllMigrationsApplied() {
 }
 
 // Aplica migraciones pendientes registrándolas en _migrations.
-function applyMigrations() {
-  if (isLegacyV1Database()) {
+function applyMigrations(isLegacy) {
+  if (isLegacy) {
     // Comprueba si ya habíamos migrado antes a v2 (alguna fila en _migrations).
     const ran = db.prepare('SELECT COUNT(*) AS c FROM _migrations').get();
     if (!ran || !ran.c) {
@@ -80,8 +80,9 @@ function applyMigrations() {
 }
 
 function initSchema() {
+  const legacy = isLegacyV1Database();
   applySchema();
-  applyMigrations();
+  applyMigrations(legacy);
 }
 
 module.exports = { initSchema, applySchema, applyMigrations };

@@ -16,13 +16,14 @@
 
 const { db, DB_PATH } = require('./client');
 const { initSchema } = require('./migrate');
-const { seedAdmin, audit } = require('./core');
-const queries = require('./queries');
 
 // Aplica el esquema (CREATE TABLE IF NOT EXISTS) y ejecuta migraciones
 // pendientes justo al cargar este módulo (cuando server.js hace el require).
 // No se hace en client.js porque `db.exec(schema SQL)` necesita `db` creado
 // pero sin acaparar memoria de migraciones antes de que el motor arranque.
 initSchema();
+
+const { seedAdmin, audit } = require('./core');
+const queries = require('./queries');
 
 module.exports = { db, queries, seedAdmin, audit, DB_PATH };
