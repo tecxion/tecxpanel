@@ -206,3 +206,5 @@ async function n8nUninstall() {
   toast('n8n desinstalado', 'success');
   loadN8n();
 }
+
+export {};

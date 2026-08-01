@@ -290,3 +290,5 @@ async function mailDnsPublish() {
   if (r?.success) toast(`${r.applied} registros publicados en el DNS`, 'success');
   else toast(r?.error || 'Error al publicar', 'error');
 }
+
+export {};

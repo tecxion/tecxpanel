@@ -106,3 +106,5 @@ async function setupPma() {
   if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadDatabases(); }
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
+
+export {};

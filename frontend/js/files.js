@@ -365,3 +365,5 @@ async function saveFile(path) {
   if (r?.success) { toast('Guardado', 'success'); closeModal('modal-edit-file'); loadFiles(); }
   else toast(r?.error || 'Error', 'error');
 }
+
+export {};

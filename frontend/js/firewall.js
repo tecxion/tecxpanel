@@ -41,3 +41,5 @@ async function deleteRule(num) {
   if (r?.success) { toast('Regla eliminada', 'success'); loadFirewall(); }
   else toast(r?.error || 'Error', 'error');
 }
+
+export {};

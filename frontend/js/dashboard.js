@@ -186,3 +186,5 @@ async function loadProcesses() {
     </tr>
   `).join('');
 }
+
+export {};

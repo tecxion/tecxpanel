@@ -89,3 +89,5 @@ async function streamPlugin(id, action, name) {
   toast(success ? `${name} ${action === 'install' ? 'instalado' : 'desinstalado'}` : `${name}: terminó con errores`, success ? 'success' : 'error');
   loadPlugins();
 }
+
+export {};

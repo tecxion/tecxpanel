@@ -185,3 +185,5 @@ async function saveBackupSchedule() {
   const res = await req('POST', '/backups/schedule', body);
   if (res) alert('Programación guardada');
 }
+
+export {};

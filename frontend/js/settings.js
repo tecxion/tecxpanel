@@ -55,3 +55,5 @@ async function changePassword() {
     ['set-pass-old','set-pass-new','set-pass-new2'].forEach(id => document.getElementById(id).value = '');
   } else toast(r?.error || 'Error al cambiar la contraseña', 'error');
 }
+
+export {};

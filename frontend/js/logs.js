@@ -126,3 +126,5 @@ function logsDownload() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+export {};

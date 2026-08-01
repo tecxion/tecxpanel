@@ -412,3 +412,5 @@ async function triggerGitPull() {
   log.scrollTop = log.scrollHeight;
   loadApps();
 }
+
+export {};

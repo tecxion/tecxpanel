@@ -70,33 +70,55 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 ## 🏗️ Arquitectura del Proyecto
 
-El proyecto está estructurado de forma limpia y desacoplada:
+El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestructura modular):
 
 ```text
 /opt/txpl/
 ├── backend/
-│   ├── server.js          # Punto de entrada de la API REST + WebSockets
-│   ├── database.js        # Capa de datos con SQLite (better-sqlite3, WAL)
-│   ├── routes/            # Un router por dominio: apps, websites, docker, n8n, databases…
-│   ├── lib/               # Helpers: websocket, crypto (AES-256-GCM, TOTP), nginx, n8n, validators
-│   └── test/              # Tests unitarios (node:test)
+│   ├── server.js           # Punto de entrada de la API REST + WebSockets
+│   ├── database.js         # Redirect → db/ (back-compat v1)
+│   ├── db/                 # Capa de datos (v2): schema/*.sql, migrations/, queries/*.js
+│   │   ├── client.js       # Abre better-sqlite3 (WAL, FK), singleton `db`
+│   │   ├── migrate.js      # Aplica schema/ + migrations/ (detecta BD v1 heredada)
+│   │   ├── core.js         # seedAdmin() + audit()
+│   │   ├── schema/         # Un *.sql por tabla (CREATE TABLE IF NOT EXISTS, idempotentes)
+│   │   ├── migrations/     # Migraciones numeradas (0001_initial.sql, ...), tabla _migrations
+│   │   └── queries/        # Prepared statements por dominio (users, apps, websites, ...)
+│   │       └── index.js    # Agrega claves planas (back-compat con `queries` v1)
+│   ├── routes/             # Un router por dominio (auth, apps, websites, docker, n8n, ...)
+│   ├── lib/                # Helpers por feature (subcarpetas) + redirects a un index.js
+│   │   ├── common/         # Helpers compartidos: http.js, run.js, streaming.js
+│   │   ├── docker/         # socket, config, networking (DEPLOY_TEMPLATES, applyDockerNetworking)
+│   │   ├── mail/           # config, validate, setup, dns, webmail (docker-mailserver)
+│   │   ├── backups/        # manifest, cron, commands, engine, remote
+│   │   ├── notifications/  # index (puros), monitor (vigilante 60s), executor
+│   │   ├── catalog/        # index (CATALOG), engine (instalación con rollback)
+│   │   ├── cron/, dns/, ssl/, n8n/, nginx/, apps/  # 1 index.js por feature
+│   │   ├── crypto.js       # AES-256-GCM encrypt/decrypt, TOTP (RFC 6238)
+│   │   ├── validators.js, rclone.js, dockerDeploy.js, logs.js, websocket.js
+│   │   └── <feature>.js (back-compat redirects a <feature>/index.js)
+│   └── test/               # Tests unitarios (node:test)
 ├── frontend/
-│   ├── index.html         # SPA modularizada (vanilla JS, sin bundler)
-│   ├── views/             # Plantillas HTML cargadas dinámicamente (sidebar, páginas)
-│   ├── css/
-│   │   └── styles.css     # Estilos CSS modernos
-│   └── js/                # Split por dominio, sin bundler
-│       ├── core.js        # Globals + helpers compartidos (carga 1º)
-│       └── <dominio>.js   # 20 ficheros (auth, dashboard, apps, files, mail, dns...)
+│   ├── index.html          # SPA con <script type="importmap"> + <script type="module" src="js/main.js">
+│   ├── views/              # Plantillas HTML (sidebar, modals, pages/*.html) cargadas por fetch
+│   ├── css/styles.css      # Estilos CSS modernos con variables [data-theme="light"]
+│   ├── vendor/lit-html/    # lit-html (5 KB) copiada, sin CDN ni bundler
+│   └── js/
+│       ├── main.js         # Boot ES module: load templates + lazy imports + setup globals
+│       ├── core/           # api.js, utils.js, theme.js, toast.js, stream.js, router.js
+│       ├── pages/          # Páginas migradas a lit-html (tarea futura)
+│       └── <dominio>.js    # 20 ficheros v1 (ES modules con export {} para back-compat)
 ├── data/
-│   └── txpl.db            # Base de datos SQLite del panel (se crea en el arranque)
-├── public/                # Assets estáticos (logotipos servidos por el panel)
-├── txpl-setup.sh          # Aprovisionamiento completo del VPS (logo ASCII + progreso)
-├── txpl-update.sh         # Actualización in-place del panel en el VPS (pull + deps + reload PM2)
-├── txpl-cli.sh            # CLI de administración (txpl status/restart/logs/backup…)
-├── txpl-backup.sh         # Backup automático de DB + configs + sitios
-└── ecosystem.config.js    # Configuración de ejecución continua en PM2
+│   └── txpl.db             # Base de datos SQLite del panel (se crea en el arranque)
+├── public/                 # Assets estáticos (logotipos servidos por el panel)
+├── txpl-setup.sh           # Aprovisionamiento completo del VPS (logo ASCII + progreso)
+├── txpl-update.sh          # Actualización in-place del panel en el VPS (pull + deps + reload PM2)
+├── txpl-cli.sh             # CLI de administración (txpl status/restart/logs/backup…)
+├── txpl-backup.sh          # Backup automático de DB + configs + sitios
+└── ecosystem.config.js     # Configuración de ejecución continua en PM2
 ```
+
+**Migración v1 → v2:** los archivos planos en `backend/lib/` (p. ej. `lib/mail.js`, `lib/backups.js`, `lib/dockerDeploy.js`) son redirects a sus nuevas subcarpetas (`lib/mail/index.js`, `lib/backups/index.js`, etc.). Los 27 archivos que importan `require('../database')` o `require('../lib/helpers')` siguen funcionando sin tocarlos — la API pública se mantiene intacta.
 
 ---
 

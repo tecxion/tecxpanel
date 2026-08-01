@@ -1,6 +1,15 @@
+// ============================================================
+//  TecXPaneL — routes/docker.js (v2 — router delgado)
+//
+//  Cada handler valida, llama a lib/docker/*, escribe audit() y
+//  responde ok()/fail(). Los helpers puros/vivos live en:
+//    lib/docker/socket      → dockerRequest, dockerExec, dockerConfName, DOCKER_SOCKET, decodeDockerLogs
+//    lib/docker/config      → DEPLOY_TEMPLATES, buildContainerConfig, flattenSingleSubdir
+//    lib/docker/networking  → applyDockerNetworking (UFW + Nginx proxy + SSL)
+// ============================================================
+
 'use strict';
 
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -12,199 +21,12 @@ const dockerDeploy = require('../lib/dockerDeploy');
 const { audit, queries } = require('../database');
 const { encryptText, decryptText } = require('../lib/crypto');
 
+const { dockerRequest, dockerExec, dockerConfName, decodeDockerLogs } = require('../lib/docker/socket');
+const { DEPLOY_TEMPLATES, buildContainerConfig, flattenSingleSubdir } = require('../lib/docker/config');
+const { applyDockerNetworking } = require('../lib/docker/networking');
+
 const router = express.Router();
-const DOCKER_SOCKET = '/var/run/docker.sock';
-const DOCKER_BUILDS_DIR = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data', 'docker-builds');
-
-// Nombre del vhost de Nginx asociado a un contenedor con dominio. Se usa el
-// dominio para poder localizarlo y borrarlo al eliminar el contenedor.
-const dockerConfName = (domain) => `txpl-docker-${domain}`;
-
-// Capa de red de un despliegue Docker (best-effort, con salida en vivo via `log`):
-// abre el puerto en UFW, publica el proxy Nginx del dominio y, si se pide, instala SSL.
-// Reutilizado por los despliegues por streaming (build, git single y git compose).
-async function applyDockerNetworking(log, { proxyDomain, hostPort, wantSsl }) {
-  if (hostPort) {
-    await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
-    log(`✓ Puerto ${hostPort} abierto en el firewall (UFW).\n`);
-  }
-  if (proxyDomain && hostPort) {
-    try {
-      await nginx.enableSite(dockerConfName(proxyDomain), nginx.buildProxy(proxyDomain, hostPort, { www: false }));
-      log(`✓ Proxy Nginx configurado: ${proxyDomain} → puerto ${hostPort}.\n`);
-    } catch (e) {
-      log(`⚠ El proxy del dominio falló: ${e.message}\n`);
-    }
-    if (wantSsl) {
-      try { await nginx.installSsl(proxyDomain, { www: false }); log('✓ HTTPS (SSL) instalado.\n'); }
-      catch (e) { log(`⚠ HTTPS no se pudo instalar automáticamente: ${e.message}\n`); }
-    }
-  }
-}
-
-// Helper to make native HTTP requests to the Docker UNIX socket
-function dockerRequest(method, path, body = null) {
-  return new Promise((resolve, reject) => {
-    // Check if socket exists (on Linux). On Windows / development, this will reject cleanly.
-    if (!fs.existsSync(DOCKER_SOCKET)) {
-      return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
-    }
-
-    const options = {
-      socketPath: DOCKER_SOCKET,
-      path: path,
-      method: method,
-      headers: {
-        'Host': 'localhost'
-      }
-    };
-
-    if (body) {
-      options.headers['Content-Type'] = 'application/json';
-    }
-
-    const req = http.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-      res.on('end', () => {
-        const responseBody = Buffer.concat(chunks);
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: responseBody
-        });
-      });
-    });
-
-    req.on('error', (err) => {
-      reject(err);
-    });
-
-    if (body) {
-      req.write(JSON.stringify(body));
-    }
-    req.end();
-  });
-}
-
-// Robust decoder for Docker multiplexed log format
-function decodeDockerLogs(buffer) {
-  let offset = 0;
-  let output = '';
-  let isMultiplexed = true;
-
-  // Pre-flight check to verify multiplexed format (8-byte header: type, reserved, size)
-  while (offset < buffer.length) {
-    if (offset + 8 > buffer.length) {
-      break;
-    }
-    const type = buffer.readUInt8(offset);
-    // Stream types are 0 (stdin), 1 (stdout), 2 (stderr)
-    if (type !== 0 && type !== 1 && type !== 2) {
-      isMultiplexed = false;
-      break;
-    }
-    const size = buffer.readUInt32BE(offset + 4);
-    if (offset + 8 + size > buffer.length) {
-      if (size > 1024 * 1024) { // Suspiciously large frame size
-        isMultiplexed = false;
-      }
-      break;
-    }
-    offset += 8 + size;
-  }
-
-  if (!isMultiplexed || buffer.length === 0) {
-    return buffer.toString('utf8');
-  }
-
-  // Decode multiplexed stream
-  offset = 0;
-  while (offset < buffer.length) {
-    if (offset + 8 > buffer.length) {
-      output += buffer.slice(offset).toString('utf8');
-      break;
-    }
-    const type = buffer.readUInt8(offset);
-    const size = buffer.readUInt32BE(offset + 4);
-    offset += 8;
-
-    let end = offset + size;
-    if (end > buffer.length) end = buffer.length;
-
-    const text = buffer.slice(offset, end).toString('utf8');
-    output += text;
-    offset = end;
-  }
-  return output;
-}
-
-// Construye la config que se envía a la Docker API. Reutilizada por la creación
-// manual (/containers/create) y por el asistente de despliegue (/deploy/build).
-function buildContainerConfig({ image, envs, hostPort, containerPort, volumeBind, proxyDomain }) {
-  const config = {
-    Image: image,
-    Env: [],
-    // Reinicio automático: el contenedor vuelve solo tras un reinicio del VPS o una caída.
-    HostConfig: { RestartPolicy: { Name: 'unless-stopped' } }
-  };
-  if (envs && typeof envs === 'string') {
-    config.Env = envs.split('\n').map((l) => l.trim()).filter((l) => l && l.includes('='));
-  }
-  if (hostPort && containerPort) {
-    // containerPort puede llegar como número; normalizar a "<puerto>/tcp".
-    const cp = String(containerPort);
-    const cPort = cp.includes('/') ? cp : `${cp}/tcp`;
-    config.ExposedPorts = { [cPort]: {} };
-    config.HostConfig.PortBindings = { [cPort]: [{ HostPort: String(hostPort) }] };
-  }
-  if (volumeBind) config.HostConfig.Binds = [volumeBind];
-  if (proxyDomain) config.Labels = { 'txpl.domain': proxyDomain };
-  return config;
-}
-
-// Si el ZIP se extrajo dentro de una única subcarpeta, sube su contenido a la raíz
-// del directorio de build (también limpia la carpeta de metadatos de macOS).
-function flattenSingleSubdir(dir) {
-  try { fs.rmSync(path.join(dir, '__MACOSX'), { recursive: true, force: true }); } catch (_) {}
-  const entries = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.name !== '__MACOSX');
-  if (entries.length === 1 && entries[0].isDirectory()) {
-    const sub = path.join(dir, entries[0].name);
-    for (const item of fs.readdirSync(sub)) {
-      fs.renameSync(path.join(sub, item), path.join(dir, item));
-    }
-    fs.rmdirSync(sub);
-  }
-}
-
-// Plantillas de Dockerfile para usuarios sin conocimientos de Docker.
-// containerPort = puerto interno por defecto en el que escucha la app.
-const DEPLOY_TEMPLATES = {
-  static: {
-    label: 'Sitio estático', containerPort: 80, fixedPort: true,
-    gen: () => 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 80\n',
-  },
-  php: {
-    label: 'PHP (Apache)', containerPort: 80, fixedPort: true,
-    gen: () => 'FROM php:8.3-apache\nCOPY . /var/www/html/\nEXPOSE 80\n',
-  },
-  node: {
-    label: 'Node.js', containerPort: 3000, fixedPort: false,
-    gen: (port) => `FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm install --omit=dev || true\nEXPOSE ${port}\nCMD ["npm","start"]\n`,
-  },
-  python: {
-    label: 'Python', containerPort: 8000, fixedPort: false,
-    gen: (port) => `FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt || true\nEXPOSE ${port}\nCMD ["python","app.py"]\n`,
-  },
-  dockerfile: {
-    label: 'Ya tengo Dockerfile', containerPort: null, fixedPort: false,
-    gen: null,
-  },
-};
-
-// ── Endpoints ──────────────────────────────────────────────────
+const DOCKER_BUILDS_DIR = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data', 'docker-builds');// ── Endpoints ──────────────────────────────────────────────────
 
 // GET /api/docker/containers - List all containers (enrich with git deploy info)
 router.get('/containers', wrap(async (req, res) => {
@@ -1339,3 +1161,4 @@ router.post('/compose', wrap(async (req, res) => {
 }));
 
 module.exports = router;
+

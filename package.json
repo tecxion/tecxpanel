@@ -1,6 +1,6 @@
 {
   "name": "tecxpanel-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "TecXPaneL — backend del panel de control para VPS (API REST + WebSockets)",
   "main": "backend/server.js",
   "scripts": {
@@ -25,5 +25,8 @@
   "optionalDependencies": {
     "node-pty": "^1.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "lit-html": "^3.3.3"
+  }
 }

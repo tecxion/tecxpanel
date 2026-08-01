@@ -92,3 +92,5 @@ async function deleteWebsite(id) {
   if (r?.success) { toast('Sitio eliminado', 'success'); loadWebsites(); }
   else toast(r?.error || 'Error', 'error');
 }
+
+export {};

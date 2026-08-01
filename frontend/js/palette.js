@@ -145,3 +145,5 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); paletteSel = Math.max(paletteSel - 1, 0); paletteRender(); }
   else if (e.key === 'Enter') { e.preventDefault(); paletteExec(paletteSel); }
 });
+
+export {};

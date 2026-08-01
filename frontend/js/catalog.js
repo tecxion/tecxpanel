@@ -225,3 +225,5 @@ async function catalogStream(apiPath, method, body, title) {
   toast(exitCode === 0 ? 'Operación completada' : 'La operación terminó con errores', exitCode === 0 ? 'success' : 'error');
   loadCatalog();
 }
+
+export {};

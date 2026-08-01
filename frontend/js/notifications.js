@@ -81,3 +81,5 @@ async function detectTgChat() {
     toast('Chat detectado' + (r.name ? ': ' + r.name : ''), 'success');
   } else toast(r?.error || 'No se pudo detectar el chat', 'error');
 }
+
+export {};

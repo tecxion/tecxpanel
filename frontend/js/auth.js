@@ -187,3 +187,5 @@ async function checkAuth() {
     initApp();
   }
 }
+
+export {};

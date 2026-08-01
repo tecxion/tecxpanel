@@ -111,3 +111,5 @@ async function cronViewLog(id) {
   document.getElementById('cron-log-output').textContent = r.log || '(sin salida registrada todavía)';
   document.getElementById('cron-log-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+
+export {};
