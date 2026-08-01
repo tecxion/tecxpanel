@@ -20,7 +20,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { runSafe } = require('./helpers');
+const { runSafe } = require('../common/run');
 
 // Carpetas estándar de Nginx en Debian/Ubuntu:
 //  - sites-available: donde viven TODOS los ficheros de configuración.

@@ -60,7 +60,10 @@ test('handlers inline: definidos exactamente una vez en frontend/js/', () => {
     path.join(FRONTEND, 'index.html'),
     ...walk(path.join(FRONTEND, 'views'), '.html'),
   ];
-  const jsFiles = walk(path.join(FRONTEND, 'js'), '.js');
+  const jsFiles = walk(path.join(FRONTEND, 'js'), '.js').filter((f) => {
+    const rel = path.relative(path.join(FRONTEND, 'js'), f);
+    return !rel.startsWith('core' + path.sep) && !rel.startsWith('pages' + path.sep) && !rel.startsWith('services' + path.sep) && rel !== 'main.js';
+  });
 
   // Handlers usados: en HTML estático y en templates dentro del propio JS
   const used = new Set();

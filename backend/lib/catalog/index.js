@@ -9,7 +9,7 @@
 //  entrada a CATALOG + sus tests.
 // ============================================================
 
-const { isValidDomain } = require('./validators');
+const { isValidDomain } = require('../validators');
 
 // Cada entrada declara: modos soportados, receta docker (imagen con TAG
 // FIJADO — sin tag la Docker API descarga TODAS las etiquetas), receta

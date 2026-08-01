@@ -16,7 +16,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const d = require('./deploy');
 
 const { runSafe, runInput } = require('../common/run');
 const dockerDeploy = require('../dockerDeploy');
@@ -24,7 +23,7 @@ const { DOCKER_SOCKET, dockerConfName, dockerRequest } = require('./socket');
 const { DEPLOY_TEMPLATES, buildContainerConfig } = require('./config');
 const { applyDockerNetworking } = require('./networking');
 
-const DOCKER_BUILDS_DIR = path.join(process.env.TXL_DIR || '/opt/txpl', 'data', 'docker-builds');
+const DOCKER_BUILDS_DIR = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data', 'docker-builds');
 const TXPL_DIR = process.env.TXPL_DIR || '/opt/txpl';
 const DOCKERFILE_PATH = path.join(TXPL_DIR, 'data', 'Dockerfile');
 const DOCKER_COMPOSE_PATH = path.join(TXPL_DIR, 'data', 'docker-compose.yml');
@@ -43,4 +42,4 @@ function makeStreamHelpers(res) {
   return { log, finish, res };
 }
 
-module.exports = { DOCKER_BUILDS_DIR, DOCKERFILE_PATH, DOCKER_COMPOSE_PATH, streamHelpers };
+module.exports = { DOCKER_BUILDS_DIR, DOCKERFILE_PATH, DOCKER_COMPOSE_PATH, makeStreamHelpers };
