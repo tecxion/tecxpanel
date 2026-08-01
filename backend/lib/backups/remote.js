@@ -10,7 +10,10 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const R = require('../rclone');
-const B = require('./index');
+// Import directo (mismo motivo que en engine.js): evita el ciclo con ./index
+// y da acceso al namespace .manifest que index no expone.
+const manifest = require('./manifest');
+const B = { manifest };
 const { decryptSecret } = require('../crypto');
 const getQueries = () => require('../../database').queries;
 

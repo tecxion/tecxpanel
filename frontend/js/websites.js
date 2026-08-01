@@ -93,4 +93,6 @@ async function deleteWebsite(id) {
   else toast(r?.error || 'Error', 'error');
 }
 
-export {};
+Object.assign(window, {
+  createWebsite, deleteWebsite, installSiteSsl, loadWebsites, togglePhpVersion, toggleSiteMode,
+});

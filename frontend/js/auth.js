@@ -188,4 +188,7 @@ async function checkAuth() {
   }
 }
 
-export {};
+Object.assign(window, {
+  checkAuth, doLogin, doLogout, fetchSecurityQuestion,
+  showForgotPasswordForm, showLoginForm, submitResetPassword, togglePassVis,
+});

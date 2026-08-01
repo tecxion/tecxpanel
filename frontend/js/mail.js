@@ -291,4 +291,6 @@ async function mailDnsPublish() {
   else toast(r?.error || 'Error al publicar', 'error');
 }
 
-export {};
+Object.assign(window, {
+  loadAliases, loadMail, loadMailboxes, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailDeleteAlias, mailDeleteMailbox, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailSaveConfig, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
+});

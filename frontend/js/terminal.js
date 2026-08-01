@@ -62,4 +62,6 @@ function initTerminal() {
   ws.onerror = () => { if (term) term.write('\r\n\x1b[31mError de conexión. Verifica node-pty en el servidor.\x1b[0m\r\n'); };
 }
 
-export {};
+Object.assign(window, {
+  initTerminal, sendResize, termCleanup, termResizeHandler,
+});

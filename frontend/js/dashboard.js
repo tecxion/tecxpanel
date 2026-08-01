@@ -187,4 +187,6 @@ async function loadProcesses() {
   `).join('');
 }
 
-export {};
+Object.assign(window, {
+  connectStatsWS, drawSparkline, loadDashboard, loadProcesses, loadServices, svcAction,
+});

@@ -42,4 +42,6 @@ async function deleteRule(num) {
   else toast(r?.error || 'Error', 'error');
 }
 
-export {};
+Object.assign(window, {
+  createRule, deleteRule, loadFirewall,
+});

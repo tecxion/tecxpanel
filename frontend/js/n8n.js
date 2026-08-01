@@ -207,4 +207,6 @@ async function n8nUninstall() {
   loadN8n();
 }
 
-export {};
+Object.assign(window, {
+  loadN8n, loadN8nExecutions, loadN8nWorkflows, n8nAction, n8nInstall, n8nOpenBase, n8nSaveConfig, n8nToggleWorkflow, n8nUninstall,
+});

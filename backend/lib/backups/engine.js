@@ -11,7 +11,12 @@ const { run, runSafe, runInput } = require('../common/run');
 const getQueries = () => require('../../database').queries;
 const nginx = require('../nginx');
 const { checkBuildRequirements } = require('../appdeploy');
-const B = require('./index');
+// Imports directos a los submódulos hermanos: evita el ciclo con ./index
+// (index.js requiere a su vez este engine) y accesos anidados a B.manifest.X
+// que no existían porque index.js hace spread, no namespace.
+const manifest = require('./manifest');
+const commands = require('./commands');
+const B = { manifest, commands };
 
 // Resuelve UNA sola vez cómo autenticar contra MySQL/MariaDB, replicando la
 // cadena de databases.js: socket directo → sudo → --defaults-file → contraseña.

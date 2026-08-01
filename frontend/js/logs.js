@@ -127,4 +127,6 @@ function logsDownload() {
   URL.revokeObjectURL(a.href);
 }
 
-export {};
+Object.assign(window, {
+  loadLogsPage, logsApplySelection, logsDownload, logsFetch, logsLiveStop, logsLiveToggle, logsRender, logsSelect, logsSelectApp, logsSelectSite,
+});

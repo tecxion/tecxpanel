@@ -108,4 +108,6 @@ async function sslStream(apiPath, method, title, body) {
   loadSSL();
 }
 
-export {};
+Object.assign(window, {
+  loadSSL, sslDelete, sslIssue, sslRenew, sslStream,
+});

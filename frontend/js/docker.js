@@ -575,4 +575,6 @@ async function redeployDockerGit(name) {
 }
 
 
-export {};
+Object.assign(window, {
+  createDockerContainer, deleteDockerContainer, deployDockerApp, deployDockerGitApp, dockerAction, loadDockerContainers, onDeployTemplateChange, openDockerEditModal, openGitDeployModal, redeployDockerGit, saveDockerFile, switchDockerTab, viewDockerLogs,
+});

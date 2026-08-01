@@ -112,4 +112,6 @@ async function cronViewLog(id) {
   document.getElementById('cron-log-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-export {};
+Object.assign(window, {
+  cronDelete, cronEdit, cronPresetChange, cronResetForm, cronSave, cronScheduleFromForm, cronToggle, cronViewLog, loadCron,
+});

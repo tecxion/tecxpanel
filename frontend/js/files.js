@@ -366,4 +366,6 @@ async function saveFile(path) {
   else toast(r?.error || 'Error', 'error');
 }
 
-export {};
+Object.assign(window, {
+  browseDir, createFile, createFolder, deleteFile, editFile, extractFile, flattenEntry, getFileIcon, handleDrop, handleFileUpload, hideProgress, loadFiles, processEntries, readDirEntries, readEntryAsFile, saveFile, setupDragDrop, showProgress, updateBreadcrumb, uploadBinary, uploadFlatFiles,
+});

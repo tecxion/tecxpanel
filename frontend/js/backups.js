@@ -186,4 +186,9 @@ async function saveBackupSchedule() {
   if (res) alert('Programación guardada');
 }
 
-export {};
+Object.assign(window, {
+  backupDelete, backupDownload, backupNow, backupRemoteClear, backupRemoteDelete,
+  backupRemoteEncryptToggle, backupRemoteRestore, backupRemoteSave, backupRemoteTest,
+  backupRemoteTypeChange, backupRestore, backupUpload, loadBackupRemote, loadBackups,
+  loadRemoteBackups, saveBackupSchedule,
+});

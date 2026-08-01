@@ -107,4 +107,6 @@ async function setupPma() {
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
 
-export {};
+Object.assign(window, {
+  createDatabase, deleteDatabase, loadDatabases, openTool, setupPma, toggleDbPass,
+});

@@ -413,4 +413,9 @@ async function triggerGitPull() {
   loadApps();
 }
 
-export {};
+Object.assign(window, {
+  appAction, bindDeployDrop, confirmPythonConfig, consoleKeydown, copyWebhookUrl,
+  deployLog, installApp, loadApps, openAppConsole, openGitInfoModal, renderDeploySteps,
+  resetDeployModal, runAppCommand, setupDeployDrops, startDeploy, switchDeployTab,
+  triggerGitPull, updateAppPathPreview, viewAppLogs,
+});

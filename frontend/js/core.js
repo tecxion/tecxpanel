@@ -313,3 +313,9 @@ setInterval(() => {
   if (currentPage === 'dashboard') { loadServices(); loadProcesses(); }
   if (currentPage === 'docker') { loadDockerContainers(); }
 }, 30000);
+
+Object.assign(window, {
+  applyTheme, bindModalOverlayEvents, bootApp, closeModal, copyText, emptyState, esc,
+  fallbackCopy, fmtBytes, fmtDate, initApp, loadTemplates, navigate, openModal, req,
+  setThemePref, streamConsole, themePref, toast, toggleSidebar, toggleTheme,
+});

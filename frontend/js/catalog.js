@@ -226,4 +226,7 @@ async function catalogStream(apiPath, method, body, title) {
   loadCatalog();
 }
 
-export {};
+Object.assign(window, {
+  catalogAction, catalogInstall, catalogInstallModal, catalogStream,
+  catalogUninstallGo, catalogUninstallModal, loadCatalog,
+});

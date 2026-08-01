@@ -90,4 +90,6 @@ async function streamPlugin(id, action, name) {
   loadPlugins();
 }
 
-export {};
+Object.assign(window, {
+  installPlugin, loadPlugins, streamPlugin, uninstallPlugin,
+});

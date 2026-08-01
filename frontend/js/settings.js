@@ -56,4 +56,6 @@ async function changePassword() {
   } else toast(r?.error || 'Error al cambiar la contraseña', 'error');
 }
 
-export {};
+Object.assign(window, {
+  changePassword, loadSettings, saveRecovery,
+});

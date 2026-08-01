@@ -82,4 +82,6 @@ async function detectTgChat() {
   } else toast(r?.error || 'No se pudo detectar el chat', 'error');
 }
 
-export {};
+Object.assign(window, {
+  collectNotifyForm, detectTgChat, loadNotifyConfig, saveNotifyConfig, syncSmtpPort, testNotify,
+});

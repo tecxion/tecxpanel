@@ -70,7 +70,8 @@ const PAGE_IMPORTS = {
 
 async function boot() {
   await loadTemplates();
-  // Carga todas las páginas JS (las funciones globales se registran en window)
+  // Carga todas las páginas JS. Cada módulo hace su propio `Object.assign(window, {...})`
+  // al final del fichero para exponer sus funciones a los `onclick=` inline de las vistas.
   const pageLoads = Object.values(PAGE_IMPORTS).map(fn => fn().catch(()=>{}));
   await Promise.allSettled(pageLoads);
   bindOverlays();

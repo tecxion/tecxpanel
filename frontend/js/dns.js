@@ -188,4 +188,6 @@ async function dnsDelegation() {
     (r.ns_found && r.ns_found.length ? `<p class="muted">NS detectados ahora: ${esc(r.ns_found.join(', '))}</p>` : '');
 }
 
-export {};
+Object.assign(window, {
+  dnsAddRecord, dnsAddZone, dnsDelegation, dnsDeleteRecord, dnsDeleteZone, dnsInstall, dnsOpenZone, dnsRecTypeChange, dnsSaveConfig, dnsStream, loadDns, loadDnsRecords, loadDnsZones,
+});
