@@ -9,9 +9,9 @@
 // ─────────────────────────────────────────────────────────────────
 
 const nodemailer = require('nodemailer');
-const { queries } = require('../database');
-const { decryptSecret } = require('./crypto');
-const { buildTelegramMessage, buildEmailMessage } = require('./notifications');
+const { queries } = require('../../database');
+const { decryptSecret } = require('../crypto');
+const { buildTelegramMessage, buildEmailMessage } = require('./index');
 
 const TG_TIMEOUT_MS = 10_000;
 

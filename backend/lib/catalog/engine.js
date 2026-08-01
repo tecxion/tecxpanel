@@ -13,15 +13,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const { run, runSafe } = require('./helpers');
-const { genPassword, encryptSecret } = require('./crypto');
-const nginx = require('./nginx');
-const { buildPullPath, accumulatePullProgress } = require('./n8n');
+const { run, runSafe } = require('../common/run');
+const { genPassword, encryptSecret } = require('../crypto');
+const nginx = require('../nginx');
+const { buildPullPath, accumulatePullProgress } = require('../n8n');
 const {
   getEntry, containerName, volumeName, nginxConfName, pm2Name,
   buildAppContainerConfig, buildDbEnv, buildWpConfig, buildGhostConfig,
-} = require('./catalog');
-const { queries } = require('../database');
+} = require('./index');
+const { queries } = require('../../database');
 
 const DOCKER_SOCKET = '/var/run/docker.sock';
 const APPS_DIR = '/opt/txpl-apps';

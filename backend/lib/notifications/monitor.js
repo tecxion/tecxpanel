@@ -12,11 +12,11 @@
 
 const os = require('os');
 const http = require('http');
-const { queries } = require('../database');
-const { runSafe } = require('./helpers');
-const { applyTick, resourceKey, buildStatusEvent, applySslThreshold, buildSslExpiryEvent } = require('./notifications');
-const { dispatch } = require('./notifyExecutor');
-const { parseCertbotCertificates } = require('./ssl');
+const { queries } = require('../../database');
+const { runSafe } = require('../common/run');
+const { applyTick, resourceKey, buildStatusEvent, applySslThreshold, buildSslExpiryEvent } = require('./index');
+const { dispatch } = require('./executor');
+const { parseCertbotCertificates } = require('../ssl');
 
 const TICK_MS = 60_000;
 const WATCHED_SERVICES = ['nginx', 'mysql', 'postgresql', 'redis', 'ssh'];
