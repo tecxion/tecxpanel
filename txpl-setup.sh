@@ -239,7 +239,10 @@ mkdir -p "$TXPL_DIR/backend" "$TXPL_DIR/frontend" "$TXPL_DIR/data" \
 step_done
 
 step_begin "Copiando archivos del panel"
-# Backend (server.js, database.js, lib/, routes/, scripts/) — copia recursiva
+# Backend v2 modular (server.js + db/ + lib/{common,docker,mail,backups,...} + routes/ + scripts/) — copia recursiva.
+# La BD SQLite (data/txpl.db) se crea vacía en el primer arranque: db/migrate.js
+# aplica el schema (schema/*.sql) y las migrations pendientes (migrations/*.sql)
+# automáticamente. No hace falta ninguna acción manual.
 cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
 cp "$SCRIPT_DIR/package.json"        "$TXPL_DIR/backend/"
 # Frontend (index.html, css/, js/, views/) — copia recursiva, incluye las vistas modulares

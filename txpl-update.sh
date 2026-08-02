@@ -36,7 +36,10 @@ log "📁 Copiando archivos actualizados..."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Backend (server.js, database.js, lib/, routes/)
+# Backend v2 modular: server.js + db/ (schema/, migrations/, queries/) + lib/ (common/, docker/, mail/, backups/, notifications/, catalog/, ...) + routes/.
+# El runner de db/migrate.js aplica los CREATE TABLE IF NOT EXISTS y las migrations
+# nuevas al arranque. Sobre una BD v1 existente detecta las tablas y marca las
+# migrations históricas como aplicadas sin reejecutarlas — datos preservados.
 if [[ -d "$SCRIPT_DIR/backend" ]]; then
     cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
     log "  ↳ backend/ actualizado"
@@ -90,6 +93,13 @@ else
     warn "El panel no parece estar online. Restaurando backup..."
     cp -r "$BACKUP_DIR/backend/." "$TXPL_DIR/backend/"
     cp -r "$BACKUP_DIR/frontend/." "$TXPL_DIR/frontend/"
+    # Restaurar la BD también: si el runner v2 introdujo columnas nuevas o migraciones
+    # que dejaron la BD en un estado incompatible con el código restaurado, el .db
+    # pre-update es la única forma segura de volver al estado anterior.
+    if [[ -f "$BACKUP_DIR/txpl.db" ]]; then
+        cp "$BACKUP_DIR/txpl.db" "$TXPL_DIR/data/txpl.db"
+        log "✅ Base de datos restaurada al estado pre-update"
+    fi
     pm2 restart txpl-panel || pm2 start "$TXPL_DIR/ecosystem.config.js" --env production
     err "Actualización fallida. Backup restaurado. Revisa: pm2 logs txpl-panel"
 fi
