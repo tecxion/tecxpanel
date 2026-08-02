@@ -68,6 +68,17 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 
 ---
 
+## 🆕 Novedades v2.0
+
+- **Reestructura modular del backend**: la capa de datos vive en `backend/db/` (schema/*.sql + migrations/ + queries/*.js) y `backend/database.js` es un proxy de back-compat. Cada feature tiene su carpeta en `backend/lib/<feature>/` (docker, mail, backups, notifications, catalog, cron, dns, ssl, n8n, nginx, apps) con `index.js` que reexporta la API plana v1. Los ficheros planos antiguos en `lib/` son redirects — los 27 imports existentes siguen funcionando sin tocar.
+- **Runner de migraciones robusto**: detecta BDs heredadas de v1 (por la existencia de la tabla `users` antes de aplicar el schema) y marca todas las migraciones como aplicadas sin reejecutar `ALTER TABLE` históricos. Nuevas BDs se crean limpias con `0001_initial.sql`.
+- **Docker desde Git — puesta a punto**: token cifrado (**AES-256-GCM**) en la nueva tabla `docker_deploys`, botón **«Actualizar desde Git»** que re-clona y reconstruye el contenedor con un clic, persistencia de `sub_dir` y `dockerfile_path` para reproducir despliegues no estándar, y aviso en la UI de que el contenido del repo se ejecuta en el servidor.
+- **Frontend v2 con ES modules**: `frontend/index.html` carga `main.js` con `type="module"` + `<script type="importmap">` para `lit-html` vendorizada localmente (~5 KB, sin CDN ni bundler). Cada módulo termina con `Object.assign(window, {...})` para exponer sus funciones a los `onclick=` inline de las vistas (imprescindible porque las declaraciones top-level de un módulo ES no llegan a `window` por sí solas).
+- **Iconos alojados en local**: la fuente Tabler Icons se sirve desde `frontend/vendor/tabler/` (solo woff2, ~811 KB). El panel funciona sin salida a internet.
+- **UX**: tema claro/oscuro con anti-flash (variables CSS + `[data-theme="light"]`, preferencia en `localStorage`), **command palette Ctrl+K/Cmd+K** con 19 secciones + 8 acciones + búsqueda de recursos, **estados vacíos con CTA** en todos los listados y **responsive móvil** completo con sidebar off-canvas.
+
+---
+
 ## 🏗️ Arquitectura del Proyecto
 
 El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestructura modular):
@@ -507,6 +518,7 @@ Para configurar avisos por correo, debes completar los 4 campos obligatorios (**
 - **Recuperación de Contraseña**: Configura un email y una pregunta de seguridad desde el panel para poder recuperar el acceso en caso de olvido, sin depender de servicios externos.
 - **Autenticación 2FA (TOTP)**: Segundo factor de autenticación compatible con Google Authenticator, Authy y similares. Se activa/desactiva desde la configuración del usuario.
 - **Registro de Auditoría**: Cada acción relevante (login, creación/borrado de sitios, apps, bases de datos, cambios de firewall…) se registra con usuario, IP y timestamp en una tabla de auditoría consultable desde el panel.
+- **Despliegue Docker desde Git — endurecido**: el **token** de repos privados nunca viaja en la línea de comandos ni queda en `.git/config` (se envía como cabecera `Authorization` vía `GIT_CONFIG_*`). El **directorio `.git` se elimina** tras clonar. **Jaula anti-traversal** en `subDir` y `Dockerfile` (rechaza `..` fuera del repo). Validación de puertos `1-65535` y **timeout de 30 min** con `SIGKILL` en `docker build` / `docker compose up` para evitar cuelgues indefinidos.
 
 ---
 
