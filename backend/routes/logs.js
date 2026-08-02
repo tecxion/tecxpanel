@@ -56,6 +56,27 @@ router.get('/audit/list', (req, res) => {
   ok(res, rows);
 });
 
+// GET /api/logs/errors?lines=N — Feed unificado de errores: nginx_error + syslog
+// filtrado a líneas críticas (error/crit/alert/emerg/fail/denied/warn/fatal).
+// Cada línea se prefija con [nginx] o [system] para identificar el origen.
+router.get('/errors', wrap(async (req, res) => {
+  const lines = clampLines(req.query.lines);
+  const RE_ERR = /(error|crit|alert|emerg|denied|fail|warn|fatal)/i;
+  const collect = async (label, file) => {
+    if (!fs.existsSync(file)) return [];
+    const r = await runSafe('tail', ['-n', String(lines), file]);
+    return (r.stdout || '').split('\n')
+      .filter((l) => l && RE_ERR.test(l))
+      .map((l) => `[${label}] ${l}`);
+  };
+  const [n, s] = await Promise.all([
+    collect('nginx',  LOG_FILES.nginx_error),
+    collect('system', LOG_FILES.system),
+  ]);
+  const merged = [...n, ...s].slice(-lines);
+  ok(res, { logs: merged.length ? merged.join('\n') : 'Sin errores recientes.' });
+}));
+
 // GET /api/logs/:type?lines=N — Últimas N líneas de un log de la lista blanca.
 // :type debe estar en LOG_FILES para no leer ficheros arbitrarios.
 router.get('/:type', wrap(async (req, res) => {

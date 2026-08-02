@@ -76,23 +76,38 @@ router.post('/:name/renew', wrap(async (req, res) => {
 
 // POST /issue — emite un certificado nuevo para un dominio (proxy a certbot --nginx).
 // El dominio debe apuntar ya por DNS a este servidor y tener un vhost en Nginx.
+// Corre certbot directamente en streaming: si delegásemos en installSsl se usaría
+// el timeout de 30 s por defecto de runSafe y stderr aparecería truncado.
 router.post('/issue', wrap(async (req, res) => {
   const domain = String((req.body && req.body.domain) || '').trim();
-  const www = !!(req.body && req.body.www);
+  const bodyWww = req.body && req.body.www;
   if (!isValidDomain(domain)) return fail(res, 400, 'Dominio inválido.');
+  const www = (bodyWww === undefined || bodyWww === null)
+    ? nginx.isApexDomain(domain) : !!bodyWww;
 
   audit(req.user.username, clientIp(req), 'ssl.issue', domain);
   const { write, done } = startStream(res);
   write(`▶ Emitiendo certificado para ${domain}${www ? ' (+www)' : ''}...\n`);
   write('  El dominio debe apuntar ya a este servidor y tener un sitio en Nginx.\n\n');
-  try {
-    await nginx.installSsl(domain, { www });
+
+  const args = ['--nginx', '-d', domain];
+  if (www) args.push('-d', `www.${domain}`);
+  args.push('--non-interactive', '--agree-tos', '--redirect',
+    '-m', process.env.SSL_EMAIL || `admin@${domain}`);
+
+  const r = await runSafe('certbot', args, LONG);
+  write((r.stdout || '') + (r.stderr || ''));
+  if (r.ok) {
     write('\n✓ Certificado emitido y HTTPS activo.\n');
     return done(0);
-  } catch (e) {
-    write(`\n✖ No se pudo emitir: ${e.message}\n`);
-    return done(1);
   }
+  // Extrae pistas útiles (Detail:, Type:, Problem:, Domain:, Timeout:) o el
+  // último bloque no vacío de stderr para no dejar el mensaje en blanco.
+  const stderr = String(r.stderr || '');
+  const hint = stderr.match(/(Detail|Type|Problem|Domain|Timeout|Reason):[^\n]+/g)?.slice(-3).join(' | ')
+    || stderr.split('\n').filter((l) => l.trim()).slice(-3).join(' ');
+  write(`\n✖ Certbot falló. ${hint || 'Sin detalle disponible.'}\n`);
+  return done(1);
 }));
 
 // DELETE /:name — elimina un certificado (revoca + borra sus ficheros). Streaming.

@@ -25,7 +25,9 @@ async function loadLogsPage() {
 // logsSelect: clic en una pestaña estática (nginx/sistema/auditoría).
 function logsSelect(el) {
   const src = el.dataset.src;
-  logsSrc = src === 'audit' ? { type: 'audit' } : { type: 'static', key: src.split(':')[1] };
+  if (src === 'audit')        logsSrc = { type: 'audit' };
+  else if (src === 'errors')  logsSrc = { type: 'errors' };
+  else                        logsSrc = { type: 'static', key: src.split(':')[1] };
   logsApplySelection(el);
   logsFetch();
 }
@@ -52,8 +54,8 @@ function logsSelectSite(keepKind) {
 function logsApplySelection(activeTab) {
   document.querySelectorAll('#logs-tabs .tab').forEach(t => t.classList.remove('active'));
   if (activeTab) activeTab.classList.add('active');
-  else if (logsSrc.type === 'static' || logsSrc.type === 'audit') {
-    const key = logsSrc.type === 'audit' ? 'audit' : `static:${logsSrc.key}`;
+  else if (logsSrc.type === 'static' || logsSrc.type === 'audit' || logsSrc.type === 'errors') {
+    const key = logsSrc.type === 'static' ? `static:${logsSrc.key}` : logsSrc.type;
     document.querySelector(`#logs-tabs .tab[data-src="${key}"]`)?.classList.add('active');
   }
   if (logsSrc.type !== 'app') document.getElementById('logs-app-select').value = '';
@@ -72,6 +74,9 @@ async function logsFetch() {
     logsRaw = Array.isArray(rows)
       ? rows.map(a => `[${a.ts}] ${a.user}@${a.ip} — ${a.action}${a.detail ? ' · ' + a.detail : ''}`).join('\n')
       : 'Auditoría no disponible';
+  } else if (logsSrc.type === 'errors') {
+    r = await req('GET', `/logs/errors?lines=${lines}`);
+    logsRaw = r?.logs || 'Sin errores recientes.';
   } else if (logsSrc.type === 'app') {
     r = await req('GET', `/apps/${logsSrc.id}/logs`);
     logsRaw = r?.logs || 'Sin logs';
@@ -118,7 +123,9 @@ function logsLiveStop() {
 function logsDownload() {
   const name = logsSrc.type === 'static' ? logsSrc.key
     : logsSrc.type === 'site' ? `${logsSrc.domain}.${logsSrc.kind}`
-    : logsSrc.type === 'app' ? `app-${logsSrc.id}` : 'auditoria';
+    : logsSrc.type === 'app' ? `app-${logsSrc.id}`
+    : logsSrc.type === 'errors' ? 'errores'
+    : 'auditoria';
   const blob = new Blob([logsRaw], { type: 'text/plain' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
