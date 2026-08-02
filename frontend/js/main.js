@@ -80,6 +80,17 @@ async function boot() {
   try{ window.setupDragDrop?.();window.setupDeployDrops?.() }catch(_){}
   try{ document.getElementById('app-name')?.addEventListener('input', window.updateAppPathPreview); document.getElementById('app-path')?.addEventListener('input', window.updateAppPathPreview) }catch(_){}
   await checkAuth();
+  // Arranque inicial del dashboard: el <div id="page-dashboard"> ya está marcado
+  // como active en el HTML, así que router.navigate() nunca se dispara al abrir
+  // el panel y sus loaders (loadDashboard/Services/Processes/connectStatsWS)
+  // quedarían esperando al setInterval de 30 s (Services/Processes) o para
+  // siempre (WebSocket de stats). Los invocamos aquí una vez.
+  if (window.currentPage === 'dashboard') {
+    window.loadDashboard?.();
+    window.loadServices?.();
+    window.loadProcesses?.();
+    window.connectStatsWS?.();
+  }
   setInterval(()=>{ if(window.currentPage==='dashboard'){window.loadServices?.();window.loadProcesses?.()}if(window.currentPage==='docker')window.loadDockerContainers?.() },30000);
 }
 boot();
