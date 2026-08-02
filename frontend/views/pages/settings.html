@@ -68,6 +68,14 @@
 
   <h4 style="font-size:13px;margin:1.25rem 0 0.5rem"><i class="ti ti-mail"></i> Email (SMTP)</h4>
   <div class="form-group"><label><input type="checkbox" id="ntf-smtp-enabled"> Activar avisos por email</label></div>
+  <div class="smtp-helper-box" style="font-size:11px;color:var(--text-secondary);background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;line-height:1.4">
+    <strong style="color:var(--text-primary);display:block;margin-bottom:4px"><i class="ti ti-info-circle"></i> Consejos de configuración:</strong>
+    <ul style="margin:0;padding-left:1.25rem;display:flex;flex-direction:column;gap:4px">
+      <li><strong>Gmail:</strong> Servidor <code>smtp.gmail.com</code> | Puerto <code>587</code> | Conexión TLS directa <strong>Desmarcada</strong>. Requiere <em>Contraseña de aplicación</em> de 16 caracteres (generada en tu Cuenta de Google con la Verificación en 2 pasos activa).</li>
+      <li><strong>Local (VPS):</strong> Servidor <code>127.0.0.1</code> | Puerto <code>587</code> o <code>25</code> | Conexión TLS directa <strong>Desmarcada</strong>. Deja usuario y contraseña en blanco si no requiere autenticación local.</li>
+      <li><strong>Otros proveedores (Outlook, Hostinger...):</strong> Usa puerto <code>465</code> con TLS directa <strong>Marcada</strong>, o puerto <code>587</code> con TLS directa <strong>Desmarcada</strong>.</li>
+    </ul>
+  </div>
   <div class="form-group"><label>Servidor SMTP</label><input type="text" id="ntf-smtp-host" placeholder="smtp.ejemplo.com (o 127.0.0.1 si usas el módulo Correo)"></div>
   <div class="form-group"><label>Puerto</label><input type="number" id="ntf-smtp-port" value="587" min="1" max="65535"></div>
   <div class="form-group"><label><input type="checkbox" id="ntf-smtp-secure" onchange="syncSmtpPort()"> Conexión TLS directa (puerto 465)</label></div>
