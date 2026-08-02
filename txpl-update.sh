@@ -145,7 +145,7 @@ fi
 
 sep
 echo -e "${BOLD}${GREEN}✅ Actualización completada${RESET}"
-echo -e "  ${BOLD}4) COMANDOS TecXPanel${RESET}"
+echo -e "  ${BOLD}COMANDOS TecXPanel${RESET}"
 echo -e "  ${CYAN}─────────────────────────${RESET}"
 echo -e "     txpl status    estado del panel y servicios"
 echo -e "     txpl logs      registros en vivo (Ctrl+C para salir)"
@@ -162,6 +162,6 @@ echo ""
 echo -e " Si quieres ayudarme no olvides compartir y darle una estrella a este proyecto."
 echo ""
 echo -e "  Panel:    $(pm2 describe txpl-panel | grep status | awk '{print $4}')"
-echo -e "${BOLD}  Backup: ${GREEN}  $BACKUP_DIR"
+echo -e "${BOLD}  Backup: ${GREEN}  $BACKUP_DIR${RESET}"
 echo -e "  Logs:     pm2 logs txpl-panel"
 sep
