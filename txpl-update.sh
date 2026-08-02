@@ -36,10 +36,10 @@ log "📁 Copiando archivos actualizados..."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Backend v2 modular: server.js + db/ (schema/, migrations/, queries/) + lib/ (common/, docker/, mail/, backups/, notifications/, catalog/, ...) + routes/.
-# El runner de db/migrate.js aplica los CREATE TABLE IF NOT EXISTS y las migrations
-# nuevas al arranque. Sobre una BD v1 existente detecta las tablas y marca las
-# migrations históricas como aplicadas sin reejecutarlas — datos preservados.
+# Backend v2 modular: server.js + db/ (schema/, queries/) + lib/ (common/, docker/, mail/, backups/, notifications/, catalog/, ...) + routes/.
+# db/schema.js aplica los CREATE TABLE IF NOT EXISTS de db/schema/*.sql al arrancar
+# de forma idempotente: sobre BD nueva crea las tablas, sobre BD existente no toca nada.
+# Sin sistema de migraciones — instalación limpia.
 if [[ -d "$SCRIPT_DIR/backend" ]]; then
     cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
     log "  ↳ backend/ actualizado"

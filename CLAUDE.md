@@ -37,8 +37,7 @@ El script `test` de `package.json` usa la forma glob `node --test "backend/test/
 ### Capa de datos: `backend/db/`
 Desde v2.0 el esquema y los prepared statements viven en `backend/db/`, no en `database.js` (que es un redirect a `db/index.js` para back-compat).
 - `backend/db/client.js` — Abre better-sqlite3 (WAL mode, foreign_keys). Singleton `db`.
-- `backend/db/schema/*.sql` — Un fichero SQL por tabla (CREATE TABLE IF NOT EXISTS). Aplicados idempotentamente por `migrate.js` en orden alfabético.
-- `backend/db/migrations/` — Migraciones numeradas (`0001_initial.sql`, ...). Tabla `_migrations` registra cuáles se aplicaron. Una BD v1 heredada se detecta al primer arranque y marca todas las migraciones como "ya aplicadas" sin reejecutar ALTERs históricos.
+- `backend/db/schema/*.sql` — Un fichero SQL por tabla (CREATE TABLE IF NOT EXISTS). Aplicados idempotentamente por `db/schema.js` en orden alfabético al arrancar. Sin sistema de migraciones: cualquier cambio de columnas se hace editando el `.sql` correspondiente y arrancando sobre una BD nueva.
 - `backend/db/queries/<dominio>.js` — Prepared statements por dominio (`users.js`, `apps.js`, `websites.js`, `n8n.js`, `notify.js`, `mail.js`, `dns.js`, `backups.js`, `cron.js`, `catalog.js`, `docker.js`, `audit.js`, `databases.js`). Agregados en `db/queries/index.js` como objeto `queries` con claves planas (back-compat con v1).
 - `backend/db/core.js` — `seedAdmin()` (crea admin desde .env, con reset por `TXPL_RESET_ADMIN_PASS=1`) y `audit(user, ip, action, detail)`.
 - API pública: `const { db, queries, seedAdmin, audit, DB_PATH } = require('./database')` sigue funcionando sin tocar los 27 archivos que lo importan.

@@ -5,7 +5,7 @@
 //
 //  Punto de entrada de la capa de datos v2.0. Orquesta:
 //   1) client.js     → abre la BD, WAL/FK, exporta {db, DB_PATH}.
-//   2) migrate.js    → aplica schema/ y migrations/ al arrancar.
+//   2) schema.js     → aplica schema/*.sql al arrancar (sin migrations).
 //   3) core.js       → seedAdmin + audit.
 //   4) queries/index.js → objeto de prepared statements agrupados.
 //
@@ -15,12 +15,12 @@
 // ============================================================
 
 const { db, DB_PATH } = require('./client');
-const { initSchema } = require('./migrate');
+const { initSchema } = require('./schema');
 
-// Aplica el esquema (CREATE TABLE IF NOT EXISTS) y ejecuta migraciones
-// pendientes justo al cargar este módulo (cuando server.js hace el require).
-// No se hace en client.js porque `db.exec(schema SQL)` necesita `db` creado
-// pero sin acaparar memoria de migraciones antes de que el motor arranque.
+// Aplica el esquema (CREATE TABLE IF NOT EXISTS de db/schema/*.sql) al
+// cargar este módulo (cuando server.js hace el require). Sin sistema de
+// migraciones: sobre una BD nueva crea todas las tablas; sobre una BD ya
+// creada, no toca nada (idempotente).
 initSchema();
 
 const { seedAdmin, audit } = require('./core');

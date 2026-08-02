@@ -71,7 +71,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 ## 🆕 Novedades v2.0
 
 - **Reestructura modular del backend**: la capa de datos vive en `backend/db/` (schema/*.sql + migrations/ + queries/*.js) y `backend/database.js` es un proxy de back-compat. Cada feature tiene su carpeta en `backend/lib/<feature>/` (docker, mail, backups, notifications, catalog, cron, dns, ssl, n8n, nginx, apps) con `index.js` que reexporta la API plana v1. Los ficheros planos antiguos en `lib/` son redirects — los 27 imports existentes siguen funcionando sin tocar.
-- **Runner de migraciones robusto**: detecta BDs heredadas de v1 (por la existencia de la tabla `users` antes de aplicar el schema) y marca todas las migraciones como aplicadas sin reejecutar `ALTER TABLE` históricos. Nuevas BDs se crean limpias con `0001_initial.sql`.
+- **Aplicación del esquema al arranque**: `db/schema.js` ejecuta los `CREATE TABLE IF NOT EXISTS` de `db/schema/*.sql` de forma idempotente. Sobre una BD nueva las crea todas; sobre una BD ya inicializada, no toca nada. Sin sistema de migraciones — cualquier cambio de columnas se hace editando el `.sql` correspondiente.
 - **Docker desde Git — puesta a punto**: token cifrado (**AES-256-GCM**) en la nueva tabla `docker_deploys`, botón **«Actualizar desde Git»** que re-clona y reconstruye el contenedor con un clic, persistencia de `sub_dir` y `dockerfile_path` para reproducir despliegues no estándar, y aviso en la UI de que el contenido del repo se ejecuta en el servidor.
 - **Frontend v2 con ES modules**: `frontend/index.html` carga `main.js` con `type="module"` + `<script type="importmap">` para `lit-html` vendorizada localmente (~5 KB, sin CDN ni bundler). Cada módulo termina con `Object.assign(window, {...})` para exponer sus funciones a los `onclick=` inline de las vistas (imprescindible porque las declaraciones top-level de un módulo ES no llegan a `window` por sí solas).
 - **Iconos alojados en local**: la fuente Tabler Icons se sirve desde `frontend/vendor/tabler/` (solo woff2, ~811 KB). El panel funciona sin salida a internet.
@@ -90,10 +90,9 @@ El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestruct
 │   ├── database.js         # Redirect → db/ (back-compat v1)
 │   ├── db/                 # Capa de datos (v2): schema/*.sql, migrations/, queries/*.js
 │   │   ├── client.js       # Abre better-sqlite3 (WAL, FK), singleton `db`
-│   │   ├── migrate.js      # Aplica schema/ + migrations/ (detecta BD v1 heredada)
+│   │   ├── schema.js       # Aplica schema/*.sql al arrancar (idempotente)
 │   │   ├── core.js         # seedAdmin() + audit()
 │   │   ├── schema/         # Un *.sql por tabla (CREATE TABLE IF NOT EXISTS, idempotentes)
-│   │   ├── migrations/     # Migraciones numeradas (0001_initial.sql, ...), tabla _migrations
 │   │   └── queries/        # Prepared statements por dominio (users, apps, websites, ...)
 │   │       └── index.js    # Agrega claves planas (back-compat con `queries` v1)
 │   ├── routes/             # Un router por dominio (auth, apps, websites, docker, n8n, ...)
