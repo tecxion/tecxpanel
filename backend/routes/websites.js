@@ -101,6 +101,28 @@ router.delete('/:id', wrap(async (req, res) => {
   ok(res);
 }));
 
+// POST /api/websites/:id/rebuild-vhost — Regenera el vhost sin borrar los
+// archivos ni perder el SSL. Útil tras cambios en buildSite (autodetección de
+// PHP-FPM, ajustes de plantilla). Si el sitio tiene SSL, se re-aplica con
+// installSsl (idempotente: --keep-until-expiring no re-emite si sigue vivo).
+router.post('/:id/rebuild-vhost', wrap(async (req, res) => {
+  const site = queries.getWebsite.get(+req.params.id);
+  if (!site) return fail(res, 404, 'Sitio no encontrado');
+  const conf = nginx.buildSite(site.domain, site.type, 3000, {
+    listenPort: site.listen_port || null,
+    phpVersion: site.php_version || null,
+  });
+  try {
+    await nginx.enableSite(site.domain, conf);
+  } catch (e) {
+    return fail(res, 500, e.message);
+  }
+  const hadSsl = !site.listen_port && fs.existsSync(`/etc/letsencrypt/live/${site.domain}/fullchain.pem`);
+  if (hadSsl) await nginx.installSsl(site.domain).catch(() => {});
+  audit(req.user.username, clientIp(req), 'website.rebuild', site.domain);
+  ok(res);
+}));
+
 // POST /api/websites/:id/ssl — Instala HTTPS (Let's Encrypt) en un sitio existente.
 router.post('/:id/ssl', wrap(async (req, res) => {
   const site = queries.getWebsite.get(+req.params.id);

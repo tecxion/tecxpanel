@@ -33,6 +33,26 @@ const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 // path.resolve normaliza la ruta (quita "..", barras dobles, etc.).
 const SITES_DIR = path.resolve(process.env.SITES_DIR || '/var/www');
 
+// Detecta el socket de PHP-FPM instalado. En Debian/Ubuntu el socket real es
+// versión-específico (/run/php/php8.3-fpm.sock); el genérico /run/php/php-fpm.sock
+// solo existe cuando el paquete meta lo crea, y no siempre lo hace. Escaneamos
+// /run/php/ y devolvemos el sock de la versión MÁS ALTA. Si no hay ninguno
+// (PHP no instalado o FPM sin arrancar), devolvemos el genérico como fallback
+// — nginx dará 502 con log claro en lugar de dejar el vhost roto en silencio.
+function detectPhpFpmSock() {
+  try {
+    const socks = fs.readdirSync('/run/php')
+      .filter((f) => /^php\d+\.\d+-fpm\.sock$/.test(f))
+      .sort((a, b) => {
+        const va = a.match(/php(\d+)\.(\d+)/).slice(1).map(Number);
+        const vb = b.match(/php(\d+)\.(\d+)/).slice(1).map(Number);
+        return (vb[0] - va[0]) || (vb[1] - va[1]);
+      });
+    if (socks.length) return `/run/php/${socks[0]}`;
+  } catch (_) { /* /run/php inexistente = PHP no instalado */ }
+  return '/run/php/php-fpm.sock';
+}
+
 // ── GENERADORES DE VHOST ──────────────────────────────────────
 
 // Líneas de log propias de un dominio: permiten ver el tráfico de cada
@@ -56,8 +76,10 @@ function buildSite(domain, type, proxyPort, opts = {}) {
   const listen = listenPort ? `listen ${listenPort}` : 'listen 80';
   // El server_name solo tiene sentido cuando se accede por dominio.
   const serverName = listenPort ? '' : `\n    server_name ${domain} www.${domain};`;
-  // Socket de PHP-FPM: el de la versión indicada o el genérico.
-  const fpmSock = phpVersion ? `/run/php/php${phpVersion}-fpm.sock` : '/run/php/php-fpm.sock';
+  // Socket de PHP-FPM: el de la versión indicada o el más nuevo detectado.
+  // El "genérico" /run/php/php-fpm.sock casi nunca existe en Ubuntu/Debian
+  // (nginx daba 502 en modo autodetectar) — ver detectPhpFpmSock().
+  const fpmSock = phpVersion ? `/run/php/php${phpVersion}-fpm.sock` : detectPhpFpmSock();
 
   // Node.js y Python no sirven archivos: se hace de "proxy inverso" hacia
   // el puerto donde corre su proceso.
