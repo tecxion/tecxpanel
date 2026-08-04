@@ -116,7 +116,8 @@ phase_base() {
     apt-get install -y -qq \
         curl git ca-certificates gnupg build-essential \
         python3 python3-pip python3-venv python3-dev \
-        nginx ufw certbot python3-certbot-nginx sqlite3 unzip tar
+        nginx ufw certbot python3-certbot-nginx sqlite3 unzip tar \
+        php-fpm php-cli php-mysql php-pgsql php-mbstring php-xml php-curl php-zip php-gd
 }
 
 phase_node() {
