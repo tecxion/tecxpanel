@@ -183,10 +183,11 @@ async function installSsl(domain, opts = {}) {
     '-m', process.env.SSL_EMAIL || `admin@${domain}`);
   const r = await runSafe('certbot', args, { timeout: 0, maxBuffer: 16 * 1024 * 1024 });
   if (!r.ok) {
-    const stderr = String(r.stderr || '');
-    const hint = stderr.match(/(Detail|Type|Problem|Domain|Timeout|Reason):[^\n]+/g)?.slice(-3).join(' | ')
-      || stderr.split('\n').filter((l) => l.trim()).slice(-3).join(' ');
-    throw new Error(hint || 'certbot falló');
+    // certbot 2.x escribe Domain:/Detail:/Type: en stdout, no stderr. Mirar ambos.
+    const combined = String(r.stdout || '') + '\n' + String(r.stderr || '');
+    const hint = combined.match(/(Detail|Type|Problem|Domain|Timeout|Reason|Error creating new order):[^\n]+/g)?.slice(-4).join(' | ')
+      || combined.split('\n').filter((l) => l.trim()).slice(-5).join(' ');
+    throw new Error(hint || 'certbot falló — revisa /var/log/letsencrypt/letsencrypt.log');
   }
 }
 

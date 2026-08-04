@@ -101,12 +101,11 @@ router.post('/issue', wrap(async (req, res) => {
     write('\n✓ Certificado emitido y HTTPS activo.\n');
     return done(0);
   }
-  // Extrae pistas útiles (Detail:, Type:, Problem:, Domain:, Timeout:) o el
-  // último bloque no vacío de stderr para no dejar el mensaje en blanco.
-  const stderr = String(r.stderr || '');
-  const hint = stderr.match(/(Detail|Type|Problem|Domain|Timeout|Reason):[^\n]+/g)?.slice(-3).join(' | ')
-    || stderr.split('\n').filter((l) => l.trim()).slice(-3).join(' ');
-  write(`\n✖ Certbot falló. ${hint || 'Sin detalle disponible.'}\n`);
+  // certbot 2.x escribe Domain:/Detail:/Type: en stdout, no stderr. Mirar ambos.
+  const combined = String(r.stdout || '') + '\n' + String(r.stderr || '');
+  const hint = combined.match(/(Detail|Type|Problem|Domain|Timeout|Reason|Error creating new order):[^\n]+/g)?.slice(-4).join(' | ')
+    || combined.split('\n').filter((l) => l.trim()).slice(-5).join(' ');
+  write(`\n✖ Certbot falló. ${hint || 'Revisa /var/log/letsencrypt/letsencrypt.log'}\n`);
   return done(1);
 }));
 
