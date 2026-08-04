@@ -171,10 +171,23 @@ async function installSsl(domain, opts = {}) {
   const { www = isApexDomain(domain) } = opts;
   const args = ['--nginx', '-d', domain];
   if (www) args.push('-d', `www.${domain}`);
-  args.push('--non-interactive', '--agree-tos', '--redirect',
+  // --expand: si ya hay un cert que cubre un subconjunto o superconjunto de
+  //   estos dominios (típico: crear vhost con www cuando antes existía sin
+  //   www, o al revés), lo reemplaza en vez de fallar en --non-interactive.
+  //   Idempotente: si el set coincide exactamente, no hace nada.
+  // --keep-until-expiring: no re-emite si el cert vigente sigue OK.
+  // timeout 0: certbot puede tardar >30 s en el HTTP-01; el default de
+  //   runSafe (30 s) lo mataba y devolvía stderr truncado.
+  args.push('--expand', '--keep-until-expiring',
+    '--non-interactive', '--agree-tos', '--redirect',
     '-m', process.env.SSL_EMAIL || `admin@${domain}`);
-  const r = await runSafe('certbot', args);
-  if (!r.ok) throw new Error(r.stderr.split('\n').slice(-3).join(' ') || 'certbot falló');
+  const r = await runSafe('certbot', args, { timeout: 0, maxBuffer: 16 * 1024 * 1024 });
+  if (!r.ok) {
+    const stderr = String(r.stderr || '');
+    const hint = stderr.match(/(Detail|Type|Problem|Domain|Timeout|Reason):[^\n]+/g)?.slice(-3).join(' | ')
+      || stderr.split('\n').filter((l) => l.trim()).slice(-3).join(' ');
+    throw new Error(hint || 'certbot falló');
+  }
 }
 
 module.exports = {
