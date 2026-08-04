@@ -324,6 +324,56 @@ El panel incluye un módulo de **Docker** que habla directamente con el socket d
 > [!TIP]
 > Esta es la misma base sobre la que corre la sección **Workflows (n8n)**: n8n se instala como un contenedor Docker gestionado automáticamente por el panel.
 
+### 📦 Guía: desplegar una app Python (o cualquier Dockerfile) desde ZIP
+
+El panel espera un formato muy concreto al subir un ZIP. Estos son los fallos más comunes:
+
+1. **El fichero DEBE llamarse `Dockerfile`** (D mayúscula). En Linux el nombre distingue mayúsculas: `dockerfile` en minúscula no será encontrado.
+2. **`docker-compose.yml` se ignora**. El panel monta el contenedor con la API de Docker directa; los puertos, volúmenes y variables de entorno se configuran desde la UI, no desde compose.
+3. **No incluyas `.env` en el ZIP.** Es un secreto y además el `COPY .env .` del Dockerfile fallará el build. Las variables se pasan en la UI (campo "Envs").
+4. **Fija versiones exactas** de Chrome/ChromeDriver (o cualquier par de binarios acoplados). Usar `latest` para uno y `stable` para el otro rompe la app en runtime.
+5. **Usa `--signed-by` en vez de `apt-key`** en el Dockerfile — `apt-key` está deprecado desde Debian 11 y falla en Debian 12.
+
+**Ejemplo mínimo válido** (app Python con Selenium + Chrome):
+
+```dockerfile
+FROM python:3.11-slim
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      wget gnupg unzip curl ca-certificates jq \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
+       | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+       > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+RUN CHROME_VER=$(google-chrome --version | awk '{print $3}' | cut -d. -f1) \
+    && URL=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json \
+        | jq -r --arg m "$CHROME_VER" '[.versions[]|select(.version|startswith($m+"."))]|last|.downloads.chromedriver[]|select(.platform=="linux64").url') \
+    && wget -qO /tmp/cd.zip "$URL" && unzip -j /tmp/cd.zip '*/chromedriver' -d /usr/local/bin/ \
+    && chmod +x /usr/local/bin/chromedriver && rm /tmp/cd.zip
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["python", "app.py"]
+```
+
+**Pasos en el panel:**
+
+1. Comprime en `.zip` solo `Dockerfile` + tu código + `requirements.txt` (nunca `.env` ni `data/` ni `venv/`).
+2. Docker → **Nuevo contenedor** → pestaña **"Subir ZIP"**.
+3. Rellena:
+   - **Nombre** del contenedor.
+   - **Plantilla**: `dockerfile` (para usar el tuyo tal cual).
+   - **Puertos**: solo si tu app expone HTTP (deja vacío para workers/cron).
+   - **Volúmenes**: obligatorio si necesitas persistir datos entre reinicios (ej. `mi-app-data → /app/data`).
+   - **Variables de entorno**: una por línea (`CLAVE=valor`), aquí van tus credenciales de BD.
+4. Crear → verás el `docker build` en vivo. Si falla, el mensaje exacto de Docker aparece en la consola.
+
+**Actualizar la app**: sube otro ZIP con el mismo nombre → el panel reconstruye la imagen y reemplaza el contenedor conservando volúmenes y envs. Alternativa: si tu código está en GitHub, usa el asistente **Git** (soporta repos privados con token) y el botón **"Actualizar desde Git"** para redesplegar con un clic.
+
 ---
 
 ## 🔗 Automatización con n8n (Workflows)
