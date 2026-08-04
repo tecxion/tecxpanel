@@ -24,10 +24,18 @@ const SITES_DIR = nginx.SITES_DIR;
 const router = express.Router();
 
 // GET /api/websites — Lista todos los sitios web guardados en la BD.
-// Convierte los 0/1 de SQLite en booleanos (true/false) para el frontend.
+// El flag SSL se lee del SISTEMA (Let's Encrypt) y no de la columna ssl de la
+// BD, porque el panel no siempre puede actualizarla (emisión desde el módulo
+// SSL, --expand desde otro sitio, borrado externo con certbot delete...). Se
+// mira si existe /etc/letsencrypt/live/<dominio>/fullchain.pem, que es donde
+// certbot guarda el cert por Certificate Name (= primer -d que le pasamos).
 router.get('/', (req, res) => {
   const rows = queries.listWebsites.all().map((w) => ({
-    ...w, ssl: !!w.ssl, php: !!w.php, listen_port: w.listen_port || null, php_version: w.php_version || null,
+    ...w,
+    ssl: fs.existsSync(`/etc/letsencrypt/live/${w.domain}/fullchain.pem`),
+    php: !!w.php,
+    listen_port: w.listen_port || null,
+    php_version: w.php_version || null,
   }));
   ok(res, rows);
 });
