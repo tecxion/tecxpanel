@@ -1,29 +1,78 @@
 // TecXPaneL — auth (login, logout, 2FA, recuperación de contraseña)
 
 // ── Auth ──────────────────────────────────────────────────────
-// doLogin: envía usuario+contraseña al backend. Si hay token, lo guarda y entra
-// al panel; si el backend pide 2FA, muestra el campo del código.
+// doLogin: envía usuario+contraseña (y código 2FA si el backend lo pide) al
+// backend. Si hay token, entra al panel; si pide 2FA, muestra el campo del
+// código; si falla, muestra el error real del backend. Bloquea el botón
+// mientras la petición está en vuelo para evitar dobles envíos.
 async function doLogin() {
-  const user = document.getElementById('login-user').value;
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  const user = document.getElementById('login-user').value.trim() || 'admin';
   const pass = document.getElementById('login-pass').value;
-  const data = await fetch(API + '/api/auth/login', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ username: user, password: pass })
-  }).then(r => r.json()).catch(() => ({}));
+  const codeField = document.getElementById('login-2fa-field');
+  const code = codeField.style.display === 'none' ? undefined
+    : document.getElementById('login-code').value.trim();
 
-  if (data.token) {
+  errEl.textContent = '';
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  btn.textContent = 'Entrando…';
+
+  let data = null, netErr = false;
+  try {
+    const res = await fetch(API + '/api/auth/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username: user, password: pass, code }),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (_) { netErr = true; }
+
+  btn.disabled = false;
+  btn.textContent = prevLabel;
+
+  if (netErr) {
+    errEl.textContent = 'Error de red. Comprueba tu conexión.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  if (data && data.token) {
     TOKEN = data.token;
     localStorage.setItem('txpl_token', TOKEN);
     document.getElementById('user-name').textContent = data.user.username;
-    document.getElementById('user-avatar').textContent = data.user.username[0].toUpperCase();
+    document.getElementById('user-avatar').textContent = (data.user.username[0] || '?').toUpperCase();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     document.getElementById('status-badge').style.display = 'flex';
     initApp();
-  } else {
-    document.getElementById('login-error').style.display = 'block';
+    return;
   }
+
+  // El backend pide 2FA: muestra el campo y devuelve el foco allí.
+  if (data && data.twofa) {
+    codeField.style.display = '';
+    const codeInput = document.getElementById('login-code');
+    codeInput.value = '';
+    codeInput.focus();
+    errEl.textContent = data.error === 'Código 2FA incorrecto' ? 'Código 2FA incorrecto' : '';
+    errEl.style.display = errEl.textContent ? 'block' : 'none';
+    return;
+  }
+
+  errEl.textContent = (data && data.error) || 'Credenciales incorrectas';
+  errEl.style.display = 'block';
 }
+
+// Aviso Caps-Lock en el input de contraseña (todos los paneles serios lo tienen).
+function updateCapsHint(e) {
+  const el = document.getElementById('login-caps');
+  if (!el) return;
+  const on = e.getModifierState && e.getModifierState('CapsLock');
+  el.style.display = on ? '' : 'none';
+}
+['keydown','keyup'].forEach((ev) => document.getElementById('login-pass').addEventListener(ev, updateCapsHint));
 
 // togglePassVis: muestra/oculta la contraseña del campo hermano (icono del ojo).
 function togglePassVis(btn) {

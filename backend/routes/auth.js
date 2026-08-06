@@ -150,6 +150,7 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     if (!valid) return fail(res, 403, 'Contraseña incorrecta');
     queries.disableTotp.run(u.id);
     audit(u.username, clientIp(req), '2fa.disable', null);
+    ok(res);
   }));
 
   // Obtener pregunta de seguridad

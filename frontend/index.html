@@ -44,24 +44,25 @@
     </div>
     <div class="login-field">
       <label>Usuario</label>
-      <input type="text" id="login-user" value="admin" autocomplete="username">
+      <input type="text" id="login-user" placeholder="admin" autocomplete="username">
     </div>
     <div class="login-field">
       <label>Contraseña</label>
       <div class="pass-wrap">
-        <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••">
+        <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••" autofocus>
         <button type="button" class="pass-toggle" onclick="togglePassVis(this)" tabindex="-1" aria-label="Mostrar u ocultar contraseña"><i class="ti ti-eye"></i></button>
       </div>
+      <p id="login-caps" style="display:none;font-size:11px;color:var(--yellow,#d7a53f);margin:4px 0 0"><i class="ti ti-alert-triangle"></i> Bloq Mayús activado</p>
     </div>
     <div class="login-field" id="login-2fa-field" style="display:none">
       <label>Código 2FA</label>
       <input type="text" id="login-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
     </div>
-    <button class="login-btn" onclick="doLogin()">Iniciar sesión</button>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Iniciar sesión</button>
     <div style="margin-top:14px;text-align:right">
       <a href="#" onclick="showForgotPasswordForm(event)" style="font-size:12px;color:var(--accent);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--accent)'">¿Olvidaste tu contraseña?</a>
     </div>
-    <p class="login-error" id="login-error">Credenciales incorrectas</p>
+    <p class="login-error" id="login-error"></p>
   </div>
 
   <div class="login-box" id="reset-box" style="display:none">
