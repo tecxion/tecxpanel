@@ -142,9 +142,25 @@ function setupWebSockets(server, verifyToken) {
       return;
     }
     audit(req.user.username, clientIp(req), 'terminal.open', null);
-    // Lanzamos una shell real (bash) y la conectamos al WebSocket.
-    const shell = pty.spawn(process.env.SHELL || 'bash', [], {
-      name: 'xterm-color', cols: 80, rows: 24, cwd: process.env.HOME || '/root', env: process.env,
+    // Env de la shell: WHITELIST mínima. NO pasar process.env entero — leakearía
+    // JWT_SECRET, TXPL_SECRET_KEY, ADMIN_PASS, credenciales de git guardadas
+    // en el env del panel al hacer `env` en el shell.
+    const parentEnv = process.env;
+    const safeEnv = {
+      PATH:    parentEnv.PATH  || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      HOME:    parentEnv.HOME  || '/root',
+      USER:    parentEnv.USER  || 'root',
+      LOGNAME: parentEnv.LOGNAME || parentEnv.USER || 'root',
+      SHELL:   parentEnv.SHELL || '/bin/bash',
+      LANG:    parentEnv.LANG  || 'C.UTF-8',
+      TERM:    'xterm-256color',
+      PWD:     parentEnv.HOME  || '/root',
+    };
+    // Preserva locales LC_* si están puestas (no son secretos y afectan a la UX).
+    for (const k of Object.keys(parentEnv)) if (k.startsWith('LC_')) safeEnv[k] = parentEnv[k];
+
+    const shell = pty.spawn(safeEnv.SHELL, ['-l'], {
+      name: 'xterm-256color', cols: 80, rows: 24, cwd: safeEnv.HOME, env: safeEnv,
     });
     // Lo que escupe la shell → se envía al navegador.
     shell.onData((data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'output', data })); });

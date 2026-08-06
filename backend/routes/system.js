@@ -157,4 +157,14 @@ router.get('/versions', wrap(async (req, res) => {
   });
 }));
 
+// GET /api/system/features — Capacidades opcionales del servidor. Ahora mismo
+// solo reporta si node-pty está disponible (base de la terminal), pero se
+// puede ampliar (imagemagick, ffmpeg, etc.) para que la UI oculte lo que no
+// hay en vez de dejar que el usuario descubra el error al intentar usarlo.
+router.get('/features', (req, res) => {
+  let terminal = false;
+  try { require.resolve('node-pty'); terminal = true; } catch (_) {}
+  ok(res, { terminal });
+});
+
 module.exports = router;

@@ -1,6 +1,9 @@
 <div class="card">
   <div class="card-header">
-    <div class="card-title"><i class="ti ti-terminal-2"></i> Terminal SSH</div>
+    <div class="card-title">
+      <i class="ti ti-terminal-2"></i> Terminal SSH
+      <span id="term-status" class="badge" style="margin-left:8px">Desconectado</span>
+    </div>
   </div>
   <div id="terminal-container">
     <div class="terminal-toolbar">
@@ -11,7 +14,8 @@
     </div>
     <div id="xterm-mount"></div>
     <div class="terminal-footer">
-      <button class="btn btn-sm btn-primary" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
+      <button class="btn btn-sm btn-primary" id="term-connect-btn" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
+      <button class="btn btn-sm" id="term-disconnect-btn" onclick="termCleanup(true)" style="display:none;margin-left:6px"><i class="ti ti-plug-off"></i> Desconectar</button>
     </div>
   </div>
 </div>
