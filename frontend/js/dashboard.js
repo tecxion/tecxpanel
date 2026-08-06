@@ -60,21 +60,41 @@ function drawSparkline(canvasId, data, color, isNet = false, data2 = null) {
 }
 
 // ── Stats WebSocket ───────────────────────────────────────────
-// connectStatsWS: abre el WebSocket /ws/stats y actualiza los gráficos en vivo
-// cada vez que el servidor envía datos (CPU, RAM, red).
+// connectStatsWS: abre el WebSocket /ws/stats y actualiza los gráficos en vivo.
+// Antes había un bug: onclose reprogramaba una reconexión cada 5 s SIEMPRE,
+// así que tras logout (o backend caído) el navegador seguía pegando al servidor
+// eternamente con el token viejo. Ahora hay un flag wsShouldConnect y backoff
+// exponencial 5→60 s. doLogout() debe llamar a disconnectStatsWS().
+let wsShouldConnect = false;
+let wsBackoffMs = 5000;
 function connectStatsWS() {
+  wsShouldConnect = true;
+  wsBackoffMs = 5000;
+  openStatsWS();
+}
+function disconnectStatsWS() {
+  wsShouldConnect = false;
+  try { statsWS && statsWS.close(); } catch (_) {}
+  statsWS = null;
+}
+function openStatsWS() {
+  if (!wsShouldConnect || !TOKEN) return;
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${wsProto}://${location.host}/ws/stats?token=${TOKEN}`;
   statsWS = new WebSocket(wsUrl);
+
+  statsWS.onerror = () => { /* onclose se dispara después con el detalle */ };
+  statsWS.onopen  = () => { wsBackoffMs = 5000; };
 
   statsWS.onmessage = (e) => {
     const d = JSON.parse(e.data);
     if (d.type !== 'stats') return;
 
-    // CPU
+    // CPU (borde rojo pulsante en la tarjeta si >90% para dar señal visual)
     document.getElementById('cpu-val').textContent = d.cpu;
     document.getElementById('cpu-bar').style.width = d.cpu + '%';
     document.getElementById('cpu-bar').style.background = d.cpu > 80 ? 'var(--red)' : d.cpu > 60 ? 'var(--yellow)' : 'var(--accent)';
+    document.querySelector('.stat-card.cpu')?.classList.toggle('alert', d.cpu > 90);
 
     cpuHistory.push(d.cpu);
     if (cpuHistory.length > maxSamples) cpuHistory.shift();
@@ -100,20 +120,37 @@ function connectStatsWS() {
     drawSparkline('net-chart', netRxHistory, '', true, netTxHistory);
   };
 
-  statsWS.onclose = () => setTimeout(connectStatsWS, 5000);
+  statsWS.onclose = () => {
+    if (!wsShouldConnect) return;              // logout: no reconectar
+    setTimeout(openStatsWS, wsBackoffMs);
+    wsBackoffMs = Math.min(wsBackoffMs * 2, 60_000);
+  };
 }
 
 // ── Dashboard ─────────────────────────────────────────────────
 // loadDashboard: carga las tarjetas del panel principal (stats y resúmenes).
+// Corre en paralelo /system/stats + /system/ip + /system/versions (los dos
+// últimos son informativos y no bloquean si fallan).
 async function loadDashboard() {
-  const data = await req('GET', '/system/stats');
+  const [data, ipData, verData] = await Promise.all([
+    req('GET', '/system/stats'),
+    req('GET', '/system/ip').catch(() => null),
+    req('GET', '/system/versions').catch(() => null),
+  ]);
   if (!data) return;
 
-  const mainDisk = data.disk.find(d => d.mount === '/') || data.disk[0];
+  // Disco: tarjeta principal muestra "/" y debajo listamos el resto si los hay.
+  const disks = Array.isArray(data.disk) ? data.disk : [];
+  const mainDisk = disks.find(d => d.mount === '/') || disks[0];
   if (mainDisk) {
     document.getElementById('disk-val').textContent = Math.round(mainDisk.percent);
     document.getElementById('disk-bar').style.width = mainDisk.percent + '%';
-    document.getElementById('disk-detail').textContent = `${fmtBytes(mainDisk.used)} / ${fmtBytes(mainDisk.size)}`;
+    const extras = disks.filter(d => d !== mainDisk);
+    const extraHtml = extras.length ? extras.map(d =>
+      `<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${esc(d.mount)}: ${fmtBytes(d.used)} / ${fmtBytes(d.size)} (${Math.round(d.percent)}%)</div>`
+    ).join('') : '';
+    document.getElementById('disk-detail').innerHTML =
+      `${fmtBytes(mainDisk.used)} / ${fmtBytes(mainDisk.size)}` + extraHtml;
   }
 
   const os = data.os;
@@ -123,16 +160,23 @@ async function loadDashboard() {
   const osGrid = document.getElementById('os-info');
   const items = [
     { icon: 'ti-server', label: 'Hostname', value: os.hostname },
-    { icon: 'ti-brand-ubuntu', label: 'Sistema', value: `${os.distro} ${os.release}` },
+    { icon: 'ti-brand-ubuntu', label: 'Sistema', value: `${os.distro}${os.release ? ' ' + os.release : ''}` },
     { icon: 'ti-cpu', label: 'Arquitectura', value: os.arch },
     { icon: 'ti-clock', label: 'Uptime', value: `${Math.floor(os.uptime / 3600)}h ${Math.floor((os.uptime % 3600)/60)}m` },
   ];
+  if (ipData?.ip) items.push({ icon: 'ti-world', label: 'IP pública', value: ipData.ip });
+  if (verData) {
+    if (verData.node)   items.push({ icon: 'ti-brand-nodejs',  label: 'Node.js', value: verData.node });
+    if (verData.nginx)  items.push({ icon: 'ti-layout',        label: 'Nginx',   value: verData.nginx });
+    if (verData.php)    items.push({ icon: 'ti-brand-php',     label: 'PHP-FPM', value: verData.php });
+    if (verData.docker) items.push({ icon: 'ti-brand-docker',  label: 'Docker',  value: verData.docker });
+  }
   osGrid.innerHTML = items.map(i => `
     <div style="background:var(--bg-card2);border-radius:var(--radius-sm);padding:12px;border:1px solid var(--border)">
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">
         <i class="ti ${i.icon}" style="font-size:14px;color:var(--accent)"></i>${i.label}
       </div>
-      <div style="font-size:14px;font-weight:600">${i.value}</div>
+      <div style="font-size:14px;font-weight:600">${esc(String(i.value))}</div>
     </div>
   `).join('');
 }
@@ -154,21 +198,29 @@ async function loadServices() {
         <span class="badge ${s.status === 'running' ? 'badge-green' : 'badge-red'}">${s.status === 'running' ? 'Activo' : 'Parado'}</span>
         <div class="service-actions">
           ${s.status === 'running'
-            ? `<button class="btn btn-sm btn-danger" onclick="svcAction('${s.name}','stop')"><i class="ti ti-player-stop"></i></button>
-               <button class="btn btn-sm" onclick="svcAction('${s.name}','restart')"><i class="ti ti-refresh"></i></button>`
-            : `<button class="btn btn-sm btn-success" onclick="svcAction('${s.name}','start')"><i class="ti ti-player-play"></i></button>`}
+            ? `<button class="btn btn-sm btn-danger" onclick="svcAction('${s.name}','stop',event)"><i class="ti ti-player-stop"></i></button>
+               <button class="btn btn-sm" onclick="svcAction('${s.name}','restart',event)"><i class="ti ti-refresh"></i></button>`
+            : `<button class="btn btn-sm btn-success" onclick="svcAction('${s.name}','start',event)"><i class="ti ti-player-play"></i></button>`}
         </div>
       </div>
     </div>
   `).join('');
 }
 
-// svcAction: arranca/para/reinicia un servicio del sistema y refresca la lista.
-async function svcAction(name, action) {
-  toast(`${action} ${name}...`, 'info');
-  const r = await req('POST', `/system/service/${name}/${action}`);
-  if (r?.success) { toast(`${name} ${action} correcto`, 'success'); loadServices(); }
-  else toast(r?.error || 'Error', 'error');
+// svcAction: arranca/para/reinicia un servicio y refresca la lista.
+// Bloquea el botón durante la petición para evitar spam de systemctl (antes
+// podías darle 5 veces a "restart" y disparabas 5 llamadas seguidas).
+async function svcAction(name, action, evt) {
+  const btn = evt?.currentTarget || event?.currentTarget || null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    toast(`${action} ${name}...`, 'info');
+    const r = await req('POST', `/system/service/${name}/${action}`);
+    if (r?.success) { toast(`${name} ${action} correcto`, 'success'); loadServices(); }
+    else toast(r?.error || 'Error', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
 }
 
 // ── Processes ─────────────────────────────────────────────────
@@ -188,5 +240,5 @@ async function loadProcesses() {
 }
 
 Object.assign(window, {
-  connectStatsWS, drawSparkline, loadDashboard, loadProcesses, loadServices, svcAction,
+  connectStatsWS, disconnectStatsWS, drawSparkline, loadDashboard, loadProcesses, loadServices, svcAction,
 });

@@ -49,13 +49,14 @@ router.get('/stats', wrap(async (req, res) => {
 }));
 
 // GET /api/system/services — Estado (activo/parado) de los servicios clave.
+// Promise.all: 5 systemctl en paralelo (~50 ms) en vez de secuenciales (~250 ms).
 router.get('/services', wrap(async (req, res) => {
-  const result = [];
-  for (const name of ['nginx', 'mysql', 'postgresql', 'redis', 'ssh']) {
+  const names = ['nginx', 'mysql', 'postgresql', 'redis', 'ssh'];
+  const rows = await Promise.all(names.map(async (name) => {
     const r = await runSafe('systemctl', ['is-active', name]);
-    result.push({ name, status: r.stdout.trim() === 'active' ? 'running' : 'stopped' });
-  }
-  ok(res, result);
+    return { name, status: r.stdout.trim() === 'active' ? 'running' : 'stopped' };
+  }));
+  ok(res, rows);
 }));
 
 // POST /api/system/service/:name/:action — Arranca/para/reinicia un servicio.
@@ -70,13 +71,39 @@ router.post('/service/:name/:action', wrap(async (req, res) => {
   ok(res);
 }));
 
-// GET /api/system/processes — Los 20 procesos que más CPU consumen.
+// GET /api/system/processes — Los 20 procesos con más %CPU REAL (no la media
+// acumulada desde que arrancó cada proceso, que es lo que da `ps`). Se usa
+// `top -bn2 -d 0.5`: dos snapshots separados 0.5 s; el segundo trae el %CPU
+// medido en esa ventana. El coste añadido (~500 ms) merece la pena para no
+// mentir en la tabla. Fallback a ps si top no está disponible.
 router.get('/processes', wrap(async (req, res) => {
-  const out = await runSafe('ps', ['-eo', 'pid,comm,%cpu,%mem', '--sort=-%cpu']);
-  if (!out.ok) return ok(res, []);
-  const procs = out.stdout.trim().split('\n').slice(1, 21).map((l) => {
+  const r = await runSafe('top', ['-bn2', '-d', '0.5', '-w', '512']);
+  if (r.ok) {
+    // Divide en snapshots por la cabecera "top - HH:MM:SS ..." y se queda con el último.
+    const blocks = r.stdout.split(/^top - /m).slice(1);
+    const last = blocks[blocks.length - 1] || '';
+    const lines = last.split('\n');
+    const headerIdx = lines.findIndex((l) => /^\s*PID\s+USER/.test(l));
+    if (headerIdx >= 0) {
+      const rows = lines.slice(headerIdx + 1).filter((l) => /^\s*\d+\s/.test(l)).slice(0, 20);
+      return ok(res, rows.map((l) => {
+        // Formato por defecto: PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND...
+        const c = l.trim().split(/\s+/);
+        return {
+          pid: +c[0],
+          name: c.slice(11).join(' ') || c[11] || '?',
+          cpu: parseFloat(c[8]) || 0,
+          mem: parseFloat(c[9]) || 0,
+        };
+      }));
+    }
+  }
+  // Fallback: ps (nota: cpu es media desde el inicio del proceso, no real).
+  const ps = await runSafe('ps', ['-eo', 'pid,comm:64,%cpu,%mem', '--sort=-%cpu']);
+  if (!ps.ok) return ok(res, []);
+  const procs = ps.stdout.trim().split('\n').slice(1, 21).map((l) => {
     const c = l.trim().split(/\s+/);
-    return { pid: +c[0], name: c[1], cpu: parseFloat(c[2]) || 0, mem: parseFloat(c[3]) || 0 };
+    return { pid: +c[0], name: c.slice(1, c.length - 2).join(' '), cpu: parseFloat(c[c.length - 2]) || 0, mem: parseFloat(c[c.length - 1]) || 0 };
   });
   ok(res, procs);
 }));
@@ -106,6 +133,28 @@ router.get('/php-versions', wrap(async (req, res) => {
     }
   }
   ok(res, versions);
+}));
+
+// GET /api/system/versions — Versiones de las piezas clave para mostrar en el
+// dashboard: node, nginx, php-fpm más nuevo, docker (si está). Los que no
+// están instalados vuelven como null; el frontend los oculta.
+router.get('/versions', wrap(async (req, res) => {
+  const pick = (out, re) => (out.stdout || '').match(re)?.[1] || null;
+  const [node, nginx, phpSocks, docker] = await Promise.all([
+    runSafe('node', ['-v']),
+    runSafe('nginx', ['-v']),                    // nginx escribe la versión a stderr
+    runSafe('bash', ['-c', 'ls /run/php/php*-fpm.sock 2>/dev/null | sort -V | tail -1']),
+    runSafe('docker', ['-v']),
+  ]);
+  let php = null;
+  const sock = (phpSocks.stdout || '').trim().match(/php(\d+\.\d+)-fpm\.sock/);
+  if (sock) php = sock[1];
+  ok(res, {
+    node:   node.ok   ? (node.stdout.trim() || null) : null,
+    nginx:  nginx.ok  ? ((nginx.stderr || '').match(/nginx\/([\d.]+)/)?.[1] || null) : null,
+    php,
+    docker: docker.ok ? pick(docker, /Docker version ([\d.]+)/) : null,
+  });
 }));
 
 module.exports = router;

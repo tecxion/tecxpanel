@@ -214,7 +214,10 @@ async function submitResetPassword() {
 function doLogout() {
   TOKEN = '';
   localStorage.removeItem('txpl_token');
-  if (statsWS) statsWS.close();
+  // disconnectStatsWS pone el flag wsShouldConnect=false para que onclose
+  // NO reprograme una reconexión con el token vacío (bucle infinito antiguo).
+  if (typeof disconnectStatsWS === 'function') disconnectStatsWS();
+  else if (statsWS) { try { statsWS.close(); } catch (_) {} }
   termCleanup();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
