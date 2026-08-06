@@ -51,7 +51,16 @@ function termCleanup(userInitiated) {
 // initTerminal: abre la terminal SSH. Antes comprueba /system/features para no
 // intentar abrir el WS si node-pty no está instalado (mensaje más claro).
 async function initTerminal() {
-  termCleanup(true);
+  // Cleanup ligero: destruye recursos pero NO toca termShouldConnect (antes
+  // llamábamos a termCleanup(true), que lo ponía en false y provocaba una
+  // carrera con el ws.onclose del anterior WebSocket → badge congelado en
+  // "Desconectado" aunque la conexión nueva sí funcionase).
+  if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
+  window.removeEventListener('resize', termResizeHandler);
+  if (termOnDataDisposer) { try { termOnDataDisposer.dispose(); } catch (_) {} termOnDataDisposer = null; }
+  if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
+  if (term) { try { term.dispose(); } catch (_) {} term = null; fitAddon = null; }
+
   termShouldConnect = true;
   termBackoffMs = 2000;
 
@@ -99,7 +108,11 @@ function openTerminalWS() {
   termWS = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}`);
   const ws = termWS;
 
+  // Todos los handlers comprueban `ws !== termWS`: si mientras el WS estaba
+  // abriendo el usuario disparó otra conexión, esta se marca como obsoleta y
+  // sus eventos NO deben mutar el estado global (badge, reconnect timer).
   ws.onmessage = (e) => {
+    if (ws !== termWS) return;
     try {
       const d = JSON.parse(e.data);
       if (d.type === 'output') term.write(d.data);
@@ -107,11 +120,11 @@ function openTerminalWS() {
   };
 
   ws.onopen = () => {
+    if (ws !== termWS) return;
     setTermStatus('on');
     termBackoffMs = 2000;
     sendResize();
-    // Guardar el disposer: si initTerminal se llama otra vez, termCleanup lo
-    // libera y evitamos que cada tecla se envíe N veces (bug del handler doble).
+    // Guardar el disposer para evitar el bug del handler doble al reconectar.
     termOnDataDisposer = term.onData((data) => {
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
     });
@@ -120,6 +133,7 @@ function openTerminalWS() {
   };
 
   ws.onclose = () => {
+    if (ws !== termWS) return;                  // WS obsoleto → no tocar nada
     if (term) term.write('\r\n\x1b[90mConexión cerrada.\x1b[0m\r\n');
     if (termOnDataDisposer) { try { termOnDataDisposer.dispose(); } catch (_) {} termOnDataDisposer = null; }
     if (!termShouldConnect) { setTermStatus('off'); return; }
@@ -130,6 +144,7 @@ function openTerminalWS() {
   };
 
   ws.onerror = () => {
+    if (ws !== termWS) return;
     if (term) term.write('\r\n\x1b[31mError de conexión.\x1b[0m\r\n');
     setTermStatus('err');
   };
