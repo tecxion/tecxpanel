@@ -492,30 +492,91 @@ function renderFail2banPanel(data) {
 }
 
 // Acciones desde los paneles (llamadas por onclick inline).
+// Los tres helpers usan callFail2ban para tener manejo de error uniforme.
+async function callFail2ban(path, body, successMsg) {
+  const r = await req('POST', path, body);
+  if (r?.success) {
+    // "already banned" viene en output cuando f2b ya tenía la IP baneada;
+    // no es un error real, mostrar como info.
+    const already = /already banned|already unbanned/i.test(r.output || '');
+    toast(already ? `${successMsg} (ya lo estaba)` : successMsg, already ? 'info' : 'success');
+    return true;
+  }
+  // Los errores más frecuentes conviene traducirlos para el usuario.
+  const raw = r?.error || 'Error inesperado';
+  let msg = raw;
+  if (/permission denied|EACCES|not permitted/i.test(raw)) {
+    msg = 'Sin permisos para hablar con fail2ban-client. El panel necesita ejecutarse como root o con sudo NOPASSWD.';
+  } else if (/socket .* file|is fail2ban running/i.test(raw)) {
+    msg = 'Fail2Ban no está corriendo (systemctl start fail2ban).';
+  } else if (/no such jail/i.test(raw)) {
+    msg = `Jail "${body.jail}" no existe en la configuración de fail2ban.`;
+  }
+  toast(msg, 'error');
+  return false;
+}
+
 async function logsUnbanIp(jail, ip) {
   if (!confirm(`¿Desbanear ${ip} del jail ${jail}?`)) return;
-  const r = await req('POST', '/logs/fail2ban/unban', { jail, ip });
-  toast(r?.success ? `Desbaneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
-  if (r?.success) logsFetch();
+  if (await callFail2ban('/logs/fail2ban/unban', { jail, ip }, `Desbaneada ${ip}`)) logsFetch();
 }
 async function logsBanManual(jail) {
   const ip = document.getElementById(`f2b-ban-${jail}`)?.value?.trim();
   if (!ip) return toast('Introduce una IP', 'error');
   if (!confirm(`¿Banear ${ip} en el jail ${jail}?`)) return;
-  const r = await req('POST', '/logs/fail2ban/ban', { jail, ip });
-  toast(r?.success ? `Baneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
-  if (r?.success) logsFetch();
+  if (await callFail2ban('/logs/fail2ban/ban', { jail, ip }, `Baneada ${ip}`)) logsFetch();
 }
-// Botón "Banear" del panel Seguridad: pregunta jail y delega en /fail2ban/ban.
+// Botón "Banear" del panel Seguridad: abre un modal con dropdown de jails.
+// Si Fail2Ban no está instalado, ofrece navegar a la pestaña Fail2Ban (donde
+// se muestra la guía de instalación).
 async function logsBanIp(ip) {
   const status = await req('GET', '/logs/fail2ban/status');
-  if (!status?.installed) return toast('Fail2Ban no está instalado', 'error');
+  if (!status?.installed) {
+    toast('Fail2Ban no está instalado. Ve a la pestaña Fail2Ban para instrucciones.', 'error');
+    document.querySelector('#logs-tabs .tab[data-src="fail2ban"]')?.click();
+    return;
+  }
   const jails = (status.jails || []).map(j => j.name);
-  if (!jails.length) return toast('No hay jails configurados', 'error');
-  const jail = jails.length === 1 ? jails[0] : prompt(`¿En qué jail? Disponibles: ${jails.join(', ')}`, jails[0]);
-  if (!jail || !jails.includes(jail)) return;
-  const r = await req('POST', '/logs/fail2ban/ban', { jail, ip });
-  toast(r?.success ? `Baneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
+  if (!jails.length) { toast('No hay jails configurados en fail2ban.', 'error'); return; }
+  openBanModal(ip, jails);
+}
+
+// Modal simple para elegir jail antes de banear (mejor que prompt()).
+function openBanModal(ip, jails) {
+  // Si por casualidad ya hay uno abierto, se recicla.
+  let mod = document.getElementById('logs-ban-modal');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'logs-ban-modal';
+    mod.className = 'modal-overlay';
+    document.body.appendChild(mod);
+  }
+  mod.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div class="modal-title">🚫 Banear IP</div>
+        <button class="modal-close" onclick="document.getElementById('logs-ban-modal').classList.remove('open')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px">Se baneará <b style="font-family:var(--mono)">${esc(ip)}</b> en el jail:</div>
+        <select id="logs-ban-modal-jail" style="width:100%">
+          ${jails.map(j => `<option value="${esc(j)}">${esc(j)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="document.getElementById('logs-ban-modal').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-danger" id="logs-ban-modal-ok"><i class="ti ti-hand-stop"></i> Banear</button>
+      </div>
+    </div>`;
+  mod.classList.add('open');
+  document.getElementById('logs-ban-modal-ok').onclick = async () => {
+    const jail = document.getElementById('logs-ban-modal-jail').value;
+    mod.classList.remove('open');
+    if (await callFail2ban('/logs/fail2ban/ban', { jail, ip }, `Baneada ${ip}`)) {
+      // Si el usuario está en la pestaña Fail2Ban, refresca.
+      if (logsSrc.type === 'fail2ban' || logsSrc.type === 'security') logsFetch();
+    }
+  };
 }
 
 Object.assign(window, {

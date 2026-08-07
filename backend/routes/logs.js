@@ -18,9 +18,10 @@ const { queries, audit } = require('../database');
 
 const router = express.Router();
 
-// IPv4 / IPv6 estricto para pasarlo a fail2ban-client sin riesgo de inyección
-// (aunque runSafe/execFile no interpreta shell, mejor rechazar basura antes).
-const RE_IP = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[a-fA-F0-9:]+)$/;
+// IPv4 / IPv6 (incluye IPv4-mapped IPv6 como "::ffff:1.2.3.4" que es lo que
+// nginx a veces registra). runSafe/execFile no interpreta shell, pero mejor
+// rechazar basura antes de pasar al cliente de fail2ban.
+const RE_IP = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[a-fA-F0-9:]+(?::(?:\d{1,3}\.){3}\d{1,3})?)$/;
 // Nombre de jail (evita paths, espacios, etc.). Fail2ban por convención usa
 // slug con letras/números/guion.
 const RE_JAIL = /^[a-zA-Z0-9._-]{1,64}$/;
@@ -219,14 +220,18 @@ router.get('/fail2ban/status', wrap(async (req, res) => {
 }));
 
 // POST /api/logs/fail2ban/unban  { jail, ip } — desbanea una IP en un jail.
+// La respuesta lleva success:true EXPLÍCITO — ok(res, {...}) NO lo añade solo.
 router.post('/fail2ban/unban', wrap(async (req, res) => {
   const { jail, ip } = req.body || {};
   if (!RE_JAIL.test(String(jail || ''))) return fail(res, 400, 'Jail inválido.');
   if (!RE_IP.test(String(ip || '')))     return fail(res, 400, 'IP inválida.');
   const r = await runSafe('fail2ban-client', ['set', jail, 'unbanip', ip]);
+  if (!r.ok) {
+    audit(req.user.username, clientIp(req), 'fail2ban.unban.fail', `${jail}:${ip}`);
+    return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
+  }
   audit(req.user.username, clientIp(req), 'fail2ban.unban', `${jail}:${ip}`);
-  if (!r.ok) return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
-  ok(res, { output: (r.stdout || '').trim() });
+  ok(res, { success: true, output: (r.stdout || '').trim() });
 }));
 
 // POST /api/logs/fail2ban/ban  { jail, ip } — banea manualmente una IP.
@@ -235,9 +240,12 @@ router.post('/fail2ban/ban', wrap(async (req, res) => {
   if (!RE_JAIL.test(String(jail || ''))) return fail(res, 400, 'Jail inválido.');
   if (!RE_IP.test(String(ip || '')))     return fail(res, 400, 'IP inválida.');
   const r = await runSafe('fail2ban-client', ['set', jail, 'banip', ip]);
+  if (!r.ok) {
+    audit(req.user.username, clientIp(req), 'fail2ban.ban.fail', `${jail}:${ip}`);
+    return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
+  }
   audit(req.user.username, clientIp(req), 'fail2ban.ban', `${jail}:${ip}`);
-  if (!r.ok) return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
-  ok(res, { output: (r.stdout || '').trim() });
+  ok(res, { success: true, output: (r.stdout || '').trim() });
 }));
 
 // GET /api/logs/:type?lines=N — Últimas N líneas de un log de la lista blanca.
