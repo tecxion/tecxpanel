@@ -4,8 +4,10 @@
   <div class="tab" data-src="static:system" onclick="logsSelect(this)">Sistema</div>
   <div class="tab" data-src="errors" onclick="logsSelect(this)"><i class="ti ti-alert-triangle"></i> Errores</div>
   <div class="tab" data-src="audit" onclick="logsSelect(this)">Auditoría</div>
+  <div class="tab" data-src="security" onclick="logsSelect(this)">🛡️ Seguridad</div>
+  <div class="tab" data-src="fail2ban" onclick="logsSelect(this)">🚫 Fail2Ban</div>
 </div>
-<div class="card">
+<div class="card" id="logs-card">
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
     <select id="logs-app-select" onchange="logsSelectApp()" style="min-width:150px">
       <option value="">Apps (PM2)…</option>
@@ -44,4 +46,30 @@
     <datalist id="logs-audit-actions"></datalist>
   </div>
   <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Cargando…</pre>
+</div>
+
+<!-- Panel Seguridad -->
+<div class="card" id="logs-security-panel" style="display:none">
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+    <div class="card-title">🛡️ Resumen de seguridad</div>
+    <select id="logs-sec-hours" onchange="logsFetch()" style="margin-left:auto">
+      <option value="1">última hora</option>
+      <option value="6">últimas 6 horas</option>
+      <option value="24" selected>últimas 24 horas</option>
+      <option value="72">últimos 3 días</option>
+      <option value="168">últimos 7 días</option>
+    </select>
+    <button class="btn btn-sm" onclick="logsFetch()" title="Refrescar"><i class="ti ti-refresh"></i></button>
+  </div>
+  <div id="logs-sec-body" style="color:var(--text-muted)">Cargando…</div>
+</div>
+
+<!-- Panel Fail2Ban -->
+<div class="card" id="logs-fail2ban-panel" style="display:none">
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+    <div class="card-title">🚫 Fail2Ban</div>
+    <span style="flex:1"></span>
+    <button class="btn btn-sm" onclick="logsFetch()" title="Refrescar"><i class="ti ti-refresh"></i></button>
+  </div>
+  <div id="logs-f2b-body" style="color:var(--text-muted)">Cargando…</div>
 </div>

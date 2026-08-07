@@ -11,12 +11,24 @@
 
 const fs = require('fs');
 const express = require('express');
-const { ok, fail, runSafe, wrap } = require('../lib/helpers');
+const { ok, fail, runSafe, wrap, clientIp } = require('../lib/helpers');
 const { LOG_FILES } = require('../lib/validators');
 const { siteLogPath, clampLines } = require('../lib/logs');
-const { queries } = require('../database');
+const { queries, audit } = require('../database');
 
 const router = express.Router();
+
+// IPv4 / IPv6 estricto para pasarlo a fail2ban-client sin riesgo de inyección
+// (aunque runSafe/execFile no interpreta shell, mejor rechazar basura antes).
+const RE_IP = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[a-fA-F0-9:]+)$/;
+// Nombre de jail (evita paths, espacios, etc.). Fail2ban por convención usa
+// slug con letras/números/guion.
+const RE_JAIL = /^[a-zA-Z0-9._-]{1,64}$/;
+
+// Rutas típicas de bots/escaneos — se marcan como "intento de hackeo" tanto
+// en el visor de logs (Bonito) como en el resumen /security. Coincide contra
+// el path (case-insensitive). Ampliable sin cambios de shape.
+const SUSPICIOUS_PATHS = /(wp-admin|wp-login|wp-content|xmlrpc\.php|\.env|\.git|phpmyadmin|\/pma\b|\/shell\.php|\/cgi-bin\/|\/vendor\/|\/console\b|\/solr\b|\/actuator\b|\/server-status\b|\/config\.php|\/setup\.php|\/eval\.php|\.\.\/)/i;
 
 // GET /api/logs/sources — Fuentes disponibles para la página de logs:
 // logs estáticos (lista blanca), apps PM2 y sitios web del panel.
@@ -95,6 +107,137 @@ router.get('/errors', wrap(async (req, res) => {
     logs: merged.length ? merged.join('\n') : 'Sin errores recientes.',
     counts: { nginx: n.length, system: s.length },
   });
+}));
+
+// GET /api/logs/security?hours=24 — Resumen agregado de seguridad:
+//   - loginOk/loginFail de las últimas N horas (audit_log).
+//   - Top IPs ofensivas (por logins fallidos + hits sospechosos en nginx).
+//   - Recuento de intentos de hackeo (paths tipo /wp-admin, /.env, etc.).
+// Devuelve un JSON estructurado para pintarlo en cards en el frontend.
+router.get('/security', wrap(async (req, res) => {
+  const hours = Math.min(Math.max(parseInt(req.query.hours, 10) || 24, 1), 168);
+  const cutoff = Date.now() - hours * 3600_000;
+
+  // 1) Audit de logins en la ventana pedida.
+  const auditRows = queries.getAuditLog.all();
+  const inWindow = auditRows.filter((r) => {
+    const t = r.ts ? Date.parse(r.ts) : 0;
+    return t && t >= cutoff;
+  });
+  const logins = { ok: 0, fail: 0, locked: 0 };
+  const loginFailByIp = new Map();
+  const recentLogins = [];
+  for (const r of inWindow) {
+    if (!r.action || !r.action.startsWith('login')) continue;
+    if (r.action === 'login.ok')     logins.ok++;
+    if (r.action === 'login.fail')   { logins.fail++; loginFailByIp.set(r.ip, (loginFailByIp.get(r.ip) || 0) + 1); }
+    if (r.action === 'login.locked') logins.locked++;
+    if (recentLogins.length < 20) recentLogins.push({ ts: r.ts, user: r.user, ip: r.ip, action: r.action });
+  }
+
+  // 2) Nginx access: cuenta hits por IP + intentos sospechosos.
+  const hitsByIp = new Map();
+  const attacksByIp = new Map();
+  const attackSamples = [];
+  const accessFile = LOG_FILES.nginx_access;
+  if (fs.existsSync(accessFile)) {
+    const r = await runSafe('tail', ['-n', '5000', accessFile], { maxBuffer: 16 * 1024 * 1024 });
+    const lines = (r.stdout || '').split('\n');
+    const RE_ACCESS = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)[^"]*"\s+(\d+)\s+(\d+|-)/;
+    for (const line of lines) {
+      const m = line.match(RE_ACCESS);
+      if (!m) continue;
+      const [, ip, , method, path, status] = m;
+      hitsByIp.set(ip, (hitsByIp.get(ip) || 0) + 1);
+      if (SUSPICIOUS_PATHS.test(path)) {
+        attacksByIp.set(ip, (attacksByIp.get(ip) || 0) + 1);
+        if (attackSamples.length < 30) attackSamples.push({ ip, method, path, status });
+      }
+    }
+  }
+
+  // 3) Top ofensivas: score = logins fallidos*5 + intentos hackeo*2 + hits/100.
+  const allIps = new Set([...loginFailByIp.keys(), ...attacksByIp.keys(), ...hitsByIp.keys()]);
+  const top = [...allIps].map((ip) => ({
+    ip,
+    loginFail: loginFailByIp.get(ip) || 0,
+    attacks:   attacksByIp.get(ip) || 0,
+    hits:      hitsByIp.get(ip) || 0,
+  }))
+    .map((r) => ({ ...r, score: r.loginFail * 5 + r.attacks * 2 + Math.floor(r.hits / 100) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20);
+
+  ok(res, {
+    hours,
+    logins,
+    attacks: { total: [...attacksByIp.values()].reduce((a, b) => a + b, 0), samples: attackSamples },
+    topIps: top,
+    recentLogins,
+  });
+}));
+
+// ── Fail2Ban ────────────────────────────────────────────────────────
+// Wrapper mínimo sobre fail2ban-client. Requiere fail2ban instalado y el
+// panel corriendo como root (o con sudo NOPASSWD). Si no está instalado,
+// /status devuelve installed:false y el frontend oculta la pestaña.
+
+async function f2bInstalled() {
+  const r = await runSafe('fail2ban-client', ['--version']);
+  return r.ok;
+}
+// Parsea la salida de `fail2ban-client status` para obtener la lista de jails.
+function parseJailList(stdout) {
+  const m = (stdout || '').match(/Jail list:\s*(.+)/);
+  if (!m) return [];
+  return m[1].split(',').map((s) => s.trim()).filter(Boolean);
+}
+// Parsea `fail2ban-client status <jail>` — devuelve counts + IPs baneadas.
+function parseJailStatus(stdout) {
+  const currFailed = +((stdout.match(/Currently failed:\s*(\d+)/) || [])[1] || 0);
+  const totalFailed = +((stdout.match(/Total failed:\s*(\d+)/) || [])[1] || 0);
+  const currBanned = +((stdout.match(/Currently banned:\s*(\d+)/) || [])[1] || 0);
+  const totalBanned = +((stdout.match(/Total banned:\s*(\d+)/) || [])[1] || 0);
+  const ipLine = (stdout.match(/Banned IP list:\s*(.*)/) || [])[1] || '';
+  const ips = ipLine.trim().split(/\s+/).filter(Boolean);
+  return { currFailed, totalFailed, currBanned, totalBanned, ips };
+}
+
+// GET /api/logs/fail2ban/status — estado global + por jail (paralelo).
+router.get('/fail2ban/status', wrap(async (req, res) => {
+  if (!(await f2bInstalled())) return ok(res, { installed: false, jails: [] });
+  const st = await runSafe('fail2ban-client', ['status']);
+  if (!st.ok) return ok(res, { installed: true, error: (st.stderr || '').trim() || 'No se pudo consultar fail2ban.', jails: [] });
+  const jailNames = parseJailList(st.stdout);
+  const jails = await Promise.all(jailNames.map(async (name) => {
+    const r = await runSafe('fail2ban-client', ['status', name]);
+    if (!r.ok) return { name, error: (r.stderr || '').trim() };
+    return { name, ...parseJailStatus(r.stdout) };
+  }));
+  ok(res, { installed: true, jails });
+}));
+
+// POST /api/logs/fail2ban/unban  { jail, ip } — desbanea una IP en un jail.
+router.post('/fail2ban/unban', wrap(async (req, res) => {
+  const { jail, ip } = req.body || {};
+  if (!RE_JAIL.test(String(jail || ''))) return fail(res, 400, 'Jail inválido.');
+  if (!RE_IP.test(String(ip || '')))     return fail(res, 400, 'IP inválida.');
+  const r = await runSafe('fail2ban-client', ['set', jail, 'unbanip', ip]);
+  audit(req.user.username, clientIp(req), 'fail2ban.unban', `${jail}:${ip}`);
+  if (!r.ok) return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
+  ok(res, { output: (r.stdout || '').trim() });
+}));
+
+// POST /api/logs/fail2ban/ban  { jail, ip } — banea manualmente una IP.
+router.post('/fail2ban/ban', wrap(async (req, res) => {
+  const { jail, ip } = req.body || {};
+  if (!RE_JAIL.test(String(jail || ''))) return fail(res, 400, 'Jail inválido.');
+  if (!RE_IP.test(String(ip || '')))     return fail(res, 400, 'IP inválida.');
+  const r = await runSafe('fail2ban-client', ['set', jail, 'banip', ip]);
+  audit(req.user.username, clientIp(req), 'fail2ban.ban', `${jail}:${ip}`);
+  if (!r.ok) return fail(res, 502, (r.stderr || '').trim() || 'fail2ban-client rechazó la petición.');
+  ok(res, { output: (r.stdout || '').trim() });
 }));
 
 // GET /api/logs/:type?lines=N — Últimas N líneas de un log de la lista blanca.

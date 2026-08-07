@@ -42,12 +42,15 @@ async function refreshLogsSources() {
   }
 }
 
-// logsSelect: clic en una pestaña estática (nginx/sistema/errores/auditoría).
+// logsSelect: clic en una pestaña estática (nginx/sistema/errores/auditoría/
+// seguridad/fail2ban).
 function logsSelect(el) {
   const src = el.dataset.src;
-  if (src === 'audit')        logsSrc = { type: 'audit' };
-  else if (src === 'errors')  logsSrc = { type: 'errors' };
-  else                        logsSrc = { type: 'static', key: src.split(':')[1] };
+  if (src === 'audit')          logsSrc = { type: 'audit' };
+  else if (src === 'errors')    logsSrc = { type: 'errors' };
+  else if (src === 'security')  logsSrc = { type: 'security' };
+  else if (src === 'fail2ban')  logsSrc = { type: 'fail2ban' };
+  else                          logsSrc = { type: 'static', key: src.split(':')[1] };
   logsApplySelection(el);
   logsFetch();
 }
@@ -74,10 +77,18 @@ function logsSelectSite() {
 function logsApplySelection(activeTab) {
   document.querySelectorAll('#logs-tabs .tab').forEach(t => t.classList.remove('active'));
   if (activeTab) activeTab.classList.add('active');
-  else if (logsSrc.type === 'static' || logsSrc.type === 'audit' || logsSrc.type === 'errors') {
-    const key = logsSrc.type === 'static' ? `static:${logsSrc.key}` : logsSrc.type;
+  else {
+    const t = logsSrc.type;
+    const key = t === 'static' ? `static:${logsSrc.key}` : t;
     document.querySelector(`#logs-tabs .tab[data-src="${key}"]`)?.classList.add('active');
   }
+  // Cambia qué card se ve: la de logs, la de seguridad o la de fail2ban.
+  const card = document.getElementById('logs-card');
+  const sec  = document.getElementById('logs-security-panel');
+  const f2b  = document.getElementById('logs-fail2ban-panel');
+  if (card) card.style.display = (logsSrc.type === 'security' || logsSrc.type === 'fail2ban') ? 'none' : '';
+  if (sec)  sec.style.display  = logsSrc.type === 'security' ? '' : 'none';
+  if (f2b)  f2b.style.display  = logsSrc.type === 'fail2ban' ? '' : 'none';
   if (logsSrc.type !== 'app') document.getElementById('logs-app-select').value = '';
   if (logsSrc.type !== 'site') {
     document.getElementById('logs-site-select').value = '';
@@ -95,6 +106,17 @@ function logsApplySelection(activeTab) {
 async function logsFetch() {
   const lines = document.getElementById('logs-lines')?.value || '300';
   let r;
+  if (logsSrc.type === 'security') {
+    const hours = document.getElementById('logs-sec-hours')?.value || '24';
+    const s = await req('GET', `/logs/security?hours=${hours}`);
+    renderSecurityPanel(s);
+    return;
+  }
+  if (logsSrc.type === 'fail2ban') {
+    const s = await req('GET', '/logs/fail2ban/status');
+    renderFail2banPanel(s);
+    return;
+  }
   if (logsSrc.type === 'audit') {
     const rows = await req('GET', '/logs/audit/list');
     logsRaw = Array.isArray(rows)
@@ -140,6 +162,31 @@ function fillAuditDatalists(rows) {
   const dlA = document.getElementById('logs-audit-actions');
   if (dlU) dlU.innerHTML = users.map(u => `<option value="${esc(u)}">`).join('');
   if (dlA) dlA.innerHTML = acts.map(a => `<option value="${esc(a)}">`).join('');
+}
+
+// Paths típicos de bots/escaneos. Idéntico al backend (SUSPICIOUS_PATHS en
+// routes/logs.js) para consistencia entre el badge de una línea y el resumen
+// agregado de la pestaña Seguridad.
+const SUSPICIOUS_PATHS_FE = /(wp-admin|wp-login|wp-content|xmlrpc\.php|\.env|\.git|phpmyadmin|\/pma\b|\/shell\.php|\/cgi-bin\/|\/vendor\/|\/console\b|\/solr\b|\/actuator\b|\/server-status\b|\/config\.php|\/setup\.php|\/eval\.php|\.\.\/)/i;
+
+// Recuento por IP dentro del texto actual — recalculado cada logsRender().
+// Sirve para el badge "×N" que aparece junto a la IP cuando esa dirección
+// aparece muchas veces en el visor (reincidencia).
+let logsIpCounts = new Map();
+function computeIpCounts(rawText) {
+  const m = new Map();
+  const RE_IP_ACCESS = /^(\S+)\s+\S+\s+\S+\s+\[/;   // primer campo del combined
+  for (const line of rawText.split('\n')) {
+    const mm = line.match(RE_IP_ACCESS);
+    if (mm) m.set(mm[1], (m.get(mm[1]) || 0) + 1);
+  }
+  logsIpCounts = m;
+}
+function ipBadge(ip) {
+  const n = logsIpCounts.get(ip) || 0;
+  if (n < 5) return '';
+  const color = n >= 20 ? 'var(--red)' : 'var(--yellow, #d7a53f)';
+  return ` <span class="badge" style="background:transparent;color:${color};border:1px solid ${color};padding:0 4px;font-size:10px" title="Esta IP aparece ${n} veces en la vista actual">×${n}</span>`;
 }
 
 // ── Parsers y helpers de formato "bonito" ────────────────────────────────
@@ -228,14 +275,21 @@ function prettyLine(raw) {
       + (detail ? `  <span style="color:var(--text-muted)">· ${esc(detail)}</span>` : '');
   }
 
-  // 2. Nginx access (combined)
+  // 2. Nginx access (combined) — con detección de intento de hackeo por path
+  //    y badge de reincidencia si esta IP se repite en la vista actual.
   m = line.match(RE_ACCESS);
   if (m) {
     const [, ip, ts, method, path, status, bytes] = m;
-    const s = httpStyle(status);
+    const attack = SUSPICIOUS_PATHS_FE.test(path);
+    const s = attack
+      ? { emo: '🚨', color: 'var(--red)' }
+      : httpStyle(status);
+    const attackBadge = attack
+      ? ' <span class="badge badge-red" style="font-size:10px" title="Path sospechoso de escaneo/hackeo">HACK</span>'
+      : '';
     return `${feedTag}${s.emo}  <span style="color:${s.color};font-weight:600">${status}</span>  `
-      + `<span style="color:var(--accent)">${esc(method)}</span> <span>${esc(path)}</span>  `
-      + `<span style="color:var(--text-muted)">${esc(ip)}</span>  `
+      + `<span style="color:var(--accent)">${esc(method)}</span> <span style="${attack ? 'color:var(--red)' : ''}">${esc(path)}</span>${attackBadge}  `
+      + `<span style="color:var(--text-muted)">${esc(ip)}</span>${ipBadge(ip)}  `
       + `<span style="color:var(--text-muted)">${esc(shortTime(ts))}</span>  `
       + `<span style="color:var(--text-muted)">${fmtSizeShort(bytes)}</span>`;
   }
@@ -270,6 +324,10 @@ function logsRender() {
   const out = document.getElementById('log-output');
   if (!out) return;
   const wasAtBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+
+  // Recuenta IPs sobre el texto CRUDO (no el filtrado): así la reincidencia
+  // real no cambia si el usuario aplica un filtro visual.
+  computeIpCounts(logsRaw);
 
   const filter = (document.getElementById('logs-filter')?.value || '').toLowerCase();
   const isAudit = logsSrc.type === 'audit';
@@ -340,8 +398,130 @@ async function logsCopy() {
   toast(okCopy ? 'Log copiado' : 'No se pudo copiar', okCopy ? 'success' : 'error');
 }
 
+// ── Panel Seguridad ─────────────────────────────────────────────
+function renderSecurityPanel(data) {
+  const body = document.getElementById('logs-sec-body');
+  if (!body) return;
+  if (!data) { body.innerHTML = '<div class="empty-state">No se pudo cargar el resumen.</div>'; return; }
+  const L = data.logins || {};
+  const A = data.attacks || {};
+  const top = data.topIps || [];
+  const recent = data.recentLogins || [];
+
+  const card = (label, value, color, emo) =>
+    `<div style="background:var(--bg-card2);border-radius:var(--radius-sm);padding:14px;border:1px solid var(--border);min-width:140px">
+       <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${emo} ${label}</div>
+       <div style="font-size:1.6rem;font-weight:700;color:${color}">${value}</div>
+     </div>`;
+
+  const cards =
+    `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+       ${card('Logins OK',    L.ok || 0,    'var(--green)',            '✅')}
+       ${card('Logins fallidos', L.fail || 0, (L.fail > 0 ? 'var(--yellow, #d7a53f)' : 'var(--text-primary)'), '⚠️')}
+       ${card('IPs bloqueadas', L.locked || 0, (L.locked > 0 ? 'var(--red)' : 'var(--text-primary)'), '🚫')}
+       ${card('Intentos hackeo', A.total || 0, (A.total > 0 ? 'var(--red)' : 'var(--text-primary)'), '🚨')}
+     </div>`;
+
+  const topTable = top.length
+    ? `<table><thead><tr><th>IP</th><th>Score</th><th>Fallidos</th><th>Hackeo</th><th>Hits</th><th>Acción</th></tr></thead><tbody>${
+        top.map(r => `<tr>
+          <td style="font-family:var(--mono)">${esc(r.ip)}</td>
+          <td><b>${r.score}</b></td>
+          <td>${r.loginFail}</td>
+          <td>${r.attacks > 0 ? `<span style="color:var(--red)">${r.attacks}</span>` : '0'}</td>
+          <td>${r.hits}</td>
+          <td><button class="btn btn-sm btn-danger" onclick="logsBanIp('${esc(r.ip)}')" title="Banear con Fail2Ban"><i class="ti ti-hand-stop"></i></button></td>
+        </tr>`).join('')
+      }</tbody></table>`
+    : '<div class="empty-state">Sin IPs ofensivas en la ventana seleccionada.</div>';
+
+  const recentTable = recent.length
+    ? `<table><thead><tr><th>Cuándo</th><th>Usuario</th><th>IP</th><th>Resultado</th></tr></thead><tbody>${
+        recent.map(r => {
+          const when = r.ts ? new Date(r.ts).toLocaleString('es-ES') : '';
+          const bad = r.action !== 'login.ok';
+          return `<tr>
+            <td style="color:var(--text-muted)">${esc(when)}</td>
+            <td>${esc(r.user || '?')}</td>
+            <td style="font-family:var(--mono)">${esc(r.ip || '?')}</td>
+            <td><span class="badge ${bad ? 'badge-red' : 'badge-green'}">${bad ? '❌ ' : '✅ '}${esc(r.action)}</span></td>
+          </tr>`;
+        }).join('')
+      }</tbody></table>`
+    : '<div class="empty-state">Sin logins recientes.</div>';
+
+  body.innerHTML =
+    cards +
+    `<div class="card-header"><div class="card-title">Top IPs ofensivas</div></div>${topTable}` +
+    `<div class="card-header" style="margin-top:16px"><div class="card-title">Últimos logins</div></div>${recentTable}`;
+}
+
+// ── Panel Fail2Ban ──────────────────────────────────────────────
+function renderFail2banPanel(data) {
+  const body = document.getElementById('logs-f2b-body');
+  if (!body) return;
+  if (!data)              { body.innerHTML = '<div class="empty-state">No se pudo consultar Fail2Ban.</div>'; return; }
+  if (!data.installed)    { body.innerHTML = emptyState('ti-shield-off', 'Fail2Ban no está instalado en el servidor. Instálalo con: sudo apt install fail2ban'); return; }
+  if (data.error)         { body.innerHTML = `<div class="empty-state">Error: ${esc(data.error)}</div>`; return; }
+  const jails = data.jails || [];
+  if (!jails.length)      { body.innerHTML = '<div class="empty-state">Fail2Ban está corriendo pero no hay ningún jail configurado.</div>'; return; }
+
+  body.innerHTML = jails.map(j => {
+    if (j.error) return `<div class="card-header"><div class="card-title">${esc(j.name)}</div></div><div class="empty-state">Error: ${esc(j.error)}</div>`;
+    const ipsTable = j.ips && j.ips.length
+      ? `<table><thead><tr><th>IP baneada</th><th>Acción</th></tr></thead><tbody>${
+          j.ips.map(ip => `<tr>
+            <td style="font-family:var(--mono)">${esc(ip)}</td>
+            <td><button class="btn btn-sm" onclick="logsUnbanIp('${esc(j.name)}','${esc(ip)}')"><i class="ti ti-check"></i> Desbanear</button></td>
+          </tr>`).join('')
+        }</tbody></table>`
+      : '<div class="empty-state">No hay IPs baneadas ahora mismo.</div>';
+    return `
+      <div class="card-header" style="margin-top:12px">
+        <div class="card-title">🔒 ${esc(j.name)}</div>
+        <div style="margin-left:auto;font-size:12px;color:var(--text-muted)">
+          Baneadas ahora: <b>${j.currBanned || 0}</b> · Total baneos: ${j.totalBanned || 0} · Fallos actuales: ${j.currFailed || 0}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input type="text" id="f2b-ban-${esc(j.name)}" placeholder="IP a banear manualmente" style="max-width:220px">
+        <button class="btn btn-sm btn-danger" onclick="logsBanManual('${esc(j.name)}')"><i class="ti ti-hand-stop"></i> Banear</button>
+      </div>
+      ${ipsTable}`;
+  }).join('');
+}
+
+// Acciones desde los paneles (llamadas por onclick inline).
+async function logsUnbanIp(jail, ip) {
+  if (!confirm(`¿Desbanear ${ip} del jail ${jail}?`)) return;
+  const r = await req('POST', '/logs/fail2ban/unban', { jail, ip });
+  toast(r?.success ? `Desbaneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
+  if (r?.success) logsFetch();
+}
+async function logsBanManual(jail) {
+  const ip = document.getElementById(`f2b-ban-${jail}`)?.value?.trim();
+  if (!ip) return toast('Introduce una IP', 'error');
+  if (!confirm(`¿Banear ${ip} en el jail ${jail}?`)) return;
+  const r = await req('POST', '/logs/fail2ban/ban', { jail, ip });
+  toast(r?.success ? `Baneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
+  if (r?.success) logsFetch();
+}
+// Botón "Banear" del panel Seguridad: pregunta jail y delega en /fail2ban/ban.
+async function logsBanIp(ip) {
+  const status = await req('GET', '/logs/fail2ban/status');
+  if (!status?.installed) return toast('Fail2Ban no está instalado', 'error');
+  const jails = (status.jails || []).map(j => j.name);
+  if (!jails.length) return toast('No hay jails configurados', 'error');
+  const jail = jails.length === 1 ? jails[0] : prompt(`¿En qué jail? Disponibles: ${jails.join(', ')}`, jails[0]);
+  if (!jail || !jails.includes(jail)) return;
+  const r = await req('POST', '/logs/fail2ban/ban', { jail, ip });
+  toast(r?.success ? `Baneada ${ip}` : (r?.error || 'Error'), r?.success ? 'success' : 'error');
+}
+
 Object.assign(window, {
   loadLogsPage, logsApplySelection, logsCopy, logsDownload, logsFetch,
   logsLiveStop, logsLiveToggle, logsRender, logsSelect, logsSelectApp,
   logsSelectSite, refreshLogsSources,
+  renderSecurityPanel, renderFail2banPanel,
+  logsUnbanIp, logsBanManual, logsBanIp,
 });
