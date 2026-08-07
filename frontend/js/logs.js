@@ -142,21 +142,140 @@ function fillAuditDatalists(rows) {
   if (dlA) dlA.innerHTML = acts.map(a => `<option value="${esc(a)}">`).join('');
 }
 
-// logsRender: aplica filtros y colorea errores/avisos. innerHTML es seguro
-// porque esc() escapa cada línea antes de envolverla en span.
-// Auto-scroll INTELIGENTE: solo baja al fondo si el usuario ya estaba en el
-// fondo (antes saltaba al fondo cada tick, impidiendo leer historial mientras
-// el modo live estaba activo).
+// ── Parsers y helpers de formato "bonito" ────────────────────────────────
+// Objetivo: que un usuario no técnico entienda de un vistazo qué pasa —
+// emojis según severidad, color según categoría, columnas alineadas.
+// Los parsers devuelven null si no reconocen la línea; entonces cae al
+// modo texto simple con colores por palabra clave (el de siempre).
+
+// Nginx access (formato combined):
+// 1.2.3.4 - - [07/Aug/2026:18:12:34 +0000] "GET /path HTTP/1.1" 200 1234 "-" "UA"
+const RE_ACCESS = /^(\S+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"(\S+)\s+(\S+)[^"]*"\s+(\d+)\s+(\d+|-)/;
+// Nginx error:
+// 2026/08/07 18:12:34 [error] 1234#0: *5 message...
+const RE_NERR = /^(\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+\d+#\d+:?\s*(?:\*\d+\s*)?(.+)/;
+// Syslog:
+// Aug  7 18:12:34 host program[pid]: message
+const RE_SYSLOG = /^(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^\s:\[]+)(?:\[\d+\])?:\s*(.+)/;
+// Auditoría (ya formateada por logsFetch): [when] user@ip — action · detail
+const RE_AUDIT = /^\[([^\]]+)\]\s+(\S+)@(\S+)\s+—\s+(\S+)(?:\s+·\s+(.+))?$/;
+
+// Emoji + color según código HTTP.
+function httpStyle(code) {
+  const n = parseInt(code, 10);
+  if (n >= 500) return { emo: '❌', color: 'var(--red)' };
+  if (n >= 400) return { emo: '⚠️', color: 'var(--yellow, #d7a53f)' };
+  if (n >= 300) return { emo: '↪️', color: 'var(--cyan)' };
+  if (n >= 200) return { emo: '✅', color: 'var(--green)' };
+  return { emo: '•', color: 'var(--text-muted)' };
+}
+// Emoji + color según nivel de nginx/syslog.
+function levelStyle(level) {
+  const l = String(level).toLowerCase();
+  if (/(emerg|alert|crit|fatal|error|err)/.test(l)) return { emo: '❌', color: 'var(--red)' };
+  if (/warn/.test(l))                                return { emo: '⚠️', color: 'var(--yellow, #d7a53f)' };
+  if (/notice|info/.test(l))                          return { emo: 'ℹ️', color: 'var(--cyan)' };
+  return { emo: '•', color: 'var(--text-secondary)' };
+}
+// Emoji por prefijo de acción de auditoría (login.*, website.*, docker.* …).
+const AUDIT_EMOJI = {
+  login: '🔓', logout: '🚪', password: '🔑', '2fa': '🔐', reset: '🆘',
+  recovery: '🆘', website: '🌐', app: '📦', database: '🗄️', docker: '🐳',
+  backup: '💾', cron: '⏰', mail: '📧', dns: '🌍', ssl: '🔐',
+  firewall: '🛡️', service: '⚙️', terminal: '💻', plugin: '🧩',
+  n8n: '🔗', catalog: '📚', notify: '🔔',
+};
+function auditEmoji(action) {
+  const head = String(action).split('.')[0];
+  if (action.endsWith('.fail') || action.endsWith('.locked')) return '🚫';
+  return AUDIT_EMOJI[head] || '•';
+}
+// Formatea "1234" a KB/MB si es grande. Devuelve "1.2 KB" o "—".
+function fmtSizeShort(n) {
+  const b = parseInt(n, 10);
+  if (!b || b === 0) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+// Extrae hora "HH:MM:SS" de un timestamp cualquiera, o devuelve el original.
+function shortTime(ts) {
+  const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : ts;
+}
+
+// Renderiza una línea a HTML "bonito". Devuelve el HTML o null si no reconoce.
+function prettyLine(raw) {
+  // Prefijo del feed unificado de Errores: "[nginx] real-line" | "[system] real-line"
+  let feedTag = '';
+  let line = raw;
+  const mFeed = raw.match(/^\[(nginx|system)\]\s+(.+)$/);
+  if (mFeed) {
+    feedTag = `<span class="badge ${mFeed[1] === 'nginx' ? 'badge-red' : 'badge-yellow'}" style="margin-right:6px">${mFeed[1]}</span>`;
+    line = mFeed[2];
+  }
+
+  // 1. Auditoría
+  let m = line.match(RE_AUDIT);
+  if (m) {
+    const [, when, user, ip, action, detail] = m;
+    const emo = auditEmoji(action);
+    const isFail = action.endsWith('.fail') || action.endsWith('.locked');
+    const color = isFail ? 'var(--red)' : 'var(--text-primary)';
+    return `${feedTag}${emo}  <span style="color:var(--text-muted)">${esc(shortTime(when))}</span>  `
+      + `<b>${esc(user)}</b><span style="color:var(--text-muted)">@${esc(ip)}</span>  `
+      + `<span style="color:${color}">${esc(action)}</span>`
+      + (detail ? `  <span style="color:var(--text-muted)">· ${esc(detail)}</span>` : '');
+  }
+
+  // 2. Nginx access (combined)
+  m = line.match(RE_ACCESS);
+  if (m) {
+    const [, ip, ts, method, path, status, bytes] = m;
+    const s = httpStyle(status);
+    return `${feedTag}${s.emo}  <span style="color:${s.color};font-weight:600">${status}</span>  `
+      + `<span style="color:var(--accent)">${esc(method)}</span> <span>${esc(path)}</span>  `
+      + `<span style="color:var(--text-muted)">${esc(ip)}</span>  `
+      + `<span style="color:var(--text-muted)">${esc(shortTime(ts))}</span>  `
+      + `<span style="color:var(--text-muted)">${fmtSizeShort(bytes)}</span>`;
+  }
+
+  // 3. Nginx error
+  m = line.match(RE_NERR);
+  if (m) {
+    const [, ts, level, msg] = m;
+    const s = levelStyle(level);
+    return `${feedTag}${s.emo}  <span style="color:var(--text-muted)">${esc(shortTime(ts))}</span>  `
+      + `<span style="color:${s.color};font-weight:600">[${esc(level)}]</span>  `
+      + `<span style="color:${s.color}">${esc(msg)}</span>`;
+  }
+
+  // 4. Syslog
+  m = line.match(RE_SYSLOG);
+  if (m) {
+    const [, ts, host, prog, msg] = m;
+    const s = levelStyle(msg);      // syslog no lleva nivel explícito; adivinamos por el texto
+    return `${feedTag}${s.emo}  <span style="color:var(--text-muted)">${esc(shortTime(ts))}</span>  `
+      + `<span style="color:var(--accent)">${esc(prog)}</span>  `
+      + `<span style="color:${s.color}">${esc(msg)}</span>`;
+  }
+  return null;
+}
+
+// logsRender: aplica filtros y pinta con "modo bonito" (parsers por tipo)
+// o cae a "modo crudo" con colores por palabra clave si el toggle está off
+// o si el parser no reconoce la línea. Auto-scroll SOLO si el usuario estaba
+// ya en el fondo (evita saltos molestos al leer historial en modo live).
 function logsRender() {
   const out = document.getElementById('log-output');
   if (!out) return;
   const wasAtBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
 
   const filter = (document.getElementById('logs-filter')?.value || '').toLowerCase();
-  // Filtros extra solo para auditoría.
   const isAudit = logsSrc.type === 'audit';
   const fUser = isAudit ? (document.getElementById('logs-audit-user')?.value || '').toLowerCase() : '';
   const fAction = isAudit ? (document.getElementById('logs-audit-action')?.value || '').toLowerCase() : '';
+  const pretty = document.getElementById('logs-pretty')?.checked !== false;   // por defecto ON
 
   const lines = logsRaw.split('\n').filter(l => {
     const lo = l.toLowerCase();
@@ -165,7 +284,13 @@ function logsRender() {
     if (fAction && !lo.includes(fAction)) return false;
     return true;
   });
+
   out.innerHTML = lines.map(l => {
+    if (pretty) {
+      const html = prettyLine(l);
+      if (html) return html;
+    }
+    // Fallback: modo crudo con colores por palabra clave (comportamiento antiguo).
     const e = esc(l);
     if (/error|crit|alert|emerg|denied|fail/i.test(l)) return `<span style="color:var(--red)">${e}</span>`;
     if (/warn/i.test(l)) return `<span style="color:var(--yellow, #d7a53f)">${e}</span>`;

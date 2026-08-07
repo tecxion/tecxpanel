@@ -25,6 +25,9 @@
       <option value="300" selected>300 líneas</option>
       <option value="1000">1000 líneas</option>
     </select>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap" title="Formato con emojis y colores por severidad">
+      <input type="checkbox" id="logs-pretty" checked onchange="logsRender()"> 🎨 Bonito
+    </label>
     <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap">
       <input type="checkbox" id="logs-live" onchange="logsLiveToggle()"> En vivo
       <span id="logs-live-dot" class="live-dot" style="display:none" title="Refrescando cada 4 s"></span>
