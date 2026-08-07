@@ -13,10 +13,11 @@
     <select id="logs-site-select" onchange="logsSelectSite()" style="min-width:150px">
       <option value="">Sitios web…</option>
     </select>
-    <select id="logs-site-kind" onchange="logsSelectSite(true)" style="display:none">
+    <select id="logs-site-kind" onchange="logsSelectSite()" style="display:none">
       <option value="access">access</option>
       <option value="error">error</option>
     </select>
+    <span id="logs-errors-badge" style="display:none;font-size:12px"></span>
     <span style="flex:1"></span>
     <input type="text" id="logs-filter" placeholder="Filtrar…" oninput="logsRender()" style="min-width:140px">
     <select id="logs-lines" onchange="logsFetch()">
@@ -26,9 +27,18 @@
     </select>
     <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap">
       <input type="checkbox" id="logs-live" onchange="logsLiveToggle()"> En vivo
+      <span id="logs-live-dot" class="live-dot" style="display:none" title="Refrescando cada 4 s"></span>
     </label>
     <button class="btn btn-sm" onclick="logsFetch()" title="Refrescar"><i class="ti ti-refresh"></i></button>
+    <button class="btn btn-sm" onclick="logsCopy()" title="Copiar"><i class="ti ti-copy"></i></button>
     <button class="btn btn-sm" onclick="logsDownload()" title="Descargar"><i class="ti ti-download"></i></button>
+  </div>
+  <!-- Filtro extra visible SOLO en pestaña Auditoría -->
+  <div id="logs-audit-filter-bar" style="display:none;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <input type="text" id="logs-audit-user" list="logs-audit-users" placeholder="Usuario…" oninput="logsRender()" style="min-width:140px">
+    <datalist id="logs-audit-users"></datalist>
+    <input type="text" id="logs-audit-action" list="logs-audit-actions" placeholder="Acción…" oninput="logsRender()" style="min-width:160px">
+    <datalist id="logs-audit-actions"></datalist>
   </div>
   <pre id="log-output" style="font-family:var(--mono);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto">Cargando…</pre>
 </div>
