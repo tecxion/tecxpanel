@@ -516,6 +516,23 @@ async function callFail2ban(path, body, successMsg) {
   return false;
 }
 
+// logsApplyDefaults: pide al backend que escriba jail.local con la config
+// recomendada. Confirma antes porque sobrescribe /etc/fail2ban/jail.local
+// (aunque el backend guarda backup automático).
+async function logsApplyDefaults() {
+  if (!confirm('Se sobrescribirá /etc/fail2ban/jail.local con la configuración recomendada (bantime incremental, ignoreip con tu IP pública, jails sshd + nginx activos). Se guarda backup automático. ¿Continuar?')) return;
+  const r = await req('POST', '/logs/fail2ban/apply-defaults');
+  if (r?.success) {
+    const bits = ['Aplicado ✓'];
+    if (r.publicIp) bits.push(`ignoreip incluye ${r.publicIp}`);
+    if (r.backupPath) bits.push(`backup: ${r.backupPath.split('/').pop()}`);
+    toast(bits.join(' · '), 'success');
+    logsFetch();
+  } else {
+    toast(r?.error || 'Error al aplicar defaults', 'error');
+  }
+}
+
 async function logsUnbanIp(jail, ip) {
   if (!confirm(`¿Desbanear ${ip} del jail ${jail}?`)) return;
   if (await callFail2ban('/logs/fail2ban/unban', { jail, ip }, `Desbaneada ${ip}`)) logsFetch();
@@ -584,5 +601,5 @@ Object.assign(window, {
   logsLiveStop, logsLiveToggle, logsRender, logsSelect, logsSelectApp,
   logsSelectSite, refreshLogsSources,
   renderSecurityPanel, renderFail2banPanel,
-  logsUnbanIp, logsBanManual, logsBanIp,
+  logsUnbanIp, logsBanManual, logsBanIp, logsApplyDefaults,
 });

@@ -69,6 +69,7 @@
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
     <div class="card-title">🚫 Fail2Ban</div>
     <span style="flex:1"></span>
+    <button class="btn btn-sm" onclick="logsApplyDefaults()" title="Escribe /etc/fail2ban/jail.local con la configuración recomendada por TecXPaneL (bantime incremental, ignoreip con localhost + IP pública, jails sshd/nginx activos). Se guarda backup del anterior."><i class="ti ti-wand"></i> Aplicar defaults</button>
     <button class="btn btn-sm" onclick="logsFetch()" title="Refrescar"><i class="ti ti-refresh"></i></button>
   </div>
   <div id="logs-f2b-body" style="color:var(--text-muted)">Cargando…</div>

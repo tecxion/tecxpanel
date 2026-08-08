@@ -234,6 +234,77 @@ router.post('/fail2ban/unban', wrap(async (req, res) => {
   ok(res, { success: true, output: (r.stdout || '').trim() });
 }));
 
+// POST /api/logs/fail2ban/apply-defaults — Escribe /etc/fail2ban/jail.local con
+// una config recomendada (bantime 1 h, incremental, ignoreip con localhost +
+// IP pública del servidor, jails sshd + nginx-http-auth + nginx-botsearch) y
+// recarga fail2ban. Si ya había un jail.local previo, se guarda a jail.local.bak-<ts>
+// antes de sobrescribir para poder revertir a mano.
+router.post('/fail2ban/apply-defaults', wrap(async (req, res) => {
+  if (!(await f2bInstalled())) {
+    return fail(res, 400, 'Fail2Ban no está instalado. Instálalo con: sudo apt install fail2ban');
+  }
+
+  // Detecta la IP pública para meterla en ignoreip. Fallback a hostname -I.
+  let publicIp = '';
+  const ipify = await runSafe('curl', ['-4', '-s', '--max-time', '3', 'https://api.ipify.org']);
+  if (ipify.ok && /^\d+\.\d+\.\d+\.\d+$/.test(ipify.stdout.trim())) publicIp = ipify.stdout.trim();
+  if (!publicIp) {
+    const host = await runSafe('hostname', ['-I']);
+    if (host.ok) publicIp = (host.stdout || '').trim().split(/\s+/).find(a => /^\d+\.\d+\.\d+\.\d+$/.test(a)) || '';
+  }
+
+  const conf = `# TecXPaneL — jail.local generado el ${new Date().toISOString()}
+# Regenerable desde Panel → Logs → Fail2Ban → "Aplicar defaults".
+# Los cambios manuales sobreviven al reload, pero se pisan si vuelves a
+# aplicar defaults (se guarda backup automático en jail.local.bak-<ts>).
+
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+# Baneos que reinciden aumentan progresivamente: 1h → 2h → 4h → 8h ...
+bantime.increment = true
+bantime.factor    = 2
+bantime.maxtime   = 1w
+# Localhost + IP pública del servidor para que TecXPaneL no se autobanee.
+ignoreip = 127.0.0.1/8 ::1${publicIp ? ' ' + publicIp : ''}
+
+[sshd]
+enabled = true
+
+[nginx-http-auth]
+enabled = true
+
+[nginx-botsearch]
+enabled = true
+`;
+
+  const target = '/etc/fail2ban/jail.local';
+  const fsp = require('fs').promises;
+
+  // Backup si existe uno previo, con timestamp para no pisarlo.
+  let backupPath = null;
+  try {
+    await fsp.access(target);
+    backupPath = `${target}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await fsp.copyFile(target, backupPath);
+  } catch (_) { /* no existía, no hay que respaldar */ }
+
+  try {
+    await fsp.writeFile(target, conf, { mode: 0o644 });
+  } catch (e) {
+    return fail(res, 500, `No se pudo escribir ${target}: ${e.message}. ¿El panel corre como root?`);
+  }
+
+  // Reload — mejor que restart (no pierde el estado de baneos actuales).
+  const reload = await runSafe('fail2ban-client', ['reload']);
+  audit(req.user.username, clientIp(req), 'fail2ban.apply-defaults', publicIp || '(sin ip publica)');
+  if (!reload.ok) {
+    return fail(res, 502, `jail.local escrito pero fail2ban-client rechazó el reload: ${(reload.stderr || reload.stdout || '').trim()}`);
+  }
+  ok(res, { success: true, publicIp, backupPath, target });
+}));
+
 // POST /api/logs/fail2ban/ban  { jail, ip } — banea manualmente una IP.
 router.post('/fail2ban/ban', wrap(async (req, res) => {
   const { jail, ip } = req.body || {};
