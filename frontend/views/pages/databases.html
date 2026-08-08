@@ -1,6 +1,12 @@
-<div class="flex items-center gap-3" style="margin-bottom:1.25rem">
+<div class="flex items-center gap-3" style="margin-bottom:1.25rem;flex-wrap:wrap">
   <button class="btn btn-primary" onclick="openModal('modal-new-db')">
     <i class="ti ti-plus"></i> Nueva base de datos
+  </button>
+  <button class="btn" onclick="diagnoseDb('mysql')" title="Comprobar acceso del panel a MySQL/MariaDB">
+    <i class="ti ti-stethoscope"></i> Diagnosticar MySQL
+  </button>
+  <button class="btn" onclick="diagnoseDb('postgres')" title="Comprobar acceso del panel a PostgreSQL">
+    <i class="ti ti-stethoscope"></i> Diagnosticar PostgreSQL
   </button>
 </div>
 <div class="card">

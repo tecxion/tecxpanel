@@ -49,13 +49,47 @@ async function toggleDbPass(id) {
     return;
   }
   const r = await req('GET', `/databases/${id}/password`);
-  if (r?.password) {
+  if (r?.success && r.password) {
     span.textContent = r.password;
     icon.className = 'ti ti-eye-off';
     dbPassShown[id] = true;
   } else {
-    toast('No se pudo obtener la contraseña', 'error');
+    toast(r?.error || 'No se pudo obtener la contraseña', 'error');
   }
+}
+
+// diagnoseDb: pregunta al backend qué método de acceso funciona para MySQL o
+// PostgreSQL y muestra el resultado con instrucciones concretas si falla.
+// Resuelve el clásico ERROR 1045 dando un mensaje accionable, no opaco.
+async function diagnoseDb(kind) {
+  const path = kind === 'mysql' ? '/databases/mysql/status' : '/databases/postgres/status';
+  const label = kind === 'mysql' ? 'MySQL/MariaDB' : 'PostgreSQL';
+  toast(`Comprobando acceso a ${label}...`, 'info');
+  const r = await req('GET', path);
+  if (!r) return;
+  const title = r.working ? `✅ ${label} operativo` : `❌ ${label} no accesible`;
+  const body = r.working
+    ? `Método: <code>${esc(r.method || '—')}</code><br>Versión: <code>${esc(r.version || '—')}</code>`
+    : `Método probado último: <code>${esc(r.method || '—')}</code><br>Error: <code>${esc(r.error || '—')}</code><br><br><strong>Cómo arreglarlo:</strong><br>${esc(r.hint || '')}`;
+  let mod = document.getElementById('db-diag-modal');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'db-diag-modal';
+    mod.className = 'modal-overlay';
+    document.body.appendChild(mod);
+  }
+  mod.innerHTML = `
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div class="modal-title">${title}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('db-diag-modal').classList.remove('open')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body" style="line-height:1.6">${body}</div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="document.getElementById('db-diag-modal').classList.remove('open')">Cerrar</button>
+      </div>
+    </div>`;
+  mod.classList.add('open');
 }
 
 // openTool: abre phpMyAdmin o Adminer en una pestaña nueva (IP:puerto).
@@ -109,4 +143,5 @@ async function setupPma() {
 
 Object.assign(window, {
   createDatabase, deleteDatabase, loadDatabases, openTool, setupPma, toggleDbPass,
+  diagnoseDb,
 });

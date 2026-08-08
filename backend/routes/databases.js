@@ -3,6 +3,7 @@
 const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
+const { runInput } = require('../lib/common/run');
 const { RE_APP_NAME, RE_DB_USER } = require('../lib/validators');
 const { encryptSecret, decryptSecret, genPassword } = require('../lib/crypto');
 const nginx = require('../lib/nginx');
@@ -10,26 +11,46 @@ const { queries, audit } = require('../database');
 
 const router = express.Router();
 
-// Ejecuta SQL en MySQL/MariaDB probando varios métodos de autenticación:
-// 1) root por socket (proceso root), 2) sudo (auth_socket), 3) debian-sys-maint,
-// 4) contraseña root desde .env (MYSQL_ROOT_PASSWORD).
+// Ejecuta SQL en MySQL/MariaDB probando varios métodos de autenticación.
+// SEGURIDAD: el SQL viaja por STDIN (no como -e "...") y la password root va
+// por env (MYSQL_PWD), nunca en argv — así no aparece en `ps aux`.
+// Métodos: 1) socket root · 2) sudo auth_socket · 3) /etc/mysql/debian.cnf
+// · 4) MYSQL_ROOT_PASSWORD del .env. Devuelve además `.method` para diagnóstico.
 async function mysqlExec(sql) {
-  let last = await runSafe('mysql', ['-e', sql]);
-  if (last.ok) return last;
-
-  const sudo = await runSafe('sudo', ['-n', 'mysql', '-e', sql]);
-  if (sudo.ok) return sudo; last = sudo;
-
+  const attempts = [
+    { method: 'root-socket', cmd: 'mysql', args: [], env: {} },
+    { method: 'sudo-socket', cmd: 'sudo',  args: ['-n', 'mysql'], env: {} },
+  ];
   if (fs.existsSync('/etc/mysql/debian.cnf')) {
-    const deb = await runSafe('sudo', ['-n', 'mysql', '--defaults-file=/etc/mysql/debian.cnf', '-e', sql]);
-    if (deb.ok) return deb; last = deb;
+    attempts.push({ method: 'debian-maint', cmd: 'sudo', args: ['-n', 'mysql', '--defaults-file=/etc/mysql/debian.cnf'], env: {} });
+  }
+  if (process.env.MYSQL_ROOT_PASSWORD) {
+    attempts.push({ method: 'env-password', cmd: 'mysql', args: ['-u', 'root'], env: { MYSQL_PWD: process.env.MYSQL_ROOT_PASSWORD } });
   }
 
-  if (process.env.MYSQL_ROOT_PASSWORD) {
-    const pw = await runSafe('mysql', ['-u', 'root', `-p${process.env.MYSQL_ROOT_PASSWORD}`, '-e', sql]);
-    if (pw.ok) return pw; last = pw;
+  let last = null;
+  for (const a of attempts) {
+    const env = { PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', ...a.env };
+    const r = await runInput(a.cmd, a.args, sql, { env, timeout: 60_000 });
+    if (r.ok) { r.method = a.method; return r; }
+    last = { ...r, method: a.method };
   }
-  return last;
+  return last || { ok: false, stdout: '', stderr: 'sin métodos de acceso disponibles', method: 'none' };
+}
+
+// Ejecuta SQL en PostgreSQL como usuario 'postgres' con SQL por stdin.
+// Usa sudo -u postgres (peer auth) — no requiere PGPASSWORD.
+async function pgExec(sql) {
+  const env = { PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' };
+  return runInput('sudo', ['-n', '-u', 'postgres', 'psql', '-v', 'ON_ERROR_STOP=1'], sql, { env, timeout: 60_000 });
+}
+
+// Duplica la comilla simple (defensa en profundidad: el validador ya rechaza ').
+function sqlLit(s) { return String(s).replace(/'/g, "''"); }
+
+// Password aceptada: 8..128 imprimibles, sin comillas/backticks/;/\ ni control.
+function isSafePassword(p) {
+  return typeof p === 'string' && p.length >= 8 && p.length <= 128 && /^[!-~]+$/.test(p) && !/['"`;\\]/.test(p);
 }
 
 router.get('/', (req, res) => {
@@ -45,46 +66,68 @@ router.post('/', wrap(async (req, res) => {
   if (!['mysql', 'postgresql'].includes(type)) return fail(res, 400, 'Tipo inválido');
   if (queries.getDatabaseByName.get(name)) return fail(res, 409, 'Ya existe');
 
-  // Usuario: el que indique el usuario, o uno automático
   const dbUser = (user && user.trim()) ? user.trim() : `txpl_${name}`;
   if (!RE_DB_USER.test(dbUser)) return fail(res, 400, 'Usuario inválido (solo letras, números y _, máx 32)');
 
-  // Contraseña: la que indique el usuario, o una generada. Sin caracteres que rompan el SQL.
   let dbPass;
   if (password && String(password).length) {
-    if (!/^[^'"\\]{4,128}$/.test(String(password))) return fail(res, 400, 'Contraseña inválida (mín 4 caracteres, sin comillas ni \\)');
+    if (!isSafePassword(String(password))) return fail(res, 400, 'Contraseña inválida (8-128 caracteres imprimibles, sin comillas, backticks, ;, \\)');
     dbPass = String(password);
   } else {
-    dbPass = genPassword();
+    dbPass = genPassword(24);
   }
+  const pw = sqlLit(dbPass);
 
   if (type === 'mysql') {
-    const cmds = [
+    // Un solo batch por stdin — más rápido y con detección clara de errores.
+    const sql = [
       `CREATE DATABASE IF NOT EXISTS \`${name}\`;`,
-      `CREATE USER IF NOT EXISTS '${dbUser}'@'localhost' IDENTIFIED BY '${dbPass}';`,
-      // ALTER garantiza que la contraseña coincida aunque el usuario ya existiera
-      `ALTER USER '${dbUser}'@'localhost' IDENTIFIED BY '${dbPass}';`,
+      `CREATE USER IF NOT EXISTS '${dbUser}'@'localhost' IDENTIFIED BY '${pw}';`,
+      `ALTER USER '${dbUser}'@'localhost' IDENTIFIED BY '${pw}';`,
       `GRANT ALL PRIVILEGES ON \`${name}\`.* TO '${dbUser}'@'localhost';`,
       'FLUSH PRIVILEGES;',
-    ];
-    for (const sql of cmds) {
-      const r = await mysqlExec(sql);
-      if (!r.ok) {
-        const detail = (r.stderr || '').split('\n').find((l) => /error|denied|not found|command/i.test(l)) || (r.stderr || '').split('\n')[0] || 'fallo desconocido';
-        return fail(res, 500, 'Error MySQL: ' + detail + ' — verifica que MySQL/MariaDB esté instalado y que el panel pueda acceder (auth_socket o MYSQL_ROOT_PASSWORD en .env).');
-      }
+    ].join('\n');
+    const r = await mysqlExec(sql);
+    if (!r.ok) {
+      const detail = (r.stderr || '').split('\n').find((l) => /error|denied|not found|command/i.test(l)) || (r.stderr || '').split('\n')[0] || 'fallo desconocido';
+      return fail(res, 500, `Error MySQL [${r.method || 'sin-metodo'}]: ${detail} — usa GET /api/databases/mysql/status para diagnosticar (auth_socket, sudo o MYSQL_ROOT_PASSWORD en .env).`);
     }
   } else {
-    let r = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `CREATE USER ${dbUser} WITH PASSWORD '${dbPass}';`]);
-    if (!r.ok && !r.stderr.includes('already exists')) return fail(res, 500, 'Error PG: ' + r.stderr.split('\n')[0]);
-    r = await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `CREATE DATABASE ${name} OWNER ${dbUser};`]);
-    if (!r.ok && !r.stderr.includes('already exists')) return fail(res, 500, 'Error PG: ' + r.stderr.split('\n')[0]);
+    // PostgreSQL: identificadores entrecomillados y contraseña por stdin.
+    const sql = `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${dbUser}') THEN CREATE ROLE "${dbUser}" LOGIN PASSWORD '${pw}'; ELSE ALTER ROLE "${dbUser}" WITH PASSWORD '${pw}'; END IF; END $$;\n` +
+                `SELECT 'CREATE DATABASE "${name}" OWNER "${dbUser}"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${name}') \\gexec\n`;
+    const r = await pgExec(sql);
+    if (!r.ok) return fail(res, 500, 'Error PostgreSQL: ' + (r.stderr.split('\n')[0] || 'fallo desconocido'));
   }
 
   const enc = encryptSecret(dbPass);
   queries.insertDatabase.run({ name, type, db_user: dbUser, db_password: enc, status: 'active' });
   audit(req.user.username, clientIp(req), 'db.create', name);
   ok(res, { success: true, user: dbUser, password: dbPass });
+}));
+
+// GET /api/databases/mysql/status — Diagnóstico: qué método de acceso funciona
+// y por qué fallan los otros. Útil para depurar el clásico ERROR 1045.
+router.get('/mysql/status', wrap(async (req, res) => {
+  const r = await mysqlExec('SELECT VERSION() AS version;');
+  if (r.ok) {
+    const version = (r.stdout.split('\n').find((l) => l && !/version/i.test(l)) || '').trim();
+    return ok(res, { success: true, working: true, method: r.method, version, hint: null });
+  }
+  const hasEnvPw = !!process.env.MYSQL_ROOT_PASSWORD;
+  const hasDebianCnf = fs.existsSync('/etc/mysql/debian.cnf');
+  let hint = 'MySQL/MariaDB no accesible desde el panel. ';
+  if (!hasEnvPw && !hasDebianCnf) hint += 'Añade MYSQL_ROOT_PASSWORD a tu .env o instala/repara MariaDB (auth_socket para root).';
+  else if (hasEnvPw) hint += 'MYSQL_ROOT_PASSWORD está en .env pero no autentica — verifica la contraseña real de root.';
+  else hint += 'Existe /etc/mysql/debian.cnf pero sudo -n falla — el usuario del panel necesita permiso sudo sin contraseña para mysql.';
+  ok(res, { success: true, working: false, method: r.method, error: (r.stderr || '').split('\n')[0], hint, hasEnvPw, hasDebianCnf });
+}));
+
+// GET /api/databases/postgres/status — Igual pero para PostgreSQL.
+router.get('/postgres/status', wrap(async (req, res) => {
+  const r = await pgExec('SELECT version();');
+  if (r.ok) return ok(res, { success: true, working: true, version: r.stdout.split('\n')[2]?.trim() || null });
+  ok(res, { success: true, working: false, error: (r.stderr || '').split('\n')[0], hint: 'PostgreSQL no accesible. Instala postgresql y verifica que el usuario del panel tenga "sudo -n -u postgres psql" permitido.' });
 }));
 
 // ── phpMyAdmin: servirlo por nginx en un puerto dedicado ──────
@@ -149,11 +192,9 @@ router.delete('/:id', wrap(async (req, res) => {
   if (!db) return fail(res, 404, 'DB no encontrada');
 
   if (db.type === 'mysql') {
-    await mysqlExec(`DROP DATABASE IF EXISTS \`${db.name}\`;`);
-    await mysqlExec(`DROP USER IF EXISTS '${db.db_user}'@'localhost';`);
+    await mysqlExec(`DROP DATABASE IF EXISTS \`${db.name}\`;\nDROP USER IF EXISTS '${db.db_user}'@'localhost';`);
   } else {
-    await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP DATABASE IF EXISTS ${db.name};`]);
-    await runSafe('sudo', ['-u', 'postgres', 'psql', '-c', `DROP USER IF EXISTS ${db.db_user};`]);
+    await pgExec(`DROP DATABASE IF EXISTS "${db.name}";\nDROP ROLE IF EXISTS "${db.db_user}";`);
   }
   queries.deleteDatabase.run(db.id);
   audit(req.user.username, clientIp(req), 'db.delete', db.name);
@@ -163,10 +204,11 @@ router.delete('/:id', wrap(async (req, res) => {
 router.get('/:id/password', (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);
   if (!db) return fail(res, 404, 'DB no encontrada');
-  try {
-    const pass = decryptSecret(db.db_password);
-    ok(res, { password: pass });
-  } catch (_) { fail(res, 500, 'No se pudo descifrar la contraseña'); }
+  // decryptSecret devuelve el sentinel "(no descifrable)" si la clave cambió
+  // — no lanza. Chequeamos explícitamente para dar un error real al frontend.
+  const pass = decryptSecret(db.db_password);
+  if (pass === '(no descifrable)') return fail(res, 500, 'No se pudo descifrar la contraseña (JWT_SECRET/TXPL_SECRET_KEY cambió tras crearla). Usa "Cambiar contraseña" para regenerarla.');
+  ok(res, { success: true, password: pass });
 });
 
 module.exports = router;
