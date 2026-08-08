@@ -38,18 +38,14 @@
           <option value="7.4">PHP 7.4</option>
         </select>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label><input type="checkbox" id="site-php"> Habilitar PHP</label>
-        </div>
-        <div class="form-group" id="site-ssl-group">
-          <label><input type="checkbox" id="site-ssl"> SSL autom&aacute;tico</label>
-        </div>
+      <div class="form-group" id="site-ssl-group">
+        <label><input type="checkbox" id="site-ssl"> SSL autom&aacute;tico (Let's Encrypt)</label>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Requiere que el dominio ya apunte a este servidor.</div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-new-site')"><i class="ti ti-x"></i> Cancelar</button>
-      <button class="btn btn-primary" onclick="createWebsite()"><i class="ti ti-plus"></i> Crear sitio</button>
+      <button class="btn btn-primary" onclick="createWebsite(event)"><i class="ti ti-plus"></i> Crear sitio</button>
     </div>
   </div>
 </div>

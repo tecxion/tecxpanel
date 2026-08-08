@@ -40,11 +40,17 @@ router.get('/', (req, res) => {
   ok(res, rows);
 });
 
+// Validador de versión de PHP-FPM: "X.Y" (ej. "8.3"). SEGURIDAD: sin esto,
+// un phpVersion malicioso ("../../etc/passwd") acababa interpolado dentro
+// del vhost como fastcgi_pass unix:/run/php/php../../etc/passwd-fpm.sock.
+const RE_PHP_VER = /^\d+\.\d+$/;
+
 // POST /api/websites — Crea un sitio web nuevo.
 // Admite dos modos: por dominio (ejemplo.com) o por IP:puerto (sin dominio).
 router.post('/', wrap(async (req, res) => {
-  const { domain, type = 'html', php = false, ssl = false, usePort = false, phpVersion } = req.body || {};
+  const { domain, type = 'html', ssl = false, usePort = false, phpVersion } = req.body || {};
   if (!ALLOWED_SITE_TYPES.includes(type)) return fail(res, 400, 'Tipo de sitio inválido');
+  if (phpVersion && !RE_PHP_VER.test(String(phpVersion))) return fail(res, 400, 'Versión de PHP inválida (formato esperado X.Y, ej. 8.3)');
 
   let siteDomain, listenPort = null;
   if (usePort) {
@@ -82,7 +88,9 @@ router.post('/', wrap(async (req, res) => {
   if (listenPort) await runSafe('ufw', ['allow', `${listenPort}/tcp`]);
 
   // Guardamos el sitio en la BD y registramos la acción en la auditoría.
-  const info = queries.insertWebsite.run({ domain: siteDomain, type, php: php ? 1 : 0, ssl: 0, status: 'active', listen_port: listenPort, php_version: phpVersion || null });
+  // php:0 fijo. El flag no lo usa nadie (el vhost se decide por `type='php'`).
+  // Se mantiene la columna para no romper el esquema, pero no se expone en la UI.
+  const info = queries.insertWebsite.run({ domain: siteDomain, type, php: 0, ssl: 0, status: 'active', listen_port: listenPort, php_version: phpVersion || null });
   audit(req.user.username, clientIp(req), 'website.create', siteDomain);
   // Si se pidió HTTPS (y hay dominio), intentamos instalarlo sin bloquear la respuesta.
   if (ssl && !usePort) await nginx.installSsl(siteDomain).catch(() => {});
@@ -99,6 +107,18 @@ router.delete('/:id', wrap(async (req, res) => {
   queries.deleteWebsite.run(site.id);
   audit(req.user.username, clientIp(req), 'website.delete', site.domain);
   ok(res);
+}));
+
+// GET /api/websites/:id/vhost — Devuelve el contenido del fichero de vhost
+// (para debugging). Solo lee ficheros dentro de NGINX_AVAILABLE con el
+// nombre = domain del sitio; sin poder pedir rutas arbitrarias.
+router.get('/:id/vhost', wrap(async (req, res) => {
+  const site = queries.getWebsite.get(+req.params.id);
+  if (!site) return fail(res, 404, 'Sitio no encontrado');
+  const confPath = path.join(nginx.NGINX_AVAILABLE, site.domain);
+  if (!fs.existsSync(confPath)) return fail(res, 404, 'Este sitio no tiene fichero de vhost en Nginx.');
+  const content = fs.readFileSync(confPath, 'utf8');
+  ok(res, { success: true, path: confPath, content });
 }));
 
 // POST /api/websites/:id/rebuild-vhost — Regenera el vhost sin borrar los
