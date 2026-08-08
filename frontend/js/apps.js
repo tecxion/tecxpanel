@@ -1,35 +1,190 @@
 // TecXPaneL — apps (deploy Node/Python/React/TS, PM2, consola, git/webhook)
-// ── Apps ──────────────────────────────────────────────────────
+
+// Etiquetas humanas por tipo — mismo patrón que websites.js.
+const APP_TYPE_LABELS = {
+  nodejs:     { text: 'Node.js',    icon: '🟢', badge: 'badge-green' },
+  typescript: { text: 'TypeScript', icon: '🔷', badge: 'badge-blue' },
+  react:      { text: 'React',      icon: '⚛️', badge: 'badge-blue' },
+  python:     { text: 'Python',     icon: '🐍', badge: 'badge-yellow' },
+};
+
+// appAccessUrl: URL principal (dominio o IP:puerto). Reutiliza window.serverIp.
+function appAccessUrl(a) {
+  if (a.domain) return `http://${a.domain}`;
+  if (a.port) return `http://${window.serverIp || location.hostname}:${a.port}`;
+  return '';
+}
+
 // loadApps: lista las aplicaciones desplegadas (PM2) con su estado y acciones.
 async function loadApps() {
+  if (!window.serverIp) {
+    const ipData = await req('GET', '/system/ip').catch(() => null);
+    if (ipData?.ip && ipData.ip !== 'desconocida') window.serverIp = ipData.ip;
+  }
   const data = await req('GET', '/apps');
   if (!data) return;
   const tb = document.getElementById('apps-table');
   if (!data.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('brand-nodejs', 'Sin aplicaciones aún', 'Desplegar aplicación', "resetDeployModal();openModal('modal-new-app')") + '</td></tr>'; return; }
 
-  const typeColors = { nodejs:'badge-green', typescript:'badge-blue', react:'badge-blue', python:'badge-yellow' };
-  tb.innerHTML = data.map(a => `
+  tb.innerHTML = data.map(a => {
+    const info = APP_TYPE_LABELS[a.type] || { text: a.type, icon: '•', badge: 'badge-purple' };
+    const url = appAccessUrl(a);
+    const restartWarn = a.restarts > 5 ? `<span class="badge badge-amber" title="Reinicios acumulados PM2" style="margin-left:4px">↻${a.restarts}</span>` : '';
+    const aJson = esc(JSON.stringify(a));
+    return `
     <tr>
-      <td style="font-weight:600">${esc(a.name)}</td>
-      <td><span class="badge ${typeColors[a.type]||'badge-purple'}">${esc(a.type)}</span></td>
+      <td>
+        <div style="font-weight:600">${esc(a.name)}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);margin-top:4px" title="Ruta física">${esc(a.path || '—')}</div>
+      </td>
+      <td><span class="badge ${info.badge}">${info.icon} ${info.text}</span></td>
       <td style="font-family:var(--mono);color:var(--cyan)">${esc(a.port || '—')}</td>
-      <td><span class="badge ${a.status==='running'?'badge-green':'badge-red'}">${esc(a.status)}</span></td>
+      <td>
+        <span class="badge ${a.status==='running'?'badge-green':a.status==='unknown'?'badge-yellow':'badge-red'}">${esc(a.status)}</span>${restartWarn}
+      </td>
       <td>${a.domain ? `<span class="domain-pill">${esc(a.domain)}</span>` : '—'}</td>
       <td>
-        <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          ${url ? `<button class="btn btn-sm" onclick="window.open('${url}','_blank')" title="Abrir"><i class="ti ti-external-link"></i></button>
+                   <button class="btn btn-sm" onclick="copyText('${url}').then(()=>toast('URL copiada','success'))" title="Copiar URL"><i class="ti ti-copy"></i></button>` : ''}
           ${a.status==='running'
-            ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop')" title="Parar"><i class="ti ti-player-stop"></i> Parar</button>
-               <button class="btn btn-sm" onclick="appAction(${a.id},'restart')" title="Reiniciar"><i class="ti ti-refresh"></i> Reiniciar</button>`
-            : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start')" title="Iniciar"><i class="ti ti-player-play"></i> Iniciar</button>`}
-          <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}')" title="Instalar dependencias"><i class="ti ti-package"></i> Instalar</button>
-          <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola en la carpeta"><i class="ti ti-terminal-2"></i> Consola</button>
-          ${a.git_repo ? `<button class="btn btn-sm" onclick="openGitInfoModal(${a.id},'${esc(a.name)}','${esc(a.git_repo)}','${esc(a.git_branch)}','${esc(a.webhook_secret)}')" title="Git / Webhook"><i class="ti ti-git-fork"></i> Git</button>` : ''}
-          <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${a.name}')" title="Logs"><i class="ti ti-file-text"></i> Logs</button>
-          <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete')" title="Eliminar"><i class="ti ti-trash"></i> Eliminar</button>
+            ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop',event)" title="Parar"><i class="ti ti-player-stop"></i></button>
+               <button class="btn btn-sm" onclick="appAction(${a.id},'restart',event)" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
+            : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start',event)" title="Iniciar"><i class="ti ti-player-play"></i></button>`}
+          <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}',event)" title="Instalar dependencias"><i class="ti ti-package"></i></button>
+          <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola"><i class="ti ti-terminal-2"></i></button>
+          <button class="btn btn-sm" onclick='openEditAppModal(${aJson})' title="Editar configuración"><i class="ti ti-settings"></i></button>
+          <button class="btn btn-sm" onclick="openEnvEditor(${a.id},'${esc(a.name)}')" title="Editar .env"><i class="ti ti-file-code-2"></i></button>
+          ${a.domain ? `<button class="btn btn-sm" onclick="rebuildAppProxy(${a.id},event)" title="Regenerar proxy Nginx"><i class="ti ti-refresh-dot"></i></button>` : ''}
+          ${a.git_repo ? `<button class="btn btn-sm" onclick="openGitInfoModal(${a.id},'${esc(a.name)}','${esc(a.git_repo)}','${esc(a.git_branch)}','${esc(a.webhook_secret)}')" title="Git / Webhook"><i class="ti ti-git-fork"></i></button>` : ''}
+          <button class="btn btn-sm" onclick="viewAppLogs(${a.id},'${esc(a.name)}')" title="Logs"><i class="ti ti-file-text"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'delete',event)" title="Eliminar"><i class="ti ti-trash"></i></button>
         </div>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
+}
+
+// rebuildAppProxy: regenera el vhost nginx sin borrar la app.
+async function rebuildAppProxy(id, evt) {
+  if (!confirm('¿Regenerar la configuración Nginx del proxy? No afecta a los archivos ni al SSL.')) return;
+  const btn = evt?.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    const r = await req('POST', `/apps/${id}/rebuild-proxy`);
+    toast(r?.success ? 'Proxy regenerado' : (r?.error || 'Error'), r?.success ? 'success' : 'error');
+    if (r?.success) loadApps();
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+// openEditAppModal: modal para editar comando/puerto/dominio/modo de una app.
+function openEditAppModal(a) {
+  let mod = document.getElementById('app-edit-modal');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'app-edit-modal';
+    mod.className = 'modal-overlay';
+    document.body.appendChild(mod);
+  }
+  const isWorker = !a.port && !a.domain;
+  mod.innerHTML = `
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div class="modal-title">⚙ Editar ${esc(a.name)}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('app-edit-modal').classList.remove('open')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Comando de arranque</label>
+          <input type="text" id="edit-app-cmd" value="${esc(a.start_cmd || '')}" placeholder="npm start / node index.js / gunicorn app:app">
+        </div>
+        <div class="form-group">
+          <label>Modo</label>
+          <select id="edit-app-mode">
+            <option value="web"${!isWorker?' selected':''}>Web (puerto + proxy)</option>
+            <option value="worker"${isWorker?' selected':''}>Worker / Bot (sin puerto)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Puerto</label><input type="number" id="edit-app-port" value="${a.port||''}" placeholder="3000"></div>
+          <div class="form-group"><label>Dominio</label><input type="text" id="edit-app-domain" value="${esc(a.domain||'')}" placeholder="api.ejemplo.com"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">Reinicia la app tras guardar para aplicar los cambios.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="document.getElementById('app-edit-modal').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveAppEdit(${a.id},event)"><i class="ti ti-device-floppy"></i> Guardar</button>
+      </div>
+    </div>`;
+  mod.classList.add('open');
+}
+
+async function saveAppEdit(id, evt) {
+  const btn = evt?.currentTarget;
+  const body = {
+    start_cmd: document.getElementById('edit-app-cmd').value.trim(),
+    mode: document.getElementById('edit-app-mode').value,
+    port: document.getElementById('edit-app-port').value.trim(),
+    domain: document.getElementById('edit-app-domain').value.trim(),
+  };
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  try {
+    const r = await req('POST', `/apps/${id}/config`, body);
+    if (r?.success) {
+      toast('Configuración guardada — reinicia la app para aplicar', 'success');
+      document.getElementById('app-edit-modal').classList.remove('open');
+      loadApps();
+    } else toast(r?.error || 'Error', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+// openEnvEditor: modal para leer/editar el .env de la app (guardado 600).
+async function openEnvEditor(id, name) {
+  const r = await req('GET', `/apps/${id}/env`);
+  if (!r?.success) { toast(r?.error || 'No se pudo leer el .env', 'error'); return; }
+  let mod = document.getElementById('app-env-modal');
+  if (!mod) {
+    mod = document.createElement('div');
+    mod.id = 'app-env-modal';
+    mod.className = 'modal-overlay';
+    document.body.appendChild(mod);
+  }
+  mod.innerHTML = `
+    <div class="modal" style="max-width:680px">
+      <div class="modal-header">
+        <div class="modal-title">🔐 .env de ${esc(name)}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('app-env-modal').classList.remove('open')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;font-family:var(--mono)">${esc(r.path)}${r.exists ? '' : ' <span style="color:var(--amber)">(no existe, se creará al guardar)</span>'}</div>
+        <textarea id="app-env-content" style="width:100%;height:340px;font-family:var(--mono);font-size:12px;padding:10px;background:var(--bg-app);border:1px solid var(--border);border-radius:var(--radius-sm);resize:vertical" spellcheck="false">${esc(r.content || '')}</textarea>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Se guarda con permisos <code>600</code>. Reinicia la app para que los cambios surtan efecto.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="document.getElementById('app-env-modal').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveEnvEditor(${id},event)"><i class="ti ti-device-floppy"></i> Guardar</button>
+      </div>
+    </div>`;
+  mod.classList.add('open');
+}
+
+async function saveEnvEditor(id, evt) {
+  const btn = evt?.currentTarget;
+  const content = document.getElementById('app-env-content').value;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  try {
+    const r = await req('PUT', `/apps/${id}/env`, { content });
+    if (r?.success) {
+      toast(`Guardado (${r.bytes} bytes)`, 'success');
+      document.getElementById('app-env-modal').classList.remove('open');
+    } else toast(r?.error || 'Error al guardar', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
 }
 
 // updateAppPathPreview: muestra una vista previa de la ruta donde se creará la app.
@@ -290,18 +445,24 @@ function resetDeployModal() {
 }
 
 // appAction: ejecuta una acción sobre una app (start/stop/restart/delete).
-async function appAction(id, action) {
+async function appAction(id, action, evt) {
   if (action === 'delete' && !confirm('⚠ Se eliminará la aplicación Y TODOS sus archivos de forma permanente (carpeta, código, proxy y puerto). Esta acción no se puede deshacer.\n\n¿Continuar?')) return;
+  const btn = evt?.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
   const labels = { start: 'iniciada', stop: 'detenida', restart: 'reiniciada', delete: 'eliminada' };
-  const r = await req('POST', `/apps/${id}/${action}`);
-  if (r?.success) { toast(`App ${labels[action] || action}`, 'success'); loadApps(); }
-  else toast(r?.error || 'Error', 'error');
+  try {
+    const r = await req('POST', `/apps/${id}/${action}`);
+    if (r?.success) { toast(`App ${labels[action] || action}`, 'success'); loadApps(); }
+    else toast(r?.error || 'Error', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
 }
 
 // viewAppLogs: abre la página de Logs con esa app seleccionada como fuente.
 async function viewAppLogs(id, name) {
   logsSrc = { type: 'app', id: String(id) };
-  navigate(document.querySelector('[data-page=logs]'));
+  navigate('logs');
   const sel = document.getElementById('logs-app-select');
   if (sel) sel.value = String(id);
 }
@@ -319,12 +480,19 @@ function openAppConsole(id, name) {
   setTimeout(() => document.getElementById('console-cmd').focus(), 100);
 }
 
+// Historial de la consola (compartido entre apps para simplificar).
+const CONSOLE_HISTORY = [];
+let consoleHistIdx = -1;
+
 // runAppCommand: envía el comando escrito en la consola de la app y muestra su salida.
 async function runAppCommand() {
   if (!consoleAppId) return;
   const input = document.getElementById('console-cmd');
   const command = input.value.trim();
   if (!command) return;
+  // Guardar en historial (sin duplicar el último igual).
+  if (CONSOLE_HISTORY[CONSOLE_HISTORY.length - 1] !== command) CONSOLE_HISTORY.push(command);
+  consoleHistIdx = CONSOLE_HISTORY.length;
   const out = document.getElementById('console-output');
   out.textContent += `\n$ ${command}\n`;
   out.scrollTop = out.scrollHeight;
@@ -342,25 +510,44 @@ async function runAppCommand() {
   input.focus();
 }
 
-// consoleKeydown: ejecuta el comando al pulsar Enter en la consola de la app.
+// consoleKeydown: Enter ejecuta; ↑↓ navega por el historial (estilo bash).
 function consoleKeydown(e) {
-  if (e.key === 'Enter') { e.preventDefault(); runAppCommand(); }
+  const input = e.currentTarget || document.getElementById('console-cmd');
+  if (e.key === 'Enter') { e.preventDefault(); runAppCommand(); return; }
+  if (e.key === 'ArrowUp') {
+    if (!CONSOLE_HISTORY.length) return;
+    e.preventDefault();
+    consoleHistIdx = Math.max(0, consoleHistIdx - 1);
+    input.value = CONSOLE_HISTORY[consoleHistIdx] || '';
+    setTimeout(() => input.setSelectionRange(input.value.length, input.value.length), 0);
+  } else if (e.key === 'ArrowDown') {
+    if (!CONSOLE_HISTORY.length) return;
+    e.preventDefault();
+    consoleHistIdx = Math.min(CONSOLE_HISTORY.length, consoleHistIdx + 1);
+    input.value = CONSOLE_HISTORY[consoleHistIdx] || '';
+  }
 }
 
 // installApp: instala las dependencias de una app ya creada (botón 📦).
-async function installApp(id, name) {
+async function installApp(id, name, evt) {
+  const btn = evt?.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
   toast(`Instalando dependencias de "${name}"...`, 'info');
-  const r = await req('POST', `/apps/${id}/install`);
-  if (r?.success) {
-    consoleAppId = id;
-    document.getElementById('console-app-name').textContent = name;
-    document.getElementById('console-output').textContent = `$ ${r.command || 'install'}\n${r.output || ''}\n`;
-    document.getElementById('console-cmd').value = '';
-    openModal('modal-app-console');
-    document.getElementById('console-output').scrollTop = document.getElementById('console-output').scrollHeight;
-    toast(r.ok ? 'Dependencias instaladas' : 'Instalación terminó con errores (revisa la consola)', r.ok ? 'success' : 'error');
-  } else {
-    toast(r?.error || 'Error al instalar', 'error');
+  try {
+    const r = await req('POST', `/apps/${id}/install`);
+    if (r?.success) {
+      consoleAppId = id;
+      document.getElementById('console-app-name').textContent = name;
+      document.getElementById('console-output').textContent = `$ ${r.command || 'install'}\n${r.output || ''}\n`;
+      document.getElementById('console-cmd').value = '';
+      openModal('modal-app-console');
+      document.getElementById('console-output').scrollTop = document.getElementById('console-output').scrollHeight;
+      toast(r.ok ? 'Dependencias instaladas' : 'Instalación terminó con errores (revisa la consola)', r.ok ? 'success' : 'error');
+    } else {
+      toast(r?.error || 'Error al instalar', 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
   }
 }
 
@@ -418,4 +605,6 @@ Object.assign(window, {
   deployLog, installApp, loadApps, openAppConsole, openGitInfoModal, renderDeploySteps,
   resetDeployModal, runAppCommand, setupDeployDrops, startDeploy, switchDeployTab,
   triggerGitPull, updateAppPathPreview, viewAppLogs,
+  // v2
+  openEditAppModal, saveAppEdit, openEnvEditor, saveEnvEditor, rebuildAppProxy, appAccessUrl,
 });

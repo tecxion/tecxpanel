@@ -46,9 +46,29 @@ const isPort = (v) => Number.isInteger(v) && v > 0 && v <= 65535;
 // ¿Es una cadena que cumple el patrón de dominio?
 const isValidDomain = (d) => typeof d === 'string' && RE_DOMAIN.test(d);
 
+// URL de repo Git aceptada: https://…, http://…, git://… o SSH (git@host:x/y.git).
+// SEGURIDAD: rechazamos prefijo "-" (para que git no lo trate como flag tipo
+// --upload-pack) y no admitimos rutas locales (clonar /etc, /root...).
+const RE_GIT_URL = /^(?:https?:\/\/|git:\/\/|git@[A-Za-z0-9.-]+:)[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$/;
+const isValidGitUrl = (u) => typeof u === 'string' && u.length <= 512 && !u.startsWith('-') && RE_GIT_URL.test(u);
+
+// Rama Git: caracteres seguros y sin empezar por "-" (mismo motivo).
+const RE_GIT_BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
+const isValidGitBranch = (b) => typeof b === 'string' && !b.startsWith('-') && RE_GIT_BRANCH.test(b);
+
+// Rutas base permitidas para crear apps. Cualquier basePath del usuario debe
+// resolver dentro de una de estas raíces (evita apps en /etc, /root, /usr...).
+const APP_BASE_ROOTS = ['/var/www', '/srv', '/home', '/opt/apps'];
+function isAllowedBasePath(p) {
+  if (typeof p !== 'string') return false;
+  const resolved = require('path').resolve(p);
+  return APP_BASE_ROOTS.some((root) => resolved === root || resolved.startsWith(root + '/'));
+}
+
 module.exports = {
   ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS, ALLOWED_APP_ACTIONS,
   ALLOWED_SITE_TYPES, ALLOWED_APP_TYPES, ALLOWED_DB_TYPES, LOG_FILES,
   RE_DOMAIN, RE_APP_NAME, RE_DB_NAME, RE_DB_USER, RE_IP_CIDR,
-  isPort, isValidDomain,
+  RE_GIT_URL, RE_GIT_BRANCH, APP_BASE_ROOTS,
+  isPort, isValidDomain, isValidGitUrl, isValidGitBranch, isAllowedBasePath,
 };

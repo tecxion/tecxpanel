@@ -5,7 +5,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
-const { RE_APP_NAME, ALLOWED_APP_TYPES, ALLOWED_APP_ACTIONS, isPort, isValidDomain } = require('../lib/validators');
+const {
+  RE_APP_NAME, ALLOWED_APP_TYPES, ALLOWED_APP_ACTIONS,
+  APP_BASE_ROOTS, isPort, isValidDomain,
+  isValidGitUrl, isValidGitBranch, isAllowedBasePath,
+} = require('../lib/validators');
 const nginx = require('../lib/nginx');
 const { queries, audit } = require('../database');
 const {
@@ -15,23 +19,37 @@ const {
 
 const router = express.Router();
 
-async function pm2Status(pm2Name) {
+// Lee `pm2 jlist` una sola vez y devuelve un mapa {name: {status, restarts}}.
+// Antes se llamaba una vez por app en Promise.all (N+1 spawns de pm2).
+async function pm2Snapshot() {
   const r = await runSafe('pm2', ['jlist']);
-  if (!r.ok) return 'unknown';
+  if (!r.ok) return null;
   try {
     const list = JSON.parse(r.stdout);
-    const proc = list.find((p) => p.name === pm2Name);
-    return proc ? (proc.pm2_env.status === 'online' ? 'running' : 'stopped') : 'stopped';
-  } catch (_) { return 'unknown'; }
+    const map = new Map();
+    for (const p of list) {
+      map.set(p.name, {
+        status: p.pm2_env?.status === 'online' ? 'running' : 'stopped',
+        restarts: p.pm2_env?.restart_time || 0,
+      });
+    }
+    return map;
+  } catch (_) { return null; }
 }
 
 router.get('/', wrap(async (req, res) => {
   const apps = queries.listApps.all();
-  const enriched = await Promise.all(apps.map(async (a) => ({
-    id: a.id, name: a.name, type: a.type, port: a.port, domain: a.domain,
-    git_repo: a.git_repo, git_branch: a.git_branch, webhook_secret: a.webhook_secret,
-    status: await pm2Status(a.pm2_name),
-  })));
+  const snap = await pm2Snapshot();
+  const enriched = apps.map((a) => {
+    const info = snap?.get(a.pm2_name);
+    return {
+      id: a.id, name: a.name, type: a.type, path: a.path, start_cmd: a.start_cmd,
+      port: a.port, domain: a.domain,
+      git_repo: a.git_repo, git_branch: a.git_branch, webhook_secret: a.webhook_secret,
+      status: snap ? (info ? info.status : 'stopped') : 'unknown',
+      restarts: info?.restarts || 0,
+    };
+  });
   ok(res, enriched);
 }));
 
@@ -47,7 +65,9 @@ router.post('/', wrap(async (req, res) => {
   if (port && !isPort(portNum)) return fail(res, 400, 'Puerto inválido');
   if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido');
 
-  const base = path.resolve(basePath || '/var/www');
+  const rawBase = basePath || '/var/www';
+  if (!isAllowedBasePath(rawBase)) return fail(res, 400, `Ruta base no permitida. Usa una dentro de: ${APP_BASE_ROOTS.join(', ')}`);
+  const base = path.resolve(rawBase);
   if (!fs.existsSync(base)) return fail(res, 400, 'La ruta base no existe');
 
   const cwd = path.join(base, name);
@@ -62,6 +82,10 @@ router.post('/', wrap(async (req, res) => {
     isGit = true;
     gitRepo = git_repo.trim();
     gitBranch = (git_branch || 'main').trim();
+    // SEGURIDAD: rechazamos URLs raras (rutas locales, valores que empiezan
+    // por "-" y git podría interpretar como flag --upload-pack=...).
+    if (!isValidGitUrl(gitRepo)) return fail(res, 400, 'URL de repositorio Git inválida (usa https://…, git://… o git@host:usuario/repo.git)');
+    if (!isValidGitBranch(gitBranch)) return fail(res, 400, 'Nombre de rama inválido');
     webhookSecret = crypto.randomBytes(16).toString('hex');
   }
 
@@ -334,6 +358,48 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
   audit(req.user.username, clientIp(req), 'app.git-pull', appRow.name);
 
   ok(res, { success: true, output: lines.join('\n') });
+}));
+
+// GET /api/apps/:id/env — Devuelve el contenido del fichero .env de la app.
+// La ruta viene de la BD (appRow.path), no del usuario, así que es segura.
+router.get('/:id/env', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  const envPath = path.join(appRow.path, '.env');
+  if (!fs.existsSync(envPath)) return ok(res, { success: true, path: envPath, content: '', exists: false });
+  const content = fs.readFileSync(envPath, 'utf8');
+  ok(res, { success: true, path: envPath, content, exists: true });
+}));
+
+// PUT /api/apps/:id/env — Sobrescribe el .env. chmod 600 (solo owner puede leer).
+// Aviso: hay que reiniciar la app para que los cambios surtan efecto.
+router.put('/:id/env', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  if (!fs.existsSync(appRow.path)) return fail(res, 400, 'La carpeta de la app ya no existe');
+  const content = typeof req.body?.content === 'string' ? req.body.content : '';
+  if (content.length > 256 * 1024) return fail(res, 400, 'El .env es demasiado grande (máx 256 KB)');
+  const envPath = path.join(appRow.path, '.env');
+  fs.writeFileSync(envPath, content, { mode: 0o600 });
+  try { fs.chmodSync(envPath, 0o600); } catch (_) {}
+  audit(req.user.username, clientIp(req), 'app.env', appRow.name);
+  ok(res, { success: true, path: envPath, bytes: Buffer.byteLength(content) });
+}));
+
+// POST /api/apps/:id/rebuild-proxy — Regenera el vhost nginx del proxy.
+// Útil tras cambiar puerto o dominio sin tener que borrar y desplegar de nuevo.
+router.post('/:id/rebuild-proxy', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  if (!appRow.domain) return fail(res, 400, 'Esta app no tiene dominio configurado');
+  if (!appRow.port) return fail(res, 400, 'Se necesita un puerto para el proxy');
+  try {
+    await nginx.enableSite(appRow.pm2_name, nginx.buildProxy(appRow.domain, appRow.port, { www: true }));
+  } catch (e) {
+    return fail(res, 500, e.message);
+  }
+  audit(req.user.username, clientIp(req), 'app.rebuild-proxy', appRow.name);
+  ok(res);
 }));
 
 router.post('/:id/:action', wrap(async (req, res) => {
