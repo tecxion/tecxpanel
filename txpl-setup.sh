@@ -262,11 +262,30 @@ if [[ ! -f "$ENV_FILE" ]]; then
     ADMIN_USER="${ADMIN_USER:-admin}"
     ADMIN_PASS="${ADMIN_PASS:-$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)}"
     if [[ "$INSTALL_MYSQL" == "1" ]]; then
+        # Esperamos a que MariaDB esté lista tras enable --now (systemd tarda
+        # 1-3 s en aceptar conexiones). Sin esto, el ALTER fallaba en silencio
+        # y quedaba una password en .env que MySQL no conocía → error 1045.
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+            mysqladmin ping -u root --silent >/dev/null 2>&1 && break
+            sleep 1
+        done
         MYSQL_ROOT_PASSWORD=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)
-        mysql -u root >>"$LOGFILE" 2>&1 <<SQL || true
+        if mysql -u root >>"$LOGFILE" 2>&1 <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 SQL
+        then
+            # Verificamos que la nueva password funciona ANTES de escribirla al
+            # .env. Si el verify falla, dejamos la password vacía para que el
+            # panel siga usando auth_socket (root sin password vía socket).
+            if ! MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -e "SELECT 1;" >>"$LOGFILE" 2>&1; then
+                warn "MariaDB: el ALTER pareció OK pero el verify falla. Dejo MYSQL_ROOT_PASSWORD vacío; el panel usará auth_socket."
+                MYSQL_ROOT_PASSWORD=""
+            fi
+        else
+            warn "MariaDB: no se pudo cambiar la password de root (root sigue en auth_socket). El panel accederá por socket si corre como root."
+            MYSQL_ROOT_PASSWORD=""
+        fi
     fi
     cat > "$ENV_FILE" <<EOF
 TXPL_PORT=8585
