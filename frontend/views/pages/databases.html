@@ -14,6 +14,12 @@
   <button class="btn" onclick="editMysqlEnvPassword()" title="Editar MYSQL_ROOT_PASSWORD en .env">
     <i class="ti ti-key"></i> MYSQL_ROOT_PASSWORD .env
   </button>
+  <button class="btn" onclick="togglePortSsl('pma')" title="Poner o quitar HTTPS en el puerto de phpMyAdmin (requiere dominio con certificado)">
+    <i class="ti ti-lock-cog"></i> HTTPS puerto phpMyAdmin
+  </button>
+  <button class="btn" onclick="togglePortSsl('adminer')" title="Poner o quitar HTTPS en el puerto de Adminer (requiere dominio con certificado)">
+    <i class="ti ti-lock-cog"></i> HTTPS puerto Adminer
+  </button>
 </div>
 <div class="card">
   <div class="card-header">

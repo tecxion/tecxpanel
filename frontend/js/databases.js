@@ -172,16 +172,20 @@ async function diagnoseDb(kind) {
 }
 
 // openTool: abre phpMyAdmin o Adminer en una pestaña nueva (IP:puerto).
+// toolUrl: mejor URL para abrir una herramienta según su estado.
+// Prioridad: https://dominio (443) → https://(dominio|IP):puerto (portSsl) →
+// http://dominio → http://IP:puerto.
+function toolUrl(t, host) {
+  if (t.domain && t.ssl) return `https://${t.domain}`;
+  if (t.portSsl) return `https://${t.domain || host}:${t.port}`;
+  if (t.domain) return `http://${t.domain}`;
+  return `http://${host}:${t.port}`;
+}
+
 function openTool(tool) {
   const host = serverIp || location.hostname;
   if (tool === 'pma') {
-    if (dbTools.pma.configured) {
-      // Si se configuró con dominio, abrimos por dominio (https si tiene cert).
-      const url = dbTools.pma.domain
-        ? `${dbTools.pma.ssl ? 'https' : 'http'}://${dbTools.pma.domain}`
-        : `http://${host}:${dbTools.pma.port}`;
-      return window.open(url, '_blank');
-    }
+    if (dbTools.pma.configured) return window.open(toolUrl(dbTools.pma, host), '_blank');
     if (dbTools.pma.installed) {
       if (confirm('phpMyAdmin aún no está configurado para acceso web. ¿Configurarlo ahora?')) setupPma();
       return;
@@ -189,17 +193,30 @@ function openTool(tool) {
     return toast('Instala el plugin phpMyAdmin desde la página Plugins primero.', 'error');
   }
   // adminer
-  if (dbTools.adminer.configured) {
-    const url = dbTools.adminer.domain
-      ? `${dbTools.adminer.ssl ? 'https' : 'http'}://${dbTools.adminer.domain}`
-      : `http://${host}:${dbTools.adminer.port}`;
-    return window.open(url, '_blank');
-  }
+  if (dbTools.adminer.configured) return window.open(toolUrl(dbTools.adminer, host), '_blank');
   if (dbTools.adminer.installed) {
     if (confirm('Adminer aún no está configurado para acceso web. ¿Configurarlo ahora?')) setupAdminer();
     return;
   }
   toast('Instala el plugin Adminer desde la página Plugins primero.', 'error');
+}
+
+// togglePortSsl: pone o quita HTTPS en el puerto de una herramienta.
+// uiKey: 'pma' | 'adminer'. Mapea al endpoint real (phpmyadmin | adminer).
+async function togglePortSsl(uiKey) {
+  const endpoint = uiKey === 'pma' ? 'phpmyadmin' : 'adminer';
+  const label = uiKey === 'pma' ? 'phpMyAdmin' : 'Adminer';
+  const st = dbTools[uiKey] || {};
+  if (!st.configured) { toast(`Configura ${label} primero (botón de la herramienta).`, 'error'); return; }
+  const enabling = !st.portSsl;
+  if (enabling && !st.domain) { toast(`Para HTTPS en el puerto, ${label} necesita un dominio con certificado. Config&uacute;ralo primero.`, 'error'); return; }
+  const msg = enabling
+    ? `Se activará HTTPS en el puerto ${st.port} de ${label} usando el certificado de ${st.domain}.\n\nA partir de entonces se entra por https://${st.domain}:${st.port} y DEJA de funcionar http://IP:${st.port}.\n\n¿Continuar?`
+    : `Se quitará HTTPS del puerto ${st.port} de ${label}: volverá a http://IP:${st.port}.\n\n¿Continuar?`;
+  if (!confirm(msg)) return;
+  const r = await req('POST', `/databases/${endpoint}/port-ssl`, { enabled: enabling });
+  if (r?.success) { toast(`Puerto de ${label}: HTTPS ${r.portSsl ? 'activado' : 'desactivado'} → ${r.portUrl}`, 'success'); loadDatabases(); }
+  else toast(r?.error || 'Error', 'error');
 }
 
 // deleteDatabase: borra una base de datos y su usuario (con confirmación).
@@ -295,6 +312,6 @@ Object.assign(window, {
   testDbConnection, showDbInfo, changeDbPassword, copyConnString, downloadDbDump, openRestoreDb,
   // reparación / .env
   repairMysql, editMysqlEnvPassword,
-  // adminer setup
-  setupAdminer,
+  // adminer setup + toggle HTTPS puerto
+  setupAdminer, togglePortSsl, toolUrl,
 });

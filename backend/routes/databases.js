@@ -148,81 +148,6 @@ function detectPhpFpmSock() {
   return null;
 }
 
-// Lee el server_name del vhost (si se configuró por dominio). El bloque de
-// dominio usa `server_name x;`, el de puerto usa `server_name _;` — así que
-// ignoramos el "_" y devolvemos el dominio real si existe.
-function confDomain(confPath) {
-  try {
-    const conf = fs.readFileSync(confPath, 'utf8');
-    const m = conf.match(/server_name\s+([^;\s_][^;\s]*)\s*;/);
-    return m ? m[1] : null;
-  } catch (_) { return null; }
-}
-
-// Configura el acceso web a una herramienta PHP (phpMyAdmin / Adminer):
-// siempre por IP:puerto y, si se indica dominio válido, ADEMÁS por dominio con
-// SSL (si certbot puede emitirlo). Devuelve ambas URLs. Idempotente.
-async function setupPhpTool({ site, dir, port, notInstalledMsg, auditKey }, req, res) {
-  if (!fs.existsSync(dir)) return fail(res, 400, notInstalledMsg);
-
-  const domain = (req.body?.domain || '').trim();
-  if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido (ej. adminer.tudominio.es)');
-
-  // 1. Asegurar php-fpm.
-  let sock = detectPhpFpmSock();
-  if (!sock) {
-    await runSafe('apt-get', ['install', '-y', 'php-fpm', 'php-mysql', 'php-pgsql'], { timeout: 300_000 });
-    sock = detectPhpFpmSock();
-  }
-  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
-
-  // 2. Escribir y activar el vhost (puerto siempre + bloque de dominio opcional).
-  try {
-    await nginx.enableSite(site, nginx.buildPhpFpmSite(port, dir, sock, { domain: domain || null }));
-  } catch (e) {
-    return fail(res, 500, e.message);
-  }
-  // El puerto siempre queda accesible (modo IP:puerto).
-  await runSafe('ufw', ['allow', `${port}/tcp`]);
-
-  const host = req.headers.host ? req.headers.host.split(':')[0] : null;
-  const portUrl = host ? `http://${host}:${port}` : `http://IP:${port}`;
-
-  // 3. Si hay dominio, intentar SSL. Si falla, el sitio sigue por HTTP+puerto.
-  let ssl = false;
-  let sslMsg = null;
-  if (domain) {
-    try {
-      await nginx.installSsl(domain);
-      ssl = fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
-    } catch (e) {
-      sslMsg = 'El vhost quedó activo, pero certbot no pudo emitir el certificado: ' + (e.message || '') + ' Comprueba que el DNS de ' + domain + ' apunta a este servidor y reintenta. Mientras, puedes entrar por ' + portUrl + '.';
-    }
-  }
-  audit(req.user.username, clientIp(req), auditKey, (domain ? domain + (ssl ? ' (SSL)' : ' (HTTP)') + ' + ' : '') + `puerto ${port}`);
-  ok(res, {
-    success: true, port, domain: domain || null, ssl,
-    portUrl,
-    domainUrl: domain ? `${ssl ? 'https' : 'http'}://${domain}` : null,
-    message: sslMsg,
-  });
-}
-
-router.get('/phpmyadmin/status', (req, res) => {
-  const installed = fs.existsSync(PMA_DIR);
-  const configured = fs.existsSync(PMA_LINK);
-  const domain = configured ? confDomain(PMA_CONF) : null;
-  const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
-  ok(res, { installed, configured, port: PMA_PORT, domain, ssl });
-});
-
-// POST /api/databases/phpmyadmin/setup — Body opcional { domain }.
-router.post('/phpmyadmin/setup', wrap((req, res) => setupPhpTool({
-  site: 'txpl-phpmyadmin', dir: PMA_DIR, port: PMA_PORT,
-  notInstalledMsg: 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.',
-  auditKey: 'phpmyadmin.setup',
-}, req, res)));
-
 // ── Adminer: gestor ligero para MySQL Y PostgreSQL ───────────
 const ADMINER_DIR = '/usr/share/adminer';
 const ADMINER_FILE = ADMINER_DIR + '/index.php';
@@ -230,20 +155,110 @@ const ADMINER_PORT = 8082;
 const ADMINER_CONF = '/etc/nginx/sites-available/txpl-adminer';
 const ADMINER_LINK = '/etc/nginx/sites-enabled/txpl-adminer';
 
-router.get('/adminer/status', (req, res) => {
-  const installed = fs.existsSync(ADMINER_FILE);
-  const configured = fs.existsSync(ADMINER_LINK);
-  const domain = configured ? confDomain(ADMINER_CONF) : null;
-  const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
-  ok(res, { installed, configured, port: ADMINER_PORT, domain, ssl });
-});
+// Descriptor de cada herramienta web. Separamos DOS vhosts por herramienta:
+//   - <site>       → bloque de IP:puerto (100% del panel; se reescribe libre).
+//   - <site>-web   → bloque de dominio (lo gestiona certbot al emitir SSL).
+// Así el botón "HTTPS en el puerto" solo toca <site> y nunca pisa a certbot.
+const TOOLS = {
+  phpmyadmin: { site: 'txpl-phpmyadmin', label: 'phpMyAdmin', dir: PMA_DIR, fileCheck: PMA_DIR, port: PMA_PORT, conf: PMA_CONF, link: PMA_LINK, notInstalled: 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.' },
+  adminer:    { site: 'txpl-adminer',    label: 'Adminer',    dir: ADMINER_DIR, fileCheck: ADMINER_FILE, port: ADMINER_PORT, conf: ADMINER_CONF, link: ADMINER_LINK, notInstalled: 'Adminer no está instalado. Instálalo primero desde Plugins.' },
+};
+const webAvail = (site) => `/etc/nginx/sites-available/${site}-web`;
 
-// POST /api/databases/adminer/setup — Body opcional { domain }.
-router.post('/adminer/setup', wrap((req, res) => setupPhpTool({
-  site: 'txpl-adminer', dir: ADMINER_DIR, port: ADMINER_PORT,
-  notInstalledMsg: 'Adminer no está instalado. Instálalo primero desde Plugins.',
-  auditKey: 'adminer.setup',
-}, req, res)));
+// Lee el server_name del vhost de dominio (ignora el "_" del bloque de puerto).
+function confDomain(confPath) {
+  try {
+    const m = fs.readFileSync(confPath, 'utf8').match(/server_name\s+([^;\s_][^;\s]*)\s*;/);
+    return m ? m[1] : null;
+  } catch (_) { return null; }
+}
+// ¿El bloque del puerto está sirviendo HTTPS? (listen NNNN ssl)
+function portIsSsl(confPath) {
+  try { return /listen\s+\d+\s+ssl/.test(fs.readFileSync(confPath, 'utf8')); } catch (_) { return false; }
+}
+
+function toolStatus(t) {
+  const installed = fs.existsSync(t.fileCheck);
+  const configured = fs.existsSync(t.link);
+  const domain = confDomain(webAvail(t.site));
+  const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
+  return { installed, configured, port: t.port, domain, ssl, portSsl: portIsSsl(t.conf) };
+}
+
+// Configura el acceso web: bloque de puerto (HTTP) siempre y, si se indica
+// dominio válido, ADEMÁS bloque de dominio + certbot (SSL). Idempotente.
+async function setupPhpTool(t, req, res) {
+  if (!fs.existsSync(t.fileCheck)) return fail(res, 400, t.notInstalled);
+
+  const domain = (req.body?.domain || '').trim();
+  if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido (ej. adminer.tudominio.es)');
+
+  let sock = detectPhpFpmSock();
+  if (!sock) {
+    await runSafe('apt-get', ['install', '-y', 'php-fpm', 'php-mysql', 'php-pgsql'], { timeout: 300_000 });
+    sock = detectPhpFpmSock();
+  }
+  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
+
+  // Bloque de PUERTO (HTTP por defecto).
+  try {
+    await nginx.enableSite(t.site, nginx.buildPhpFpmSite(t.port, t.dir, sock));
+  } catch (e) {
+    return fail(res, 500, e.message);
+  }
+  await runSafe('ufw', ['allow', `${t.port}/tcp`]);
+
+  const host = req.headers.host ? req.headers.host.split(':')[0] : null;
+  const portUrl = host ? `http://${host}:${t.port}` : `http://IP:${t.port}`;
+
+  // Bloque de DOMINIO (fichero aparte) + SSL con certbot.
+  let ssl = false, sslMsg = null;
+  if (domain) {
+    try {
+      await nginx.enableSite(`${t.site}-web`, nginx.buildPhpFpmDomain(domain, t.dir, sock));
+      await nginx.installSsl(domain);
+      ssl = fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
+    } catch (e) {
+      sslMsg = 'El vhost quedó activo, pero certbot no pudo emitir el certificado: ' + (e.message || '') + ' Comprueba que el DNS de ' + domain + ' apunta a este servidor y reintenta. Mientras, entra por ' + portUrl + '.';
+    }
+  }
+  audit(req.user.username, clientIp(req), `${t.site}.setup`, (domain ? domain + (ssl ? ' (SSL)' : ' (HTTP)') + ' + ' : '') + `puerto ${t.port}`);
+  ok(res, {
+    success: true, port: t.port, domain: domain || null, ssl, portSsl: false,
+    portUrl, domainUrl: domain ? `${ssl ? 'https' : 'http'}://${domain}` : null, message: sslMsg,
+  });
+}
+
+// Activa/desactiva HTTPS en el bloque del PUERTO reutilizando el certificado
+// del dominio ya configurado. Requiere que la herramienta tenga dominio+cert.
+// OJO: con HTTPS activo, http://IP:puerto deja de funcionar (usa https://dominio:puerto).
+async function togglePortSsl(t, req, res) {
+  const enabled = req.body?.enabled !== false; // por defecto true
+  if (!fs.existsSync(t.link)) return fail(res, 400, `${t.label} no está configurado todavía.`);
+  const domain = confDomain(webAvail(t.site));
+  if (enabled) {
+    if (!domain) return fail(res, 400, `Para poner HTTPS en el puerto, ${t.label} necesita primero un dominio con certificado (usa "configurar" e indica un subdominio).`);
+    if (!fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`)) return fail(res, 400, `No hay certificado para ${domain} todavía. Emítelo configurando el dominio.`);
+  }
+  let sock = detectPhpFpmSock();
+  if (!sock) return fail(res, 500, 'PHP-FPM no disponible.');
+  try {
+    await nginx.enableSite(t.site, nginx.buildPhpFpmSite(t.port, t.dir, sock, enabled ? { sslCertDomain: domain } : {}));
+  } catch (e) {
+    return fail(res, 500, e.message);
+  }
+  audit(req.user.username, clientIp(req), `${t.site}.port-ssl`, enabled ? `on (${domain})` : 'off');
+  const urlHost = enabled && domain ? domain : (req.headers.host ? req.headers.host.split(':')[0] : 'IP');
+  ok(res, { success: true, portSsl: enabled, portUrl: `${enabled ? 'https' : 'http'}://${urlHost}:${t.port}` });
+}
+
+router.get('/phpmyadmin/status', (req, res) => ok(res, toolStatus(TOOLS.phpmyadmin)));
+router.post('/phpmyadmin/setup', wrap((req, res) => setupPhpTool(TOOLS.phpmyadmin, req, res)));
+router.post('/phpmyadmin/port-ssl', wrap((req, res) => togglePortSsl(TOOLS.phpmyadmin, req, res)));
+
+router.get('/adminer/status', (req, res) => ok(res, toolStatus(TOOLS.adminer)));
+router.post('/adminer/setup', wrap((req, res) => setupPhpTool(TOOLS.adminer, req, res)));
+router.post('/adminer/port-ssl', wrap((req, res) => togglePortSsl(TOOLS.adminer, req, res)));
 
 router.delete('/:id', wrap(async (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);

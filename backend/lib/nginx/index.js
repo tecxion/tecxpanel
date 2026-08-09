@@ -107,13 +107,9 @@ function buildProxy(domain, port, opts = {}) {
 //  - port: puerto en el que escucha (ej. 8081).
 //  - root: carpeta con el código PHP (ej. /usr/share/phpmyadmin).
 //  - sock: socket de PHP-FPM al que enviar los .php.
-//  - opts.domain: si se indica, ADEMÁS del acceso por IP:puerto se añade un
-//    segundo server{} con server_name dominio en el puerto 80, para que
-//    certbot --nginx pueda engancharle un certificado (HTTPS 443). Así se
-//    puede entrar por las dos vías: http://IP:puerto y https://dominio.
-function buildPhpFpmSite(port, root, sock, opts = {}) {
-  // Cuerpo común (root + PHP-FPM) que comparten los dos server{}.
-  const body = `    root ${root};
+// Cuerpo común (root + PHP-FPM) de un sitio PHP servido por nginx.
+function phpFpmBody(root, sock) {
+  return `    root ${root};
     index index.php index.html;
     location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \\.php$ {
@@ -121,24 +117,40 @@ function buildPhpFpmSite(port, root, sock, opts = {}) {
         fastcgi_pass unix:${sock};
     }
     location ~ /\\.ht { deny all; }`;
+}
 
-  // Bloque por IP:puerto (siempre presente).
-  let out = `server {
-    listen ${port};
+// Bloque por IP:PUERTO (fichero propio del panel, se reescribe sin miedo).
+//  - opts.sslCertDomain: si se indica y existe el certificado de ese dominio,
+//    el puerto pasa a HTTPS (listen PORT ssl) reutilizando ese certificado.
+//    Sin él, el puerto es HTTP normal. Es lo que activa/desactiva el botón
+//    "HTTPS en el puerto". OJO: con HTTPS, http://IP:PORT deja de funcionar
+//    (nginx no sirve HTTP y HTTPS en el mismo puerto).
+function buildPhpFpmSite(port, root, sock, opts = {}) {
+  const dom = opts.sslCertDomain;
+  const useSsl = dom && fs.existsSync(`/etc/letsencrypt/live/${dom}/fullchain.pem`);
+  const listen = useSsl
+    ? `listen ${port} ssl;
+    ssl_certificate     /etc/letsencrypt/live/${dom}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${dom}/privkey.pem;`
+    : `listen ${port};`;
+  return `server {
+    ${listen}
     server_name _;
-${body}
+${phpFpmBody(root, sock)}
 }
 `;
-  // Bloque por dominio (opcional) — certbot lo convertirá a HTTPS.
-  if (opts.domain) {
-    out += `server {
+}
+
+// Bloque por DOMINIO en el puerto 80 (server_name dominio). Va en su PROPIO
+// fichero para que certbot --nginx lo convierta a HTTPS (443) sin tocar el
+// bloque del puerto. Así el botón de HTTPS-en-puerto nunca pisa a certbot.
+function buildPhpFpmDomain(domain, root, sock) {
+  return `server {
     listen 80;
-    server_name ${opts.domain};
-${body}
+    server_name ${domain};
+${phpFpmBody(root, sock)}
 }
 `;
-  }
-  return out;
 }
 
 // ── OPERACIONES SOBRE NGINX ───────────────────────────────────
@@ -233,6 +245,6 @@ async function installSsl(domain, opts = {}) {
 
 module.exports = {
   NGINX_AVAILABLE, NGINX_ENABLED, SITES_DIR,
-  buildSite, buildProxy, buildPhpFpmSite,
+  buildSite, buildProxy, buildPhpFpmSite, buildPhpFpmDomain,
   reload, enableSite, removeSite, installSsl, isApexDomain,
 };
