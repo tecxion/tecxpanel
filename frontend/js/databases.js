@@ -220,9 +220,40 @@ async function setupPma() {
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
 
+// repairMysql: aplica la "Opción A" (root → auth_socket + vacía la password
+// del .env). Deja MySQL usable sin volver a tocar SSH.
+async function repairMysql() {
+  if (!confirm('Se cambiará el método de acceso de root@localhost a auth_socket y se vaciará MYSQL_ROOT_PASSWORD en .env.\n\nEl panel accederá a MySQL por socket (necesita correr como root, que es lo normal).\n\n¿Continuar?')) return;
+  toast('Reparando MySQL...', 'info');
+  const r = await req('POST', '/databases/mysql/repair');
+  if (r?.success) {
+    toast('MySQL reparado. Prueba a diagnosticar o crear una BD.', 'success');
+  } else {
+    toast(r?.error || 'Error al reparar', 'error');
+  }
+}
+
+// editMysqlEnvPassword: modifica MYSQL_ROOT_PASSWORD en el .env desde el panel.
+// El backend actualiza el fichero y process.env (surte efecto en caliente).
+async function editMysqlEnvPassword() {
+  const cur = await req('GET', '/databases/env/mysql-password');
+  if (!cur) return;
+  const status = cur.set ? `Actualmente HAY una contraseña (${cur.length} caracteres) en ${cur.envFile}` : `Actualmente NO hay contraseña en ${cur.envFile}`;
+  const val = prompt(`${status}\n\nEscribe la nueva contraseña (deja vacío para BORRARLA y volver a auth_socket):`);
+  if (val === null) return;
+  const r = await req('PUT', '/databases/env/mysql-password', { password: val });
+  if (r?.success) {
+    toast(r.set ? 'Contraseña guardada en .env' : 'Contraseña vaciada en .env', 'success');
+  } else {
+    toast(r?.error || 'Error al guardar', 'error');
+  }
+}
+
 Object.assign(window, {
   createDatabase, deleteDatabase, loadDatabases, openTool, setupPma, toggleDbPass,
   diagnoseDb,
   // v2 (tandas 2/3)
   testDbConnection, showDbInfo, changeDbPassword, copyConnString, downloadDbDump, openRestoreDb,
+  // reparación / .env
+  repairMysql, editMysqlEnvPassword,
 });

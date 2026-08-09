@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { runInput } = require('../lib/common/run');
@@ -315,6 +316,65 @@ router.get('/:id/password', (req, res) => {
   if (pass === '(no descifrable)') return fail(res, 500, 'No se pudo descifrar la contraseña (JWT_SECRET/TXPL_SECRET_KEY cambió tras crearla). Usa "Cambiar contraseña" para regenerarla.');
   ok(res, { success: true, password: pass });
 });
+
+// ── .env: leer y escribir claves concretas ────────────────────
+// Ubicación igual que en server.js: TXPL_ENV → <repo>/.env → /opt/txpl/.env.
+function envPath() {
+  if (process.env.TXPL_ENV) return process.env.TXPL_ENV;
+  const local = path.resolve(__dirname, '../../.env');
+  return fs.existsSync(local) ? local : '/opt/txpl/.env';
+}
+
+// Actualiza una clave preservando las demás líneas y comentarios. Si no
+// existe, la añade. Vacío = borra el valor pero deja la línea. chmod 600.
+function updateEnvKey(key, value) {
+  const p = envPath();
+  let text = '';
+  try { text = fs.readFileSync(p, 'utf8'); } catch (_) {}
+  const re = new RegExp('^' + key + '=.*$', 'm');
+  const line = value == null ? `${key}=` : `${key}=${value}`;
+  text = re.test(text) ? text.replace(re, line) : (text + (text.endsWith('\n') ? '' : '\n') + line + '\n');
+  fs.writeFileSync(p, text, { mode: 0o600 });
+  try { fs.chmodSync(p, 0o600); } catch (_) {}
+  // Sincroniza process.env para que el cambio surta efecto en caliente.
+  if (value == null || value === '') delete process.env[key];
+  else process.env[key] = value;
+  return p;
+}
+
+// POST /api/databases/mysql/repair — Opción A: devuelve root a auth_socket
+// y limpia MYSQL_ROOT_PASSWORD del .env. Requiere que sudo -n mysql funcione
+// (o que el panel ya tenga root-socket). Deja MySQL utilizable sin password.
+router.post('/mysql/repair', wrap(async (req, res) => {
+  const sql = "ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket;\nFLUSH PRIVILEGES;";
+  // Intentamos con los métodos actuales (root-socket, sudo-socket, debian,
+  // env-password). Si al menos uno funciona, aplicamos el cambio.
+  const r = await mysqlExec(sql);
+  if (!r.ok) {
+    // Fallback MySQL 8 (Oracle): usa auth_socket en vez de unix_socket.
+    const r2 = await mysqlExec("ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;\nFLUSH PRIVILEGES;");
+    if (!r2.ok) return fail(res, 500, `No se pudo reparar: ${(r.stderr || '').split('\n')[0]}. Conecta por SSH y ejecuta \`sudo mysql\` seguido de \`ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;\``);
+  }
+  const p = updateEnvKey('MYSQL_ROOT_PASSWORD', '');
+  audit(req.user.username, clientIp(req), 'db.repair', 'mysql:auth_socket');
+  ok(res, { success: true, envFile: p, hint: 'Root ahora se autentica por socket. MYSQL_ROOT_PASSWORD vaciado en .env; reinicia el panel si el acceso da problemas (pm2 reload txpl-panel).' });
+}));
+
+// GET /api/databases/env/mysql-password — Presencia (nunca el valor real).
+router.get('/env/mysql-password', (req, res) => {
+  const v = process.env.MYSQL_ROOT_PASSWORD || '';
+  ok(res, { success: true, set: !!v, length: v.length, envFile: envPath() });
+});
+
+// PUT /api/databases/env/mysql-password — Actualiza MYSQL_ROOT_PASSWORD.
+// Body: { password: "..." } (vacío o null = borra la variable).
+router.put('/env/mysql-password', wrap(async (req, res) => {
+  const pass = req.body?.password;
+  if (pass && !isSafePassword(String(pass))) return fail(res, 400, 'Contraseña inválida (8-128 imprimibles, sin comillas, backticks, ;, \\)');
+  const p = updateEnvKey('MYSQL_ROOT_PASSWORD', pass || '');
+  audit(req.user.username, clientIp(req), 'db.env.mysql-pw', pass ? `set (${String(pass).length} chars)` : 'cleared');
+  ok(res, { success: true, envFile: p, set: !!pass });
+}));
 
 module.exports = router;
 module.exports.mysqlExec = mysqlExec;

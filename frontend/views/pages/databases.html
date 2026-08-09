@@ -8,6 +8,12 @@
   <button class="btn" onclick="diagnoseDb('postgres')" title="Comprobar acceso del panel a PostgreSQL">
     <i class="ti ti-stethoscope"></i> Diagnosticar PostgreSQL
   </button>
+  <button class="btn" onclick="repairMysql()" title="Devuelve root a auth_socket y vacía MYSQL_ROOT_PASSWORD del .env">
+    <i class="ti ti-tool"></i> Reparar MySQL (auth_socket)
+  </button>
+  <button class="btn" onclick="editMysqlEnvPassword()" title="Editar MYSQL_ROOT_PASSWORD en .env">
+    <i class="ti ti-key"></i> MYSQL_ROOT_PASSWORD .env
+  </button>
 </div>
 <div class="card">
   <div class="card-header">
