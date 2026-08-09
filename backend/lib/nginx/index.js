@@ -107,25 +107,38 @@ function buildProxy(domain, port, opts = {}) {
 //  - port: puerto en el que escucha (ej. 8081).
 //  - root: carpeta con el código PHP (ej. /usr/share/phpmyadmin).
 //  - sock: socket de PHP-FPM al que enviar los .php.
-//  - opts.domain: si se indica, el sitio se sirve por dominio en el puerto 80
-//    (server_name dominio) en vez de por IP:puerto. Así certbot --nginx puede
-//    engancharle un certificado y convertirlo a HTTPS (443) automáticamente.
+//  - opts.domain: si se indica, ADEMÁS del acceso por IP:puerto se añade un
+//    segundo server{} con server_name dominio en el puerto 80, para que
+//    certbot --nginx pueda engancharle un certificado (HTTPS 443). Así se
+//    puede entrar por las dos vías: http://IP:puerto y https://dominio.
 function buildPhpFpmSite(port, root, sock, opts = {}) {
-  const listen = opts.domain ? 'listen 80;' : `listen ${port};`;
-  const serverName = opts.domain ? `server_name ${opts.domain};` : 'server_name _;';
-  return `server {
-    ${listen}
-    ${serverName}
-    root ${root};
+  // Cuerpo común (root + PHP-FPM) que comparten los dos server{}.
+  const body = `    root ${root};
     index index.php index.html;
     location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \\.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:${sock};
     }
-    location ~ /\\.ht { deny all; }
+    location ~ /\\.ht { deny all; }`;
+
+  // Bloque por IP:puerto (siempre presente).
+  let out = `server {
+    listen ${port};
+    server_name _;
+${body}
 }
 `;
+  // Bloque por dominio (opcional) — certbot lo convertirá a HTTPS.
+  if (opts.domain) {
+    out += `server {
+    listen 80;
+    server_name ${opts.domain};
+${body}
+}
+`;
+  }
+  return out;
 }
 
 // ── OPERACIONES SOBRE NGINX ───────────────────────────────────

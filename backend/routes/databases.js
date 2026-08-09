@@ -148,69 +148,80 @@ function detectPhpFpmSock() {
   return null;
 }
 
-// Lee el server_name del vhost de phpMyAdmin (si se configuró por dominio).
-function pmaConfiguredDomain() {
+// Lee el server_name del vhost (si se configuró por dominio). El bloque de
+// dominio usa `server_name x;`, el de puerto usa `server_name _;` — así que
+// ignoramos el "_" y devolvemos el dominio real si existe.
+function confDomain(confPath) {
   try {
-    const conf = fs.readFileSync(PMA_CONF, 'utf8');
-    const m = conf.match(/server_name\s+([^;_\s]+)\s*;/);
+    const conf = fs.readFileSync(confPath, 'utf8');
+    const m = conf.match(/server_name\s+([^;\s_][^;\s]*)\s*;/);
     return m ? m[1] : null;
   } catch (_) { return null; }
+}
+
+// Configura el acceso web a una herramienta PHP (phpMyAdmin / Adminer):
+// siempre por IP:puerto y, si se indica dominio válido, ADEMÁS por dominio con
+// SSL (si certbot puede emitirlo). Devuelve ambas URLs. Idempotente.
+async function setupPhpTool({ site, dir, port, notInstalledMsg, auditKey }, req, res) {
+  if (!fs.existsSync(dir)) return fail(res, 400, notInstalledMsg);
+
+  const domain = (req.body?.domain || '').trim();
+  if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido (ej. adminer.tudominio.es)');
+
+  // 1. Asegurar php-fpm.
+  let sock = detectPhpFpmSock();
+  if (!sock) {
+    await runSafe('apt-get', ['install', '-y', 'php-fpm', 'php-mysql', 'php-pgsql'], { timeout: 300_000 });
+    sock = detectPhpFpmSock();
+  }
+  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
+
+  // 2. Escribir y activar el vhost (puerto siempre + bloque de dominio opcional).
+  try {
+    await nginx.enableSite(site, nginx.buildPhpFpmSite(port, dir, sock, { domain: domain || null }));
+  } catch (e) {
+    return fail(res, 500, e.message);
+  }
+  // El puerto siempre queda accesible (modo IP:puerto).
+  await runSafe('ufw', ['allow', `${port}/tcp`]);
+
+  const host = req.headers.host ? req.headers.host.split(':')[0] : null;
+  const portUrl = host ? `http://${host}:${port}` : `http://IP:${port}`;
+
+  // 3. Si hay dominio, intentar SSL. Si falla, el sitio sigue por HTTP+puerto.
+  let ssl = false;
+  let sslMsg = null;
+  if (domain) {
+    try {
+      await nginx.installSsl(domain);
+      ssl = fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
+    } catch (e) {
+      sslMsg = 'El vhost quedó activo, pero certbot no pudo emitir el certificado: ' + (e.message || '') + ' Comprueba que el DNS de ' + domain + ' apunta a este servidor y reintenta. Mientras, puedes entrar por ' + portUrl + '.';
+    }
+  }
+  audit(req.user.username, clientIp(req), auditKey, (domain ? domain + (ssl ? ' (SSL)' : ' (HTTP)') + ' + ' : '') + `puerto ${port}`);
+  ok(res, {
+    success: true, port, domain: domain || null, ssl,
+    portUrl,
+    domainUrl: domain ? `${ssl ? 'https' : 'http'}://${domain}` : null,
+    message: sslMsg,
+  });
 }
 
 router.get('/phpmyadmin/status', (req, res) => {
   const installed = fs.existsSync(PMA_DIR);
   const configured = fs.existsSync(PMA_LINK);
-  const domain = configured ? pmaConfiguredDomain() : null;
+  const domain = configured ? confDomain(PMA_CONF) : null;
   const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
   ok(res, { installed, configured, port: PMA_PORT, domain, ssl });
 });
 
-// POST /api/databases/phpmyadmin/setup — Configura el acceso web a phpMyAdmin.
-// Body opcional { domain }:
-//  - con dominio: vhost por server_name en el 80 + certbot → https://dominio.
-//    Requiere que el registro DNS del subdominio ya apunte a este servidor.
-//  - sin dominio: vhost en IP:8081 (HTTP). Sirve para instalaciones sin dominio.
-router.post('/phpmyadmin/setup', wrap(async (req, res) => {
-  if (!fs.existsSync(PMA_DIR)) return fail(res, 400, 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.');
-
-  const domain = (req.body?.domain || '').trim();
-  if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido (ej. phpmyadmin.tudominio.es)');
-
-  // 1. Asegurar php-fpm
-  let sock = detectPhpFpmSock();
-  if (!sock) {
-    await runSafe('apt-get', ['install', '-y', 'php-fpm', 'php-mysql'], { timeout: 300_000 });
-    sock = detectPhpFpmSock();
-  }
-  if (!sock) return fail(res, 500, 'No se encontró PHP-FPM tras instalarlo. Revisa la instalación de PHP.');
-
-  // 2. Escribir y activar el vhost de nginx (valida y revierte si falla).
-  try {
-    await nginx.enableSite('txpl-phpmyadmin', nginx.buildPhpFpmSite(PMA_PORT, PMA_DIR, sock, { domain: domain || null }));
-  } catch (e) {
-    return fail(res, 500, e.message);
-  }
-
-  // 3a. Modo dominio: intentar SSL con certbot. Si falla (DNS aún no propaga,
-  //     puerto 80 cerrado…), dejamos el sitio en HTTP y avisamos, sin romper.
-  if (domain) {
-    let ssl = false;
-    let sslMsg = '';
-    try {
-      await nginx.installSsl(domain);
-      ssl = fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
-    } catch (e) {
-      sslMsg = 'El vhost quedó activo por HTTP, pero certbot no pudo emitir el certificado: ' + (e.message || '') + ' Comprueba que el DNS de ' + domain + ' apunta a este servidor y reintenta.';
-    }
-    audit(req.user.username, clientIp(req), 'phpmyadmin.setup', domain + (ssl ? ' (SSL)' : ' (HTTP)'));
-    return ok(res, { success: true, domain, ssl, url: `${ssl ? 'https' : 'http'}://${domain}`, message: sslMsg || null });
-  }
-
-  // 3b. Modo IP:puerto (sin dominio).
-  await runSafe('ufw', ['allow', `${PMA_PORT}/tcp`]);
-  audit(req.user.username, clientIp(req), 'phpmyadmin.setup', `puerto ${PMA_PORT}`);
-  ok(res, { success: true, port: PMA_PORT, url: null });
-}));
+// POST /api/databases/phpmyadmin/setup — Body opcional { domain }.
+router.post('/phpmyadmin/setup', wrap((req, res) => setupPhpTool({
+  site: 'txpl-phpmyadmin', dir: PMA_DIR, port: PMA_PORT,
+  notInstalledMsg: 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.',
+  auditKey: 'phpmyadmin.setup',
+}, req, res)));
 
 // ── Adminer: gestor ligero para MySQL Y PostgreSQL ───────────
 const ADMINER_DIR = '/usr/share/adminer';
@@ -220,8 +231,19 @@ const ADMINER_CONF = '/etc/nginx/sites-available/txpl-adminer';
 const ADMINER_LINK = '/etc/nginx/sites-enabled/txpl-adminer';
 
 router.get('/adminer/status', (req, res) => {
-  ok(res, { installed: fs.existsSync(ADMINER_FILE), configured: fs.existsSync(ADMINER_LINK), port: ADMINER_PORT });
+  const installed = fs.existsSync(ADMINER_FILE);
+  const configured = fs.existsSync(ADMINER_LINK);
+  const domain = configured ? confDomain(ADMINER_CONF) : null;
+  const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
+  ok(res, { installed, configured, port: ADMINER_PORT, domain, ssl });
 });
+
+// POST /api/databases/adminer/setup — Body opcional { domain }.
+router.post('/adminer/setup', wrap((req, res) => setupPhpTool({
+  site: 'txpl-adminer', dir: ADMINER_DIR, port: ADMINER_PORT,
+  notInstalledMsg: 'Adminer no está instalado. Instálalo primero desde Plugins.',
+  auditKey: 'adminer.setup',
+}, req, res)));
 
 router.delete('/:id', wrap(async (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);

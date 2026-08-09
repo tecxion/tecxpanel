@@ -189,7 +189,16 @@ function openTool(tool) {
     return toast('Instala el plugin phpMyAdmin desde la página Plugins primero.', 'error');
   }
   // adminer
-  if (dbTools.adminer.configured) return window.open(`http://${host}:${dbTools.adminer.port}`, '_blank');
+  if (dbTools.adminer.configured) {
+    const url = dbTools.adminer.domain
+      ? `${dbTools.adminer.ssl ? 'https' : 'http'}://${dbTools.adminer.domain}`
+      : `http://${host}:${dbTools.adminer.port}`;
+    return window.open(url, '_blank');
+  }
+  if (dbTools.adminer.installed) {
+    if (confirm('Adminer aún no está configurado para acceso web. ¿Configurarlo ahora?')) setupAdminer();
+    return;
+  }
   toast('Instala el plugin Adminer desde la página Plugins primero.', 'error');
 }
 
@@ -219,28 +228,32 @@ async function createDatabase() {
 
 // phpMyAdmin: configurar acceso web (instala PHP-FPM y crea el vhost)
 // setupPma: configura el acceso web a phpMyAdmin (vhost de nginx en su puerto).
-async function setupPma() {
+// setupPhpToolUI: flujo común de configuración para phpMyAdmin y Adminer.
+// Pregunta por el subdominio (opcional) y muestra el resultado con las dos
+// vías de acceso (puerto siempre; dominio+HTTPS si se indicó y hubo cert).
+async function setupPhpToolUI(tool, label, defaultSub) {
   const domain = prompt(
-    'Acceso web a phpMyAdmin.\n\n' +
-    '• Con dominio (recomendado): escribe un subdominio, ej. phpmyadmin.tudominio.es\n' +
-    '  El panel creará el vhost y le emitirá certificado HTTPS automáticamente.\n' +
-    '  IMPORTANTE: el subdominio debe apuntar YA (registro DNS A) a la IP de este servidor.\n\n' +
-    '• Sin dominio: deja el campo VACÍO y se servirá por http://IP:8081\n\n' +
-    'Subdominio (o vacío para IP:puerto):'
+    `Acceso web a ${label}.\n\n` +
+    `• Con dominio (recomendado): escribe un subdominio, ej. ${defaultSub}\n` +
+    '  El panel crea el vhost y emite certificado HTTPS automáticamente.\n' +
+    '  IMPORTANTE: el subdominio debe apuntar YA (registro DNS A) a la IP del servidor.\n\n' +
+    '• Sin dominio: deja el campo VACÍO y se sirve por http://IP:puerto\n\n' +
+    'Podrás entrar por las DOS vías (puerto y dominio) si pones subdominio.\n\n' +
+    'Subdominio (o vacío para solo IP:puerto):'
   );
-  if (domain === null) return; // canceló
+  if (domain === null) return;
   const body = domain.trim() ? { domain: domain.trim() } : {};
-  toast('Configurando phpMyAdmin (puede tardar si emite certificado)...', 'info');
-  const r = await req('POST', '/databases/phpmyadmin/setup', body);
-  if (r?.success) {
-    if (r.domain) {
-      toast(r.ssl ? `phpMyAdmin listo en ${r.url}` : `Vhost activo en http://${r.domain}. ${r.message || 'SSL no emitido aún.'}`, r.ssl ? 'success' : 'info');
-    } else {
-      toast('phpMyAdmin listo en el puerto ' + r.port, 'success');
-    }
-    loadDatabases();
-  } else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
+  toast(`Configurando ${label} (puede tardar si emite certificado)...`, 'info');
+  const r = await req('POST', `/databases/${tool}/setup`, body);
+  if (!r?.success) { toast(r?.error || `Error configurando ${label}`, 'error'); return; }
+  if (r.domain && r.ssl) toast(`${label} listo: ${r.domainUrl} (y también ${r.portUrl})`, 'success');
+  else if (r.domain) toast(`${label} activo en ${r.portUrl}. ${r.message || 'SSL aún no emitido.'}`, 'info');
+  else toast(`${label} listo en ${r.portUrl}`, 'success');
+  loadDatabases();
 }
+
+async function setupPma() { return setupPhpToolUI('phpmyadmin', 'phpMyAdmin', 'phpmyadmin.tudominio.es'); }
+async function setupAdminer() { return setupPhpToolUI('adminer', 'Adminer', 'adminer.tudominio.es'); }
 
 // repairMysql: intenta "Opción A" (root → auth_socket + vaciar .env).
 // Primero prueba sin credenciales; si el backend no puede entrar
@@ -282,4 +295,6 @@ Object.assign(window, {
   testDbConnection, showDbInfo, changeDbPassword, copyConnString, downloadDbDump, openRestoreDb,
   // reparación / .env
   repairMysql, editMysqlEnvPassword,
+  // adminer setup
+  setupAdminer,
 });
