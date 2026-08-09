@@ -175,7 +175,13 @@ async function diagnoseDb(kind) {
 function openTool(tool) {
   const host = serverIp || location.hostname;
   if (tool === 'pma') {
-    if (dbTools.pma.configured) return window.open(`http://${host}:${dbTools.pma.port}`, '_blank');
+    if (dbTools.pma.configured) {
+      // Si se configuró con dominio, abrimos por dominio (https si tiene cert).
+      const url = dbTools.pma.domain
+        ? `${dbTools.pma.ssl ? 'https' : 'http'}://${dbTools.pma.domain}`
+        : `http://${host}:${dbTools.pma.port}`;
+      return window.open(url, '_blank');
+    }
     if (dbTools.pma.installed) {
       if (confirm('phpMyAdmin aún no está configurado para acceso web. ¿Configurarlo ahora?')) setupPma();
       return;
@@ -214,10 +220,26 @@ async function createDatabase() {
 // phpMyAdmin: configurar acceso web (instala PHP-FPM y crea el vhost)
 // setupPma: configura el acceso web a phpMyAdmin (vhost de nginx en su puerto).
 async function setupPma() {
-  toast('Configurando phpMyAdmin (puede instalar PHP-FPM)...', 'info');
-  const r = await req('POST', '/databases/phpmyadmin/setup');
-  if (r?.success) { toast('phpMyAdmin listo en el puerto ' + r.port, 'success'); loadDatabases(); }
-  else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
+  const domain = prompt(
+    'Acceso web a phpMyAdmin.\n\n' +
+    '• Con dominio (recomendado): escribe un subdominio, ej. phpmyadmin.tudominio.es\n' +
+    '  El panel creará el vhost y le emitirá certificado HTTPS automáticamente.\n' +
+    '  IMPORTANTE: el subdominio debe apuntar YA (registro DNS A) a la IP de este servidor.\n\n' +
+    '• Sin dominio: deja el campo VACÍO y se servirá por http://IP:8081\n\n' +
+    'Subdominio (o vacío para IP:puerto):'
+  );
+  if (domain === null) return; // canceló
+  const body = domain.trim() ? { domain: domain.trim() } : {};
+  toast('Configurando phpMyAdmin (puede tardar si emite certificado)...', 'info');
+  const r = await req('POST', '/databases/phpmyadmin/setup', body);
+  if (r?.success) {
+    if (r.domain) {
+      toast(r.ssl ? `phpMyAdmin listo en ${r.url}` : `Vhost activo en http://${r.domain}. ${r.message || 'SSL no emitido aún.'}`, r.ssl ? 'success' : 'info');
+    } else {
+      toast('phpMyAdmin listo en el puerto ' + r.port, 'success');
+    }
+    loadDatabases();
+  } else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
 
 // repairMysql: intenta "Opción A" (root → auth_socket + vaciar .env).

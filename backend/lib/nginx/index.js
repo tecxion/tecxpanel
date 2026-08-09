@@ -107,10 +107,15 @@ function buildProxy(domain, port, opts = {}) {
 //  - port: puerto en el que escucha (ej. 8081).
 //  - root: carpeta con el código PHP (ej. /usr/share/phpmyadmin).
 //  - sock: socket de PHP-FPM al que enviar los .php.
-function buildPhpFpmSite(port, root, sock) {
+//  - opts.domain: si se indica, el sitio se sirve por dominio en el puerto 80
+//    (server_name dominio) en vez de por IP:puerto. Así certbot --nginx puede
+//    engancharle un certificado y convertirlo a HTTPS (443) automáticamente.
+function buildPhpFpmSite(port, root, sock, opts = {}) {
+  const listen = opts.domain ? 'listen 80;' : `listen ${port};`;
+  const serverName = opts.domain ? `server_name ${opts.domain};` : 'server_name _;';
   return `server {
-    listen ${port};
-    server_name _;
+    ${listen}
+    ${serverName}
     root ${root};
     index index.php index.html;
     location / { try_files $uri $uri/ /index.php?$query_string; }

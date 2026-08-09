@@ -5,7 +5,7 @@ const path = require('path');
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { runInput } = require('../lib/common/run');
-const { RE_APP_NAME, RE_DB_USER } = require('../lib/validators');
+const { RE_APP_NAME, RE_DB_USER, isValidDomain } = require('../lib/validators');
 const { encryptSecret, decryptSecret, genPassword } = require('../lib/crypto');
 const nginx = require('../lib/nginx');
 const { queries, audit } = require('../database');
@@ -148,14 +148,33 @@ function detectPhpFpmSock() {
   return null;
 }
 
+// Lee el server_name del vhost de phpMyAdmin (si se configuró por dominio).
+function pmaConfiguredDomain() {
+  try {
+    const conf = fs.readFileSync(PMA_CONF, 'utf8');
+    const m = conf.match(/server_name\s+([^;_\s]+)\s*;/);
+    return m ? m[1] : null;
+  } catch (_) { return null; }
+}
+
 router.get('/phpmyadmin/status', (req, res) => {
   const installed = fs.existsSync(PMA_DIR);
   const configured = fs.existsSync(PMA_LINK);
-  ok(res, { installed, configured, port: PMA_PORT });
+  const domain = configured ? pmaConfiguredDomain() : null;
+  const ssl = domain ? fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`) : false;
+  ok(res, { installed, configured, port: PMA_PORT, domain, ssl });
 });
 
+// POST /api/databases/phpmyadmin/setup — Configura el acceso web a phpMyAdmin.
+// Body opcional { domain }:
+//  - con dominio: vhost por server_name en el 80 + certbot → https://dominio.
+//    Requiere que el registro DNS del subdominio ya apunte a este servidor.
+//  - sin dominio: vhost en IP:8081 (HTTP). Sirve para instalaciones sin dominio.
 router.post('/phpmyadmin/setup', wrap(async (req, res) => {
   if (!fs.existsSync(PMA_DIR)) return fail(res, 400, 'phpMyAdmin no está instalado. Instálalo primero desde Plugins.');
+
+  const domain = (req.body?.domain || '').trim();
+  if (domain && !isValidDomain(domain)) return fail(res, 400, 'Dominio inválido (ej. phpmyadmin.tudominio.es)');
 
   // 1. Asegurar php-fpm
   let sock = detectPhpFpmSock();
@@ -167,14 +186,30 @@ router.post('/phpmyadmin/setup', wrap(async (req, res) => {
 
   // 2. Escribir y activar el vhost de nginx (valida y revierte si falla).
   try {
-    await nginx.enableSite('txpl-phpmyadmin', nginx.buildPhpFpmSite(PMA_PORT, PMA_DIR, sock));
+    await nginx.enableSite('txpl-phpmyadmin', nginx.buildPhpFpmSite(PMA_PORT, PMA_DIR, sock, { domain: domain || null }));
   } catch (e) {
     return fail(res, 500, e.message);
   }
-  await runSafe('ufw', ['allow', `${PMA_PORT}/tcp`]);
 
+  // 3a. Modo dominio: intentar SSL con certbot. Si falla (DNS aún no propaga,
+  //     puerto 80 cerrado…), dejamos el sitio en HTTP y avisamos, sin romper.
+  if (domain) {
+    let ssl = false;
+    let sslMsg = '';
+    try {
+      await nginx.installSsl(domain);
+      ssl = fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
+    } catch (e) {
+      sslMsg = 'El vhost quedó activo por HTTP, pero certbot no pudo emitir el certificado: ' + (e.message || '') + ' Comprueba que el DNS de ' + domain + ' apunta a este servidor y reintenta.';
+    }
+    audit(req.user.username, clientIp(req), 'phpmyadmin.setup', domain + (ssl ? ' (SSL)' : ' (HTTP)'));
+    return ok(res, { success: true, domain, ssl, url: `${ssl ? 'https' : 'http'}://${domain}`, message: sslMsg || null });
+  }
+
+  // 3b. Modo IP:puerto (sin dominio).
+  await runSafe('ufw', ['allow', `${PMA_PORT}/tcp`]);
   audit(req.user.username, clientIp(req), 'phpmyadmin.setup', `puerto ${PMA_PORT}`);
-  ok(res, { success: true, port: PMA_PORT });
+  ok(res, { success: true, port: PMA_PORT, url: null });
 }));
 
 // ── Adminer: gestor ligero para MySQL Y PostgreSQL ───────────
