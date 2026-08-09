@@ -235,22 +235,38 @@ async function setupPhpTool(t, req, res) {
 async function togglePortSsl(t, req, res) {
   const enabled = req.body?.enabled !== false; // por defecto true
   if (!fs.existsSync(t.link)) return fail(res, 400, `${t.label} no está configurado todavía.`);
-  const domain = confDomain(webAvail(t.site));
+  // Certificado a usar: el que pida el body, o el dominio propio de la
+  // herramienta si lo tuviera. Así se puede reutilizar el cert del panel
+  // (p.ej. vps.tudominio.es) sin montar un subdominio aparte.
+  const certDomain = (req.body?.certDomain || confDomain(webAvail(t.site)) || '').trim();
   if (enabled) {
-    if (!domain) return fail(res, 400, `Para poner HTTPS en el puerto, ${t.label} necesita primero un dominio con certificado (usa "configurar" e indica un subdominio).`);
-    if (!fs.existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`)) return fail(res, 400, `No hay certificado para ${domain} todavía. Emítelo configurando el dominio.`);
+    if (!certDomain) return fail(res, 400, `Indica un dominio con certificado para el HTTPS del puerto de ${t.label}.`);
+    if (!isValidDomain(certDomain)) return fail(res, 400, 'Dominio de certificado inválido');
+    if (!fs.existsSync(`/etc/letsencrypt/live/${certDomain}/fullchain.pem`)) return fail(res, 400, `No hay certificado para ${certDomain}. Usa un dominio que ya tenga SSL en este servidor (mira GET /api/databases/certs).`);
   }
   let sock = detectPhpFpmSock();
   if (!sock) return fail(res, 500, 'PHP-FPM no disponible.');
   try {
-    await nginx.enableSite(t.site, nginx.buildPhpFpmSite(t.port, t.dir, sock, enabled ? { sslCertDomain: domain } : {}));
+    await nginx.enableSite(t.site, nginx.buildPhpFpmSite(t.port, t.dir, sock, enabled ? { sslCertDomain: certDomain } : {}));
   } catch (e) {
     return fail(res, 500, e.message);
   }
-  audit(req.user.username, clientIp(req), `${t.site}.port-ssl`, enabled ? `on (${domain})` : 'off');
-  const urlHost = enabled && domain ? domain : (req.headers.host ? req.headers.host.split(':')[0] : 'IP');
-  ok(res, { success: true, portSsl: enabled, portUrl: `${enabled ? 'https' : 'http'}://${urlHost}:${t.port}` });
+  audit(req.user.username, clientIp(req), `${t.site}.port-ssl`, enabled ? `on (${certDomain})` : 'off');
+  const urlHost = enabled && certDomain ? certDomain : (req.headers.host ? req.headers.host.split(':')[0] : 'IP');
+  ok(res, { success: true, portSsl: enabled, certDomain: enabled ? certDomain : null, portUrl: `${enabled ? 'https' : 'http'}://${urlHost}:${t.port}` });
 }
+
+// GET /api/databases/certs — Lista los dominios con certificado en el servidor
+// (carpetas de /etc/letsencrypt/live) para elegir cuál usar en el HTTPS del puerto.
+router.get('/certs', (req, res) => {
+  let certs = [];
+  try {
+    certs = fs.readdirSync('/etc/letsencrypt/live', { withFileTypes: true })
+      .filter((d) => d.isDirectory() && fs.existsSync(`/etc/letsencrypt/live/${d.name}/fullchain.pem`))
+      .map((d) => d.name);
+  } catch (_) {}
+  ok(res, { success: true, certs });
+});
 
 router.get('/phpmyadmin/status', (req, res) => ok(res, toolStatus(TOOLS.phpmyadmin)));
 router.post('/phpmyadmin/setup', wrap((req, res) => setupPhpTool(TOOLS.phpmyadmin, req, res)));

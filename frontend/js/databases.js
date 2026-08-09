@@ -209,12 +209,31 @@ async function togglePortSsl(uiKey) {
   const st = dbTools[uiKey] || {};
   if (!st.configured) { toast(`Configura ${label} primero (botón de la herramienta).`, 'error'); return; }
   const enabling = !st.portSsl;
-  if (enabling && !st.domain) { toast(`Para HTTPS en el puerto, ${label} necesita un dominio con certificado. Config&uacute;ralo primero.`, 'error'); return; }
+
+  let certDomain = st.domain;
+  if (enabling && !certDomain) {
+    // Sin subdominio propio: dejamos elegir un certificado ya existente en el
+    // servidor (típicamente el del propio panel, p.ej. vps.tudominio.es).
+    const cr = await req('GET', '/databases/certs');
+    const list = cr?.certs || [];
+    if (!list.length) { toast('No hay certificados en el servidor. Emite uno primero (dando dominio+SSL al panel o a un sitio).', 'error'); return; }
+    const suggestion = list.find((d) => location.hostname.endsWith(d)) || list[0];
+    certDomain = prompt(
+      `HTTPS en el puerto ${st.port} de ${label}.\n\n` +
+      'Se usará el certificado de un dominio que ya tenga SSL en el servidor.\n' +
+      `Disponibles: ${list.join(', ')}\n\n` +
+      'Dominio del certificado a usar:', suggestion
+    );
+    if (certDomain === null || !certDomain.trim()) return;
+    certDomain = certDomain.trim();
+  }
+
+  const urlHost = certDomain || 'IP';
   const msg = enabling
-    ? `Se activará HTTPS en el puerto ${st.port} de ${label} usando el certificado de ${st.domain}.\n\nA partir de entonces se entra por https://${st.domain}:${st.port} y DEJA de funcionar http://IP:${st.port}.\n\n¿Continuar?`
+    ? `Se activará HTTPS en el puerto ${st.port} de ${label} con el certificado de ${certDomain}.\n\nEntrarás por https://${urlHost}:${st.port} y DEJARÁ de funcionar http://IP:${st.port}.\n\n¿Continuar?`
     : `Se quitará HTTPS del puerto ${st.port} de ${label}: volverá a http://IP:${st.port}.\n\n¿Continuar?`;
   if (!confirm(msg)) return;
-  const r = await req('POST', `/databases/${endpoint}/port-ssl`, { enabled: enabling });
+  const r = await req('POST', `/databases/${endpoint}/port-ssl`, { enabled: enabling, certDomain });
   if (r?.success) { toast(`Puerto de ${label}: HTTPS ${r.portSsl ? 'activado' : 'desactivado'} → ${r.portUrl}`, 'success'); loadDatabases(); }
   else toast(r?.error || 'Error', 'error');
 }
