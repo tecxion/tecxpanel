@@ -220,17 +220,21 @@ async function setupPma() {
   else toast(r?.error || 'Error configurando phpMyAdmin', 'error');
 }
 
-// repairMysql: aplica la "Opción A" (root → auth_socket + vacía la password
-// del .env). Deja MySQL usable sin volver a tocar SSH.
+// repairMysql: intenta "Opción A" (root → auth_socket + vaciar .env).
+// Primero prueba sin credenciales; si el backend no puede entrar
+// (needsPassword), pide la contraseña actual de root y reintenta pasándola
+// como uso único (no se persiste).
 async function repairMysql() {
   if (!confirm('Se cambiará el método de acceso de root@localhost a auth_socket y se vaciará MYSQL_ROOT_PASSWORD en .env.\n\nEl panel accederá a MySQL por socket (necesita correr como root, que es lo normal).\n\n¿Continuar?')) return;
   toast('Reparando MySQL...', 'info');
-  const r = await req('POST', '/databases/mysql/repair');
-  if (r?.success) {
-    toast('MySQL reparado. Prueba a diagnosticar o crear una BD.', 'success');
-  } else {
-    toast(r?.error || 'Error al reparar', 'error');
+  let r = await req('POST', '/databases/mysql/repair');
+  if (r?.needsPassword || (r && !r.success && /No se pudo reparar/i.test(r.error || ''))) {
+    const cp = prompt('El panel no puede autenticar automáticamente. Pega la contraseña actual de root@localhost de MySQL (solo se usa para este ALTER, no se guarda). Cancela para reparar por SSH manualmente:');
+    if (cp === null || !cp.trim()) return;
+    r = await req('POST', '/databases/mysql/repair', { currentPassword: cp.trim() });
   }
+  if (r?.success) toast('MySQL reparado. Ya puedes crear bases de datos.', 'success');
+  else toast(r?.error || 'Error al reparar', 'error');
 }
 
 // editMysqlEnvPassword: modifica MYSQL_ROOT_PASSWORD en el .env desde el panel.

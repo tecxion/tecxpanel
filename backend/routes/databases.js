@@ -342,22 +342,38 @@ function updateEnvKey(key, value) {
   return p;
 }
 
-// POST /api/databases/mysql/repair — Opción A: devuelve root a auth_socket
-// y limpia MYSQL_ROOT_PASSWORD del .env. Requiere que sudo -n mysql funcione
-// (o que el panel ya tenga root-socket). Deja MySQL utilizable sin password.
+// POST /api/databases/mysql/repair — Opción A: devuelve root a unix_socket
+// y limpia MYSQL_ROOT_PASSWORD del .env. Prueba primero con los métodos
+// automáticos (mysqlExec); si todos fallan y el usuario mandó
+// { currentPassword }, la usa como último recurso (no se guarda: se descarta
+// tras el ALTER). Sin body y sin acceso disponible, devuelve 400 pidiéndola.
 router.post('/mysql/repair', wrap(async (req, res) => {
-  const sql = "ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket;\nFLUSH PRIVILEGES;";
-  // Intentamos con los métodos actuales (root-socket, sudo-socket, debian,
-  // env-password). Si al menos uno funciona, aplicamos el cambio.
-  const r = await mysqlExec(sql);
+  const sqlUnix = "ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket;\nFLUSH PRIVILEGES;";
+  const sqlAuth = "ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;\nFLUSH PRIVILEGES;";
+
+  // 1) Métodos automáticos (los del mysqlExec)
+  let r = await mysqlExec(sqlUnix);
+  if (!r.ok) r = await mysqlExec(sqlAuth); // fallback MySQL 8
+
+  // 2) Password de un solo uso (nunca se persiste)
   if (!r.ok) {
-    // Fallback MySQL 8 (Oracle): usa auth_socket en vez de unix_socket.
-    const r2 = await mysqlExec("ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;\nFLUSH PRIVILEGES;");
-    if (!r2.ok) return fail(res, 500, `No se pudo reparar: ${(r.stderr || '').split('\n')[0]}. Conecta por SSH y ejecuta \`sudo mysql\` seguido de \`ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;\``);
+    const cp = req.body?.currentPassword;
+    if (cp && typeof cp === 'string') {
+      const env = { PATH: process.env.PATH || '/usr/bin:/bin', MYSQL_PWD: cp };
+      r = await runInput('mysql', ['-u', 'root'], sqlUnix, { env, timeout: 30_000 });
+      if (!r.ok) r = await runInput('mysql', ['-u', 'root'], sqlAuth, { env, timeout: 30_000 });
+    }
   }
+
+  if (!r.ok) {
+    const detail = (r.stderr || '').split('\n')[0] || 'acceso denegado';
+    // http:400 para que el frontend distinga y ofrezca pedir la password.
+    return res.status(400).json({ error: `No se pudo reparar automáticamente: ${detail}. Pega la contraseña actual de root (si la sabes) o repáralo por SSH: sudo mysql → ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;`, needsPassword: true });
+  }
+
   const p = updateEnvKey('MYSQL_ROOT_PASSWORD', '');
   audit(req.user.username, clientIp(req), 'db.repair', 'mysql:auth_socket');
-  ok(res, { success: true, envFile: p, hint: 'Root ahora se autentica por socket. MYSQL_ROOT_PASSWORD vaciado en .env; reinicia el panel si el acceso da problemas (pm2 reload txpl-panel).' });
+  ok(res, { success: true, envFile: p, hint: 'Root ahora se autentica por socket. MYSQL_ROOT_PASSWORD vaciado en .env.' });
 }));
 
 // GET /api/databases/env/mysql-password — Presencia (nunca el valor real).
