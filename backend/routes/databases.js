@@ -201,6 +201,111 @@ router.delete('/:id', wrap(async (req, res) => {
   ok(res);
 }));
 
+// POST /api/databases/:id/password — Cambia la contraseña del usuario de BD.
+// Si no se manda password, se genera. Se actualiza en MySQL/PG y se re-cifra.
+router.post('/:id/password', wrap(async (req, res) => {
+  const db = queries.getDatabase.get(+req.params.id);
+  if (!db) return fail(res, 404, 'DB no encontrada');
+  let newPass = req.body?.password;
+  if (newPass && !isSafePassword(String(newPass))) return fail(res, 400, 'Contraseña inválida (8-128 imprimibles, sin comillas, backticks, ;, \\)');
+  if (!newPass) newPass = genPassword(24);
+  const pw = sqlLit(newPass);
+  if (db.type === 'mysql') {
+    const r = await mysqlExec(`ALTER USER '${db.db_user}'@'localhost' IDENTIFIED BY '${pw}';\nFLUSH PRIVILEGES;`);
+    if (!r.ok) return fail(res, 500, 'MySQL: ' + (r.stderr.split('\n')[0] || 'fallo'));
+  } else {
+    const r = await pgExec(`ALTER ROLE "${db.db_user}" WITH PASSWORD '${pw}';`);
+    if (!r.ok) return fail(res, 500, 'PostgreSQL: ' + (r.stderr.split('\n')[0] || 'fallo'));
+  }
+  queries.updateDatabasePassword.run(encryptSecret(newPass), db.id);
+  audit(req.user.username, clientIp(req), 'db.password', db.name);
+  ok(res, { success: true, password: newPass });
+}));
+
+// POST /api/databases/:id/test — Prueba la conexión con las credenciales guardadas.
+router.post('/:id/test', wrap(async (req, res) => {
+  const db = queries.getDatabase.get(+req.params.id);
+  if (!db) return fail(res, 404, 'DB no encontrada');
+  const pass = decryptSecret(db.db_password);
+  if (pass === '(no descifrable)') return fail(res, 500, 'No se pudo descifrar la contraseña guardada. Cambia la contraseña para regenerarla.');
+  const env = { PATH: process.env.PATH || '/usr/bin:/bin' };
+  let r;
+  if (db.type === 'mysql') {
+    env.MYSQL_PWD = pass;
+    r = await runInput('mysql', ['-u', db.db_user, '-h', '127.0.0.1', db.name], 'SELECT 1;', { env, timeout: 15_000 });
+  } else {
+    env.PGPASSWORD = pass;
+    r = await runInput('psql', ['-U', db.db_user, '-h', '127.0.0.1', '-d', db.name, '-v', 'ON_ERROR_STOP=1'], 'SELECT 1;', { env, timeout: 15_000 });
+  }
+  ok(res, { success: true, working: r.ok, error: r.ok ? null : (r.stderr.split('\n')[0] || 'fallo') });
+}));
+
+// GET /api/databases/:id/info — Tamaño total y nº de tablas.
+router.get('/:id/info', wrap(async (req, res) => {
+  const db = queries.getDatabase.get(+req.params.id);
+  if (!db) return fail(res, 404, 'DB no encontrada');
+  if (db.type === 'mysql') {
+    const r = await mysqlExec(
+      `SELECT COALESCE(SUM(data_length + index_length),0) AS bytes, COUNT(*) AS tables FROM information_schema.tables WHERE table_schema = '${db.name}';`
+    );
+    if (!r.ok) return fail(res, 500, 'MySQL: ' + (r.stderr.split('\n')[0] || 'fallo'));
+    const line = r.stdout.trim().split('\n').pop() || '';
+    const [bytes, tables] = line.split(/\s+/).map((n) => parseInt(n, 10) || 0);
+    return ok(res, { success: true, bytes, tables });
+  } else {
+    const r = await pgExec(
+      `SELECT pg_database_size('${db.name}') AS bytes, (SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog='${db.name}' AND table_schema='public') AS tables;`
+    );
+    if (!r.ok) return fail(res, 500, 'PG: ' + (r.stderr.split('\n')[0] || 'fallo'));
+    const nums = (r.stdout.match(/-?\d+/g) || []).map((n) => parseInt(n, 10));
+    return ok(res, { success: true, bytes: nums[0] || 0, tables: nums[1] || 0 });
+  }
+}));
+
+// GET /api/databases/:id/dump — Descarga un dump SQL (mysqldump/pg_dump).
+router.get('/:id/dump', wrap(async (req, res) => {
+  const db = queries.getDatabase.get(+req.params.id);
+  if (!db) return fail(res, 404, 'DB no encontrada');
+  const pass = decryptSecret(db.db_password);
+  if (pass === '(no descifrable)') return fail(res, 500, 'No se pudo descifrar la contraseña');
+  const env = { PATH: process.env.PATH || '/usr/bin:/bin' };
+  let r;
+  if (db.type === 'mysql') {
+    env.MYSQL_PWD = pass;
+    r = await runInput('mysqldump', ['-u', db.db_user, '-h', '127.0.0.1', '--single-transaction', '--quick', db.name], '', { env, timeout: 0, maxBuffer: 256 * 1024 * 1024 });
+  } else {
+    env.PGPASSWORD = pass;
+    r = await runInput('pg_dump', ['-U', db.db_user, '-h', '127.0.0.1', db.name], '', { env, timeout: 0, maxBuffer: 256 * 1024 * 1024 });
+  }
+  if (!r.ok) return fail(res, 500, 'Dump falló: ' + (r.stderr.split('\n')[0] || 'error'));
+  audit(req.user.username, clientIp(req), 'db.dump', db.name);
+  res.setHeader('Content-Type', 'application/sql');
+  res.setHeader('Content-Disposition', `attachment; filename="${db.name}-${Date.now()}.sql"`);
+  res.send(r.stdout);
+}));
+
+// POST /api/databases/:id/restore — Restaura desde un .sql (JSON { sql: "..." }).
+router.post('/:id/restore', wrap(async (req, res) => {
+  const db = queries.getDatabase.get(+req.params.id);
+  if (!db) return fail(res, 404, 'DB no encontrada');
+  const sql = typeof req.body === 'string' ? req.body : (req.body?.sql || '');
+  if (!sql || sql.length < 4) return fail(res, 400, 'Falta el contenido SQL');
+  const pass = decryptSecret(db.db_password);
+  if (pass === '(no descifrable)') return fail(res, 500, 'No se pudo descifrar la contraseña');
+  const env = { PATH: process.env.PATH || '/usr/bin:/bin' };
+  let r;
+  if (db.type === 'mysql') {
+    env.MYSQL_PWD = pass;
+    r = await runInput('mysql', ['-u', db.db_user, '-h', '127.0.0.1', db.name], sql, { env, timeout: 0, maxBuffer: 64 * 1024 * 1024 });
+  } else {
+    env.PGPASSWORD = pass;
+    r = await runInput('psql', ['-U', db.db_user, '-h', '127.0.0.1', '-d', db.name, '-v', 'ON_ERROR_STOP=1'], sql, { env, timeout: 0, maxBuffer: 64 * 1024 * 1024 });
+  }
+  audit(req.user.username, clientIp(req), 'db.restore', `${db.name} (${sql.length} bytes)`);
+  if (!r.ok) return fail(res, 500, 'Restore: ' + (r.stderr.split('\n').filter(Boolean).slice(0, 2).join(' | ') || 'fallo'));
+  ok(res, { success: true, bytes: sql.length });
+}));
+
 router.get('/:id/password', (req, res) => {
   const db = queries.getDatabase.get(+req.params.id);
   if (!db) return fail(res, 404, 'DB no encontrada');

@@ -14,8 +14,8 @@ async function loadDatabases() {
   if (!data.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state">' + emptyState('database-off', 'Sin bases de datos', 'Nueva base de datos', "openModal('modal-new-db')") + '</td></tr>'; return; }
   tb.innerHTML = data.map(d => {
     const toolBtn = d.type === 'mysql'
-      ? `<button class="btn btn-sm" onclick="openTool('pma')" title="Abrir phpMyAdmin"><i class="ti ti-table"></i> phpMyAdmin</button>`
-      : `<button class="btn btn-sm" onclick="openTool('adminer')" title="Abrir Adminer"><i class="ti ti-table"></i> Adminer</button>`;
+      ? `<button class="btn btn-sm" onclick="openTool('pma')" title="Abrir phpMyAdmin"><i class="ti ti-table"></i></button>`
+      : `<button class="btn btn-sm" onclick="openTool('adminer')" title="Abrir Adminer"><i class="ti ti-table"></i></button>`;
     return `
     <tr>
       <td style="font-weight:600;font-family:var(--mono)">${esc(d.name)}</td>
@@ -24,18 +24,97 @@ async function loadDatabases() {
       <td style="font-family:var(--mono);font-size:12px">${esc(d.db_user)}</td>
       <td>
         <span id="pass-${d.id}" style="font-family:var(--mono);font-size:12px">••••••••</span>
-        <button class="btn btn-sm" onclick="toggleDbPass(${d.id})" title="Mostrar/ocultar contraseña"><i class="ti ti-eye" id="passicon-${d.id}"></i></button>
+        <button class="btn btn-sm" onclick="toggleDbPass(${d.id})" title="Mostrar/ocultar"><i class="ti ti-eye" id="passicon-${d.id}"></i></button>
       </td>
       <td><span class="badge badge-green">${esc(d.status)}</span></td>
       <td style="color:var(--text-muted)">${fmtDate(d.created_at)}</td>
       <td>
-        <div style="display:flex;gap:5px;justify-content:flex-end">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
           ${toolBtn}
-          <button class="btn btn-sm btn-danger" onclick="deleteDatabase(${d.id},'${esc(d.name)}')" title="Eliminar base de datos"><i class="ti ti-trash"></i> Eliminar</button>
+          <button class="btn btn-sm" onclick="testDbConnection(${d.id},event)" title="Probar conexión"><i class="ti ti-plug"></i></button>
+          <button class="btn btn-sm" onclick="showDbInfo(${d.id},'${esc(d.name)}')" title="Tamaño y tablas"><i class="ti ti-info-circle"></i></button>
+          <button class="btn btn-sm" onclick="copyConnString(${d.id},'${esc(d.type)}','${esc(d.name)}','${esc(d.db_user)}')" title="Copiar cadena de conexión"><i class="ti ti-link"></i></button>
+          <button class="btn btn-sm" onclick="changeDbPassword(${d.id},'${esc(d.name)}')" title="Cambiar contraseña"><i class="ti ti-key"></i></button>
+          <button class="btn btn-sm" onclick="downloadDbDump(${d.id},'${esc(d.name)}')" title="Descargar dump SQL"><i class="ti ti-download"></i></button>
+          <button class="btn btn-sm" onclick="openRestoreDb(${d.id},'${esc(d.name)}')" title="Restaurar desde .sql"><i class="ti ti-upload"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDatabase(${d.id},'${esc(d.name)}')" title="Eliminar"><i class="ti ti-trash"></i></button>
         </div>
       </td>
     </tr>
   `;}).join('');
+}
+
+// ── Tanda 2/3: acciones extra ────────────────────────────────
+
+async function testDbConnection(id, evt) {
+  const btn = evt?.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    const r = await req('POST', `/databases/${id}/test`);
+    if (r?.working) toast('✅ Conexión OK', 'success');
+    else toast('❌ ' + (r?.error || 'No conecta'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+async function showDbInfo(id, name) {
+  toast('Consultando información...', 'info');
+  const r = await req('GET', `/databases/${id}/info`);
+  if (!r?.success) return;
+  const mb = (r.bytes / (1024 * 1024)).toFixed(2);
+  alert(`ℹ ${name}\n\nTamaño: ${mb} MB (${r.bytes.toLocaleString()} bytes)\nTablas: ${r.tables}`);
+}
+
+async function changeDbPassword(id, name) {
+  const custom = prompt(`Nueva contraseña para "${name}" (deja vacío para generar una aleatoria de 24 caracteres):`);
+  if (custom === null) return;
+  const body = custom.trim() ? { password: custom.trim() } : {};
+  const r = await req('POST', `/databases/${id}/password`, body);
+  if (r?.success) {
+    await copyText(r.password);
+    toast(`Nueva contraseña copiada al portapapeles: ${r.password}`, 'success');
+    loadDatabases();
+  } else toast(r?.error || 'Error al cambiar contraseña', 'error');
+}
+
+function copyConnString(id, type, name, user) {
+  const host = serverIp || location.hostname;
+  const cmd = type === 'mysql'
+    ? `mysql -h ${host} -u ${user} -p ${name}`
+    : `psql -h ${host} -U ${user} -d ${name}`;
+  copyText(cmd).then(() => toast('Cadena copiada — te pedirá contraseña al conectar', 'success'));
+}
+
+async function downloadDbDump(id, name) {
+  toast('Generando dump...', 'info');
+  const token = localStorage.getItem('txpl_token');
+  const r = await fetch(`/api/databases/${id}/dump`, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || 'Error al generar dump', 'error'); return; }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name}-${Date.now()}.sql`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Dump descargado', 'success');
+}
+
+function openRestoreDb(id, name) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.sql,text/plain';
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (!confirm(`⚠ Restaurar "${f.name}" (${(f.size / 1024).toFixed(1)} KB) sobre la BD "${name}".\n\nPuede sobrescribir datos existentes. ¿Continuar?`)) return;
+    const sql = await f.text();
+    toast('Restaurando...', 'info');
+    const r = await req('POST', `/databases/${id}/restore`, { sql });
+    if (r?.success) toast(`Restaurado (${r.bytes} bytes)`, 'success');
+    else toast(r?.error || 'Error en restore', 'error');
+  };
+  input.click();
 }
 
 // toggleDbPass: muestra/oculta la contraseña de una base de datos (icono del ojo).
@@ -144,4 +223,6 @@ async function setupPma() {
 Object.assign(window, {
   createDatabase, deleteDatabase, loadDatabases, openTool, setupPma, toggleDbPass,
   diagnoseDb,
+  // v2 (tandas 2/3)
+  testDbConnection, showDbInfo, changeDbPassword, copyConnString, downloadDbDump, openRestoreDb,
 });
