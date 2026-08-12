@@ -32,6 +32,8 @@ module.exports = {
       updated_at = excluded.updated_at
   `),
   getNotifyState: db.prepare('SELECT * FROM notify_state WHERE key = ?'),
+  // Recursos actualmente en fallo (para el bot de Telegram: "¿hubo error en algo?").
+  listNotifyDown: db.prepare("SELECT key, since FROM notify_state WHERE status = 'down' ORDER BY since ASC"),
   upsertNotifyState: db.prepare(`
     INSERT INTO notify_state (key, status, pending_status, pending_count, since, notified, updated_at)
     VALUES (@key, @status, @pending_status, @pending_count, @since, @notified, datetime('now'))

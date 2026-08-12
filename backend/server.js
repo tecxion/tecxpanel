@@ -114,6 +114,11 @@ setupWebSockets(server, verifyToken);
 const { startMonitor } = require('./lib/monitor');
 startMonitor();
 
+// Bot interactivo de Telegram (menú de consulta de estado, long-polling).
+// Solo lectura; sin token/chat configurado se queda inactivo. Ver lib/notifications/bot.js.
+const { startBot } = require('./lib/notifications/bot');
+startBot();
+
 // Escuchamos SOLO en 127.0.0.1: el panel no se expone directo a internet,
 // nginx hace de proxy hacia aquí (más seguro).
 server.listen(PORT, '127.0.0.1', () => {
