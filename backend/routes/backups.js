@@ -43,6 +43,17 @@ router.get('/resources', (req, res) => {
   ok(res, { databases: dbs, sites, apps, panel: [{ class: 'panel', name: 'panel' }] });
 });
 
+// Lock de proceso: solo una operación de backup/restauración a la vez dentro del
+// panel (evita que dos pestañas lancen backups simultáneos que se pisen en disco).
+// No cubre el runner programado (proceso cron aparte).
+let backupRunning = false;
+function tryLockBackup(res) {
+  if (backupRunning) { fail(res, 409, 'Ya hay una operación de backup o restauración en curso. Espera a que termine.'); return false; }
+  backupRunning = true;
+  return true;
+}
+function unlockBackup() { backupRunning = false; }
+
 // ── Crear backup (streaming) ─────────────────────────────────
 router.post('/', (req, res) => {
   const { kind = 'full', resources = [] } = req.body || {};
@@ -54,6 +65,7 @@ router.post('/', (req, res) => {
     return fail(res, 400, error.message || 'Recursos de backup inválidos');
   }
   if (!items.length) return fail(res, 400, 'No hay recursos válidos que respaldar');
+  if (!tryLockBackup(res)) return;
   audit(req.user?.username || 'system', clientIp(req), 'backup.create', `${kind} (${items.length} piezas)`);
   startStream(res);
   engine.createBackup({ items, kind, origin: 'manual', write: (t) => res.write(t) })
@@ -71,7 +83,8 @@ router.post('/', (req, res) => {
       } catch (_) { /* la subida no debe tumbar el backup local */ }
       res.end('\n__TXPL_DONE__0');
     })
-    .catch(() => res.end('\n__TXPL_DONE__1'));
+    .catch(() => res.end('\n__TXPL_DONE__1'))
+    .finally(unlockBackup);
 });
 
 // ── Manifest de un backup ────────────────────────────────────
@@ -89,6 +102,7 @@ router.post('/:id/restore', wrap(async (req, res) => {
   const { items = [] } = req.body || {};
   const valid = Array.isArray(items) ? items.filter((i) => B.isValidResourceClass(i.class) && i.path) : [];
   if (!valid.length) return fail(res, 400, 'No hay piezas válidas que restaurar');
+  if (!tryLockBackup(res)) return;
   audit(req.user?.username || 'system', clientIp(req), 'backup.restore', `${row.filename} (${valid.length} piezas)`);
   startStream(res);
   try {
@@ -99,6 +113,8 @@ router.post('/:id/restore', wrap(async (req, res) => {
   } catch (e) {
     res.write(`\n❌ ${e.message}\n`);
     res.end('\n__TXPL_DONE__1');
+  } finally {
+    unlockBackup();
   }
 }));
 
@@ -268,6 +284,7 @@ router.get('/remote/list', wrap(async (req, res) => {
 router.post('/remote/:filename/restore', wrap(async (req, res) => {
   const filename = String(req.params.filename || '');
   if (!B.isValidBackupFilename(filename)) return fail(res, 400, 'Nombre de backup inválido');
+  if (!tryLockBackup(res)) return;
   audit(req.user?.username || 'system', clientIp(req), 'backup.remote.restore', filename);
   startStream(res);
   try {
@@ -288,6 +305,8 @@ router.post('/remote/:filename/restore', wrap(async (req, res) => {
   } catch (e) {
     res.write('[error] ' + e.message + '\n');
     res.end('\n__TXPL_DONE__1');
+  } finally {
+    unlockBackup();
   }
 }));
 

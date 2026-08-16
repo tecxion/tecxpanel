@@ -24,7 +24,7 @@ async function loadBackups() {
       <td>${fmtBytes(b.size_bytes)}</td>
       <td>${esc(b.status)}</td>
       <td>
-        <button class="btn btn-sm" onclick="backupRestore(${b.id})"><i class="ti ti-restore"></i></button>
+        <button class="btn btn-sm" data-bk-lock onclick="backupRestore(${b.id})"><i class="ti ti-restore"></i></button>
         <button class="btn btn-sm" onclick="backupUpload(${b.id})" title="Subir al remoto"><i class="ti ti-cloud-upload"></i></button>
         <button class="btn btn-sm" onclick="backupDownload(${b.id})"><i class="ti ti-download"></i></button>
         <button class="btn btn-sm btn-danger" onclick="backupDelete(${b.id})"><i class="ti ti-trash"></i></button>
@@ -157,11 +157,17 @@ async function loadRemoteBackups() {
 }
 
 async function backupRemoteRestore(filename) {
+  if (backupBusy) { toast('Ya hay una operación de backup en curso', 'info'); return; }
   if (!confirm(`Se descargará ${filename}, se creará un snapshot de seguridad y luego se restaurará el backup completo. ¿Continuar?`)) return;
-  const con = document.getElementById('backups-console');
-  con.style.display = 'block'; con.textContent = '';
-  document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
-  await streamConsole(`/backups/remote/${encodeURIComponent(filename)}/restore`, {}, con);
+  setBackupBusy(true);
+  try {
+    const con = document.getElementById('backups-console');
+    con.style.display = 'block'; con.textContent = '';
+    document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
+    await streamConsole(`/backups/remote/${encodeURIComponent(filename)}/restore`, {}, con);
+  } finally {
+    setBackupBusy(false);
+  }
   loadBackups();
 }
 
@@ -171,24 +177,46 @@ async function backupRemoteDelete(filename) {
   loadRemoteBackups();
 }
 
+// Cerrojo de reentrada: crear/restaurar comparten la misma consola y no deben
+// solaparse. Se activa de forma síncrona (antes de cualquier await) para que un
+// doble clic rápido no cuele dos operaciones a la vez.
+let backupBusy = false;
+function setBackupBusy(on) {
+  backupBusy = on;
+  document.querySelectorAll('[data-bk-lock]').forEach((el) => { el.disabled = on; });
+}
+
 async function backupNow(kind) {
-  const r = await req('GET', '/backups/resources');
-  if (!r) return;
-  const all = [...r.databases, ...r.sites, ...r.apps, ...r.panel];
-  const con = document.getElementById('backups-console');
-  con.style.display = 'block'; con.textContent = '';
-  document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
-  await streamConsole('/backups', { kind, resources: all }, con);
+  if (backupBusy) { toast('Ya hay una operación de backup en curso', 'info'); return; }
+  setBackupBusy(true);
+  try {
+    const r = await req('GET', '/backups/resources');
+    if (!r) return;
+    const all = [...r.databases, ...r.sites, ...r.apps, ...r.panel];
+    const con = document.getElementById('backups-console');
+    con.style.display = 'block'; con.textContent = '';
+    document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
+    await streamConsole('/backups', { kind, resources: all }, con);
+  } finally {
+    setBackupBusy(false);
+  }
   loadBackups();
 }
 
 async function backupRestore(id) {
-  const m = await req('GET', `/backups/${id}/manifest`);
-  if (!m) return;
-  if (!confirm('Se creará un snapshot de seguridad y luego se restaurará el backup completo. ¿Continuar?')) return;
-  const con = document.getElementById('backups-console');
-  con.style.display = 'block'; con.textContent = '';
-  await streamConsole(`/backups/${id}/restore`, { items: m.manifest.items }, con);
+  if (backupBusy) { toast('Ya hay una operación de backup en curso', 'info'); return; }
+  setBackupBusy(true);
+  try {
+    const m = await req('GET', `/backups/${id}/manifest`);
+    if (!m) return;
+    if (!confirm('Se creará un snapshot de seguridad y luego se restaurará el backup completo. ¿Continuar?')) return;
+    const con = document.getElementById('backups-console');
+    con.style.display = 'block'; con.textContent = '';
+    document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
+    await streamConsole(`/backups/${id}/restore`, { items: m.manifest.items }, con);
+  } finally {
+    setBackupBusy(false);
+  }
   loadBackups();
 }
 
