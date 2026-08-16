@@ -83,12 +83,18 @@ async function loadDockerContainers() {
 async function loadDockerResources() {
   const target = document.getElementById('docker-resource-summary');
   if (!target) return;
-  const results = await Promise.all([
-    req('GET', '/docker/images'),
-    req('GET', '/docker/volumes'),
-    req('GET', '/docker/networks'),
-  ]);
-  if (results.some(result => !Array.isArray(result))) {
+  // Tolerante a fallos: si algún endpoint no existe todavía (backend sin recargar)
+  // o Docker no está disponible, req puede rechazar; mostramos el estado de error
+  // en vez de dejar el spinner colgado para siempre.
+  let results;
+  try {
+    results = await Promise.all([
+      req('GET', '/docker/images'),
+      req('GET', '/docker/volumes'),
+      req('GET', '/docker/networks'),
+    ]);
+  } catch (_) { results = []; }
+  if (results.length !== 3 || results.some(result => !Array.isArray(result))) {
     target.innerHTML = '<div class="docker-resource-error"><i class="ti ti-alert-triangle"></i> Recursos Docker no disponibles</div>';
     return;
   }
@@ -162,10 +168,13 @@ async function refreshDockerDetails() {
   // closeDockerDetails), dejamos de sondear para no fugar el intervalo.
   const modal = document.getElementById('modal-docker-details');
   if (!modal || !modal.classList.contains('open')) { closeDockerDetails(); return; }
-  const results = await Promise.all([
-    req('GET', '/docker/containers/' + dockerDetailsId + '/details'),
-    req('GET', '/docker/containers/' + dockerDetailsId + '/stats'),
-  ]);
+  let results;
+  try {
+    results = await Promise.all([
+      req('GET', '/docker/containers/' + dockerDetailsId + '/details'),
+      req('GET', '/docker/containers/' + dockerDetailsId + '/stats'),
+    ]);
+  } catch (_) { return; } // no rompemos el intervalo por un tick fallido
   if (results[0] && !results[0].error) renderDockerDetails(results[0], results[1] && !results[1].error ? results[1] : null);
 }
 
