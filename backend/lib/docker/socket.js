@@ -22,7 +22,7 @@ function dockerConfName(domain) {
 // Petición genérica a la API de Docker por el socket UNIX.
 // Devuelve { statusCode, headers, body (Buffer) }.
 // En Windows o sin socket, rechaza limpiamente.
-function dockerRequest(method, path, body = null) {
+function dockerRequest(method, path, body = null, { timeout = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(DOCKER_SOCKET)) {
       return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
@@ -52,6 +52,11 @@ function dockerRequest(method, path, body = null) {
     });
 
     req.on('error', (err) => reject(err));
+    if (timeout > 0) {
+      req.setTimeout(timeout, () => {
+        req.destroy(new Error('Tiempo de espera agotado al contactar con Docker (' + timeout + ' ms).'));
+      });
+    }
 
     if (body) {
       req.write(JSON.stringify(body));

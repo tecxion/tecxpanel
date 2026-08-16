@@ -26,11 +26,11 @@ const DEPLOY_TEMPLATES = {
   },
   node: {
     label: 'Node.js', containerPort: 3000, fixedPort: false,
-    gen: (port) => `FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm install --omit=dev || true\nEXPOSE ${port}\nCMD ["npm","start"]\n`,
+    gen: (port) => `FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN if [ -f package-lock.json ]; then npm ci --omit=dev; elif [ -f package.json ]; then npm install --omit=dev; else echo "No se encontró package.json"; fi\nEXPOSE ${port}\nCMD ["npm","start"]\n`,
   },
   python: {
     label: 'Python', containerPort: 8000, fixedPort: false,
-    gen: (port) => `FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt || true\nEXPOSE ${port}\nCMD ["python","app.py"]\n`,
+    gen: (port) => `FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; else echo "No se encontró requirements.txt"; fi\nEXPOSE ${port}\nCMD ["python","app.py"]\n`,
   },
   dockerfile: {
     label: 'Ya tengo Dockerfile', containerPort: null, fixedPort: false,

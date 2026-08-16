@@ -11,10 +11,12 @@ const socket = require('./socket');
 const config = require('./config');
 const networking = require('./networking');
 const deploy = require('./deploy');
+const service = require('./service');
 
 module.exports = {
   ...socket,
   ...config,
   ...networking,
   ...deploy,
+  ...service,
 };

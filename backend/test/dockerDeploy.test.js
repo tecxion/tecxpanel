@@ -2,8 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
+const { DEPLOY_TEMPLATES } = require('../lib/docker/config');
+const { parseImageReference, buildPullPath, calculateCpuPercent, normalizeStats, sanitizeContainerDetails } = require('../lib/docker/service');
 const {
-  sanitizeRepoUrl, buildGitAuthEnv, isInsideBase, validatePort, parseVolumeBind,
+  sanitizeRepoUrl, buildGitAuthEnv, isInsideBase, validatePort, validateImageRef,
+  normalizeEnvLines, validateZipEntries, redactEnvLines, buildCommandEnv, parseVolumeBind,
 } = require('../lib/dockerDeploy');
 
 test('sanitizeRepoUrl: quita credenciales embebidas', () => {
@@ -54,6 +57,68 @@ test('validatePort: vacío => null; válido => int; inválido => ok:false', () =
   assert.strictEqual(validatePort('abc').ok, false);
   assert.strictEqual(validatePort('0').ok, false);
   assert.strictEqual(validatePort('70000').ok, false);
+  assert.strictEqual(validatePort('8080abc').ok, false);
+});
+
+test('validateImageRef: acepta referencias normales y rechaza flags/espacios', () => {
+  assert.deepStrictEqual(validateImageRef('nginx:alpine'), { ok: true, image: 'nginx:alpine' });
+  assert.strictEqual(validateImageRef('--network=host').ok, false);
+  assert.strictEqual(validateImageRef('nginx alpine').ok, false);
+});
+
+test('normalizeEnvLines: valida claves y limita contenido', () => {
+  assert.deepStrictEqual(normalizeEnvLines('PORT=3000\nAPP_MODE=prod'), { ok: true, value: 'PORT=3000\nAPP_MODE=prod' });
+  assert.strictEqual(normalizeEnvLines('INVALID-KEY=value').ok, false);
+  assert.strictEqual(normalizeEnvLines('A=1\n\nB=2').value, 'A=1\nB=2');
+});
+
+test('validateZipEntries: rechaza traversal y exceso de entradas', () => {
+  assert.deepStrictEqual(validateZipEntries(['app/index.js']), { ok: true });
+  assert.strictEqual(validateZipEntries(['../etc/passwd']).ok, false);
+  assert.strictEqual(validateZipEntries(['a', 'b'], { maxEntries: 1 }).ok, false);
+});
+
+test('buildCommandEnv: no hereda secretos del proceso', () => {
+  const env = buildCommandEnv({ GIT_TERMINAL_PROMPT: '0' });
+  assert.strictEqual(env.GIT_TERMINAL_PROMPT, '0');
+  assert.strictEqual(env.JWT_SECRET, undefined);
+  assert.ok(env.PATH);
+});
+
+test('redactEnvLines: no expone valores al reconstruir configuración', () => {
+  assert.deepStrictEqual(redactEnvLines(['API_KEY=secreto', 'EMPTY=']), ['API_KEY=***', 'EMPTY=***']);
+});
+
+test('plantillas Node y Python no ocultan errores de dependencias', () => {
+  const nodeDockerfile = DEPLOY_TEMPLATES.node.gen(3000);
+  const pythonDockerfile = DEPLOY_TEMPLATES.python.gen(8000);
+  assert.match(nodeDockerfile, /npm ci --omit=dev/);
+  assert.match(nodeDockerfile, /npm install --omit=dev/);
+  assert.match(pythonDockerfile, /pip install --no-cache-dir -r requirements\.txt/);
+  assert.doesNotMatch(nodeDockerfile, /\|\| true/);
+  assert.doesNotMatch(pythonDockerfile, /\|\| true/);
+});
+
+test('servicio Docker: separa registry con puerto y siempre construye pull etiquetado', () => {
+  assert.deepStrictEqual(parseImageReference('nginx'), { name: 'nginx', tag: 'latest' });
+  assert.deepStrictEqual(parseImageReference('registry.local:5000/team/app:v2'), { name: 'registry.local:5000/team/app', tag: 'v2' });
+  assert.strictEqual(buildPullPath('nginx'), '/images/create?fromImage=nginx&tag=latest');
+  assert.strictEqual(buildPullPath('registry.local:5000/team/app:v2'), '/images/create?fromImage=registry.local%3A5000%2Fteam%2Fapp&tag=v2');
+});
+
+test('servicio Docker: normaliza CPU, memoria e I/O sin exponer secretos', () => {
+  const stats = normalizeStats({
+    cpu_stats: { cpu_usage: { total_usage: 130 }, system_cpu_usage: 300, online_cpus: 2 },
+    precpu_stats: { cpu_usage: { total_usage: 100 }, system_cpu_usage: 200 },
+    memory_stats: { usage: 50, limit: 100 },
+    networks: { eth0: { rx_bytes: 10, tx_bytes: 20 } },
+    blkio_stats: { io_service_bytes_recursive: [{ op: 'read', value: 7 }, { op: 'write', value: 3 }] },
+  });
+  assert.strictEqual(calculateCpuPercent({ cpu_stats: { cpu_usage: { total_usage: 130 }, system_cpu_usage: 300, online_cpus: 2 }, precpu_stats: { cpu_usage: { total_usage: 100 }, system_cpu_usage: 200 } }), 60);
+  assert.deepStrictEqual(stats, { cpuPercent: 60, memoryUsed: 50, memoryLimit: 100, memoryPercent: 50, networkRx: 10, networkTx: 20, blockRead: 7, blockWrite: 3 });
+  const details = sanitizeContainerDetails({ Name: '/demo', Config: { Image: 'app:latest', Env: ['TOKEN=secret', 'PORT=3000'], Cmd: ['node', 'server.js'], Labels: { 'txpl.domain': 'demo.test' } }, State: { Status: 'running', Running: true, Health: { Status: 'healthy', Log: [{ Output: 'ok' }] } }, Mounts: [], NetworkSettings: { Networks: {}, Ports: {} } });
+  assert.deepStrictEqual(details.envKeys, ['TOKEN', 'PORT']);
+  assert.strictEqual(JSON.stringify(details).includes('secret'), false);
 });
 
 test('parseVolumeBind: ambos, ninguno, o error', () => {
@@ -79,4 +144,3 @@ test('crypto: encriptar y desencriptar token de GitHub (AES-256-GCM)', () => {
   assert.strictEqual(decryptText(null), null);
   assert.strictEqual(decryptText('invalido'), null);
 });
-

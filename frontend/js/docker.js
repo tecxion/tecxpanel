@@ -5,6 +5,7 @@ async function loadDockerContainers() {
   tb.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="ti ti-loader-2 ti-spin"></i> Cargando contenedores...</td></tr>';
 
   const data = await req('GET', '/docker/containers');
+  loadDockerResources();
   if (!data) {
     tb.innerHTML = '<tr><td colspan="6" class="empty-state">No se pudo cargar la lista de contenedores.</td></tr>';
     return;
@@ -67,6 +68,7 @@ async function loadDockerContainers() {
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           ${controlBtn}
           ${gitBtn}
+          <button class="btn btn-sm btn-primary" onclick="openDockerDetails('${c.Id}','${esc(name)}')" title="Ver detalles y estadísticas"><i class="ti ti-chart-dots-3"></i> Detalles</button>
           <button class="btn btn-sm" onclick="openDockerEditModal('dockerfile','${esc(c.containerName || name)}')" title="Editar Dockerfile"><i class="ti ti-file-code"></i> Dockerfile</button>
           <button class="btn btn-sm" onclick="openDockerEditModal('compose','${esc(c.containerName || name)}')" title="Editar Docker Compose"><i class="ti ti-file-settings"></i> Compose</button>
           <button class="btn btn-sm" onclick="viewDockerLogs('${c.Id}','${esc(name)}')" title="Ver logs"><i class="ti ti-file-text"></i> Logs</button>
@@ -76,6 +78,25 @@ async function loadDockerContainers() {
     </tr>
     `;
   }).join('');
+}
+
+async function loadDockerResources() {
+  const target = document.getElementById('docker-resource-summary');
+  if (!target) return;
+  const results = await Promise.all([
+    req('GET', '/docker/images'),
+    req('GET', '/docker/volumes'),
+    req('GET', '/docker/networks'),
+  ]);
+  if (results.some(result => !Array.isArray(result))) {
+    target.innerHTML = '<div class="docker-resource-error"><i class="ti ti-alert-triangle"></i> Recursos Docker no disponibles</div>';
+    return;
+  }
+  target.innerHTML = [
+    ['ti-photo', 'Imágenes', results[0].length],
+    ['ti-database', 'Volúmenes', results[1].length],
+    ['ti-network', 'Redes', results[2].length],
+  ].map(item => '<div><i class="ti ' + item[0] + '"></i><span>' + item[1] + '</span><strong>' + item[2] + '</strong></div>').join('');
 }
 
 // dockerAction: arranca/para/reinicia un contenedor y refresca la lista.
@@ -98,6 +119,92 @@ async function viewDockerLogs(id, name) {
 
   const r = await req('GET', `/docker/containers/${id}/logs`);
   document.getElementById('docker-logs-output').textContent = r?.logs || 'Sin logs en las últimas 200 líneas.';
+}
+
+let dockerDetailsTimer = null;
+let dockerDetailsId = null;
+
+function formatDockerBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return bytes + ' B';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let amount = bytes;
+  let unit = 'B';
+  for (const next of units) {
+    amount /= 1024;
+    unit = next;
+    if (amount < 1024) break;
+  }
+  return amount.toFixed(amount < 10 ? 1 : 0) + ' ' + unit;
+}
+
+function renderDockerDetails(details, stats) {
+  const health = details.state.health;
+  const healthText = !health ? 'Sin healthcheck' : health.status + (health.failingStreak ? ' · ' + health.failingStreak + ' fallos' : '');
+  const healthClass = !health ? 'badge-blue' : health.status === 'healthy' ? 'badge-green' : health.status === 'starting' ? 'badge-yellow' : 'badge-red';
+  const statsHtml = stats ? '<div class="docker-detail-grid">' +
+    '<div><small>CPU</small><strong>' + Number(stats.cpuPercent).toFixed(1) + '%</strong></div>' +
+    '<div><small>Memoria</small><strong>' + formatDockerBytes(stats.memoryUsed) + ' / ' + formatDockerBytes(stats.memoryLimit) + '</strong><span>' + Number(stats.memoryPercent).toFixed(1) + '%</span></div>' +
+    '<div><small>Red RX / TX</small><strong>' + formatDockerBytes(stats.networkRx) + ' / ' + formatDockerBytes(stats.networkTx) + '</strong></div>' +
+    '<div><small>Disco lectura / escritura</small><strong>' + formatDockerBytes(stats.blockRead) + ' / ' + formatDockerBytes(stats.blockWrite) + '</strong></div></div>' : '<div class="empty-state" style="padding:1rem">Estadísticas no disponibles; el contenedor puede estar detenido.</div>';
+  const mounts = details.mounts.length ? details.mounts.map(m => '<span>' + esc(m.source || m.name || m.type) + ' → <code>' + esc(m.destination) + '</code>' + (m.readOnly ? ' · solo lectura' : '') + '</span>').join('') : '<span>Sin montajes</span>';
+  const networks = details.networks.length ? details.networks.map(n => '<span>Red ' + esc(n.name) + ' · ' + esc(n.ip || 'sin IP') + '</span>').join('') : '<span>Sin redes</span>';
+  document.getElementById('docker-details-content').innerHTML =
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:1rem"><span class="badge ' + (details.state.running ? 'badge-green' : 'badge-red') + '">' + esc(details.state.status) + '</span><span class="badge ' + healthClass + '">' + esc(healthText) + '</span><span style="font-size:12px;color:var(--text-muted)">' + esc(details.image) + '</span></div>' +
+    statsHtml +
+    '<div class="docker-detail-section"><strong>Configuración</strong><div class="docker-detail-meta"><span>Comando: <code>' + esc(details.command) + '</code></span><span>Directorio: <code>' + esc(details.workingDir) + '</code></span><span>Variables: ' + (details.envKeys.length ? esc(details.envKeys.join(', ')) : 'Ninguna') + '</span></div></div>' +
+    '<div class="docker-detail-section"><strong>Montajes y redes</strong><div class="docker-detail-meta">' + mounts + networks + '</div></div>';
+}
+
+async function refreshDockerDetails() {
+  if (!dockerDetailsId) return;
+  // Auto-parada: si el modal se cerró por el fondo/Escape (sin pasar por
+  // closeDockerDetails), dejamos de sondear para no fugar el intervalo.
+  const modal = document.getElementById('modal-docker-details');
+  if (!modal || !modal.classList.contains('open')) { closeDockerDetails(); return; }
+  const results = await Promise.all([
+    req('GET', '/docker/containers/' + dockerDetailsId + '/details'),
+    req('GET', '/docker/containers/' + dockerDetailsId + '/stats'),
+  ]);
+  if (results[0] && !results[0].error) renderDockerDetails(results[0], results[1] && !results[1].error ? results[1] : null);
+}
+
+async function openDockerDetails(id, name) {
+  dockerDetailsId = id;
+  document.getElementById('docker-details-title').textContent = name;
+  document.getElementById('docker-details-content').innerHTML = '<div class="empty-state"><i class="ti ti-loader-2 ti-spin"></i> Cargando detalles...</div>';
+  openModal('modal-docker-details');
+  clearInterval(dockerDetailsTimer);
+  await refreshDockerDetails();
+  dockerDetailsTimer = setInterval(refreshDockerDetails, 5000);
+}
+
+function closeDockerDetails() {
+  clearInterval(dockerDetailsTimer);
+  dockerDetailsTimer = null;
+  dockerDetailsId = null;
+  closeModal('modal-docker-details');
+}
+
+// ── Cancelar un despliegue en curso (ZIP/Git) ──────────────────
+// El backend devuelve la cabecera X-TXPL-Job-Id al abrir el stream; con ella
+// mostramos el botón y pedimos POST /docker/jobs/:id/cancel.
+let dockerDeployJobId = null;
+
+function showDockerCancel(jobId) {
+  dockerDeployJobId = jobId || null;
+  const b = document.getElementById('docker-deploy-cancel');
+  if (b) { b.style.display = jobId ? 'inline-flex' : 'none'; b.disabled = false; }
+}
+
+function hideDockerCancel() { showDockerCancel(null); }
+
+async function cancelDockerDeploy() {
+  if (!dockerDeployJobId) return;
+  const b = document.getElementById('docker-deploy-cancel');
+  if (b) b.disabled = true;
+  const r = await req('POST', '/docker/jobs/' + encodeURIComponent(dockerDeployJobId) + '/cancel');
+  toast(r?.success ? 'Cancelando el despliegue…' : (r?.error || 'No se pudo cancelar'), r?.success ? 'info' : 'error');
 }
 
 let currentDockerTab = 'image';
@@ -294,6 +401,7 @@ async function deployDockerApp() {
       return;
     }
     if (!r.body) { logEl.textContent += 'El navegador no soporta streaming.'; spinner.style.display = 'none'; btn.disabled = false; return; }
+    showDockerCancel(r.headers.get('X-TXPL-Job-Id'));
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
@@ -312,6 +420,7 @@ async function deployDockerApp() {
     logEl.textContent += '\n✖ Error de conexión: ' + (e?.message || e) + '\n';
   }
 
+  hideDockerCancel();
   spinner.style.display = 'none';
   btn.disabled = false;
   const success = exitCode === 0;
@@ -387,6 +496,7 @@ async function deployDockerGitApp() {
       return;
     }
     if (!r.body) { logEl.textContent += 'El navegador no soporta streaming.'; spinner.style.display = 'none'; btn.disabled = false; return; }
+    showDockerCancel(r.headers.get('X-TXPL-Job-Id'));
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
@@ -405,6 +515,7 @@ async function deployDockerGitApp() {
     logEl.textContent += '\n✖ Error de conexión: ' + (e?.message || e) + '\n';
   }
 
+  hideDockerCancel();
   spinner.style.display = 'none';
   btn.disabled = false;
   const success = exitCode === 0;
@@ -576,5 +687,5 @@ async function redeployDockerGit(name) {
 
 
 Object.assign(window, {
-  createDockerContainer, deleteDockerContainer, deployDockerApp, deployDockerGitApp, dockerAction, loadDockerContainers, onDeployTemplateChange, openDockerEditModal, openGitDeployModal, redeployDockerGit, saveDockerFile, switchDockerTab, viewDockerLogs,
+  createDockerContainer, deleteDockerContainer, deployDockerApp, deployDockerGitApp, dockerAction, loadDockerContainers, loadDockerResources, onDeployTemplateChange, openDockerEditModal, openGitDeployModal, redeployDockerGit, saveDockerFile, switchDockerTab, viewDockerLogs, openDockerDetails, closeDockerDetails, cancelDockerDeploy,
 });

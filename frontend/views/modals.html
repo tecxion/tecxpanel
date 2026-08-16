@@ -350,6 +350,21 @@
 </div>
 
 <!-- Docker Logs -->
+<div class="modal-overlay" id="modal-docker-details">
+  <div class="modal" style="width:92%;max-width:900px;max-height:88vh">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-chart-dots-3" style="color:var(--cyan)"></i> Detalles Docker &mdash; <span id="docker-details-title"></span></div>
+      <button class="btn btn-sm" onclick="closeDockerDetails()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="docker-details-content">
+      <div class="empty-state">Cargando detalles...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeDockerDetails()"><i class="ti ti-x"></i> Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-docker-logs">
   <div class="modal" style="width:92%;max-width:1050px;height:85vh;max-height:850px;display:flex;flex-direction:column">
     <div class="modal-header">
@@ -568,8 +583,10 @@
 
       <!-- Logs en vivo del despliegue -->
       <div id="docker-deploy-progress" style="display:none;margin-top:1rem">
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px"><i class="ti ti-loader-2 ti-spin"
-            id="docker-deploy-spinner"></i> Despliegue en curso...</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+          <span><i class="ti ti-loader-2 ti-spin" id="docker-deploy-spinner"></i> Despliegue en curso...</span>
+          <button class="btn btn-sm" id="docker-deploy-cancel" style="display:none" onclick="cancelDockerDeploy()"><i class="ti ti-ban"></i> Cancelar despliegue</button>
+        </div>
         <pre id="docker-deploy-log"
           style="background:var(--bg-app,#0b0e14);color:#cfe3ee;max-height:280px;overflow:auto;padding:10px;border-radius:8px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;margin:0"></pre>
       </div>

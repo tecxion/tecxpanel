@@ -281,6 +281,21 @@ tr:last-child td{border-bottom:none}
 }
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
 .form-group select option{background:var(--bg-card)}
+.docker-detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem}
+.docker-resource-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.25rem}
+.docker-resource-summary>div{display:flex;align-items:center;gap:9px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;color:var(--text-secondary);font-size:12px}
+.docker-resource-summary .ti{font-size:18px;color:var(--cyan)}
+.docker-resource-summary strong{margin-left:auto;font-size:17px;color:var(--text-primary)}
+.docker-resource-error{grid-column:1/-1;color:var(--text-muted)}
+.docker-detail-grid>div{background:var(--bg-app);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;display:flex;flex-direction:column;gap:4px}
+.docker-detail-grid small{font-size:11px;color:var(--text-muted)}
+.docker-detail-grid strong{font-size:15px;color:var(--text-primary)}
+.docker-detail-grid span{font-size:11px;color:var(--text-secondary)}
+.docker-detail-section{border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem}
+.docker-detail-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:12px;color:var(--text-secondary)}
+.docker-detail-meta span{background:var(--bg-app);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 9px}
+@media(max-width:700px){.docker-detail-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.docker-resource-summary{grid-template-columns:1fr}}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
 .deploy-drop{border:2px dashed var(--border);border-radius:var(--radius);padding:1.1rem;text-align:center;
   color:var(--text-muted);background:var(--bg-app);cursor:pointer;transition:all var(--transition);font-size:13px}

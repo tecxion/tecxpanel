@@ -21,12 +21,45 @@ const dockerDeploy = require('../lib/dockerDeploy');
 const { audit, queries } = require('../database');
 const { encryptText, decryptText } = require('../lib/crypto');
 
-const { dockerRequest, dockerExec, dockerConfName, decodeDockerLogs } = require('../lib/docker/socket');
+const { dockerRequest, dockerConfName, decodeDockerLogs } = require('../lib/docker/socket');
 const { DEPLOY_TEMPLATES, buildContainerConfig, flattenSingleSubdir } = require('../lib/docker/config');
 const { applyDockerNetworking } = require('../lib/docker/networking');
+const dockerService = require('../lib/docker/service');
+const dockerJobs = require('../lib/docker/jobs');
 
 const router = express.Router();
 const DOCKER_BUILDS_DIR = path.join(process.env.TXPL_DIR || '/opt/txpl', 'data', 'docker-builds');// ── Endpoints ──────────────────────────────────────────────────
+const MAX_UPLOAD_BYTES = Number(process.env.TXPL_DOCKER_UPLOAD_MAX_BYTES) || 200 * 1024 * 1024;
+const MAX_DOCKERFILE_BYTES = 1024 * 1024;
+const COMMAND_ENV = dockerDeploy.buildCommandEnv();
+const DEFAULT_DOCKERIGNORE = '.git\n.git/**\n.env\n.env.*\nnode_modules\n.venv\nvenv\n*.key\n*.pem\n';
+
+function ensureDockerignore(dir) {
+  const file = path.join(dir, '.dockerignore');
+  if (!fs.existsSync(file)) fs.writeFileSync(file, DEFAULT_DOCKERIGNORE, 'utf8');
+}
+
+// ¿Se ha pedido cancelar este job? Se consulta entre fases del despliegue para
+// abortar en los huecos donde no hay un proceso hijo vivo que matar (unzip, git).
+function jobCancelled(jobId) {
+  return !!queries.getDockerJob.get(jobId)?.cancel_requested;
+}
+
+router.get('/jobs', wrap(async (req, res) => {
+  ok(res, queries.listDockerJobs.all());
+}));
+
+router.get('/jobs/:id', wrap(async (req, res) => {
+  const job = queries.getDockerJob.get(req.params.id);
+  if (!job) return fail(res, 404, 'Job Docker no encontrado.');
+  ok(res, job);
+}));
+
+router.post('/jobs/:id/cancel', wrap(async (req, res) => {
+  if (!dockerJobs.cancelJob(req.params.id)) return fail(res, 409, 'El job no está activo o no existe.');
+  audit(req.user.username, clientIp(req), 'docker.job_cancel', req.params.id);
+  ok(res, { success: true });
+}));
 
 // GET /api/docker/containers - List all containers (enrich with git deploy info)
 router.get('/containers', wrap(async (req, res) => {
@@ -69,6 +102,37 @@ router.get('/containers', wrap(async (req, res) => {
     console.error('[docker] Error al listar contenedores:', err.message);
     fail(res, 500, err.message || 'No se pudo conectar a Docker');
   }
+}));
+
+router.get('/containers/:id/details', wrap(async (req, res) => {
+  const result = await dockerRequest('GET', '/containers/' + encodeURIComponent(req.params.id) + '/json');
+  if (result.statusCode >= 400) return fail(res, result.statusCode, 'No se pudo inspeccionar el contenedor.');
+  ok(res, dockerService.sanitizeContainerDetails(JSON.parse(result.body.toString())));
+}));
+
+router.get('/containers/:id/stats', wrap(async (req, res) => {
+  const result = await dockerRequest('GET', '/containers/' + encodeURIComponent(req.params.id) + '/stats?stream=0', null, { timeout: 10_000 });
+  if (result.statusCode >= 400) return fail(res, result.statusCode, 'No se pudieron obtener las estadísticas del contenedor.');
+  ok(res, dockerService.normalizeStats(JSON.parse(result.body.toString())));
+}));
+
+router.get('/images', wrap(async (req, res) => {
+  const result = await dockerRequest('GET', '/images/json?all=1');
+  if (result.statusCode >= 400) return fail(res, result.statusCode, 'No se pudieron listar las imágenes.');
+  ok(res, JSON.parse(result.body.toString()).map(image => ({ id: image.Id, tags: image.RepoTags || [], size: image.Size, created: image.Created, containers: image.Containers })));
+}));
+
+router.get('/volumes', wrap(async (req, res) => {
+  const result = await dockerRequest('GET', '/volumes');
+  if (result.statusCode >= 400) return fail(res, result.statusCode, 'No se pudieron listar los volúmenes.');
+  const data = JSON.parse(result.body.toString());
+  ok(res, (data.Volumes || []).map(volume => ({ name: volume.Name, driver: volume.Driver, mountpoint: volume.Mountpoint, scope: volume.Scope, created: volume.CreatedAt })));
+}));
+
+router.get('/networks', wrap(async (req, res) => {
+  const result = await dockerRequest('GET', '/networks');
+  if (result.statusCode >= 400) return fail(res, result.statusCode, 'No se pudieron listar las redes.');
+  ok(res, JSON.parse(result.body.toString()).map(network => ({ id: network.Id, name: network.Name, driver: network.Driver, scope: network.Scope, containers: Object.keys(network.Containers || {}).length })));
 }));
 
 // POST /api/docker/containers/:id/:action - start, stop, restart container
@@ -160,6 +224,17 @@ router.post('/containers/create', wrap(async (req, res) => {
   if (!image && !dockerfile) {
     return fail(res, 400, 'Se requiere una imagen o un contenido Dockerfile.');
   }
+  if (!RE_APP_NAME.test(String(name || ''))) return fail(res, 400, 'Nombre de contenedor inválido.');
+  if (typeof dockerfile === 'string' && Buffer.byteLength(dockerfile, 'utf8') > MAX_DOCKERFILE_BYTES) {
+    return fail(res, 413, 'El Dockerfile supera el límite de 1 MB.');
+  }
+  const imageCheck = dockerDeploy.validateImageRef(image);
+  if (image && !imageCheck.ok) return fail(res, 400, 'Referencia de imagen inválida.');
+  const hostPortCheck = dockerDeploy.validatePort(hostPort);
+  const containerPortCheck = dockerDeploy.validatePort(containerPort);
+  if (!hostPortCheck.ok || !containerPortCheck.ok) return fail(res, 400, 'Puerto inválido (debe ser un número entre 1 y 65535).');
+  const envCheck = dockerDeploy.normalizeEnvLines(envs);
+  if (!envCheck.ok) return fail(res, 400, envCheck.error);
 
   // Validar el volumen persistente (opcional) antes de descargar o compilar nada.
   let volumeBind = null;
@@ -211,7 +286,7 @@ router.post('/containers/create', wrap(async (req, res) => {
       }
 
       console.log(`[docker] Compilando Dockerfile para la imagen: ${targetImage}...`);
-      const buildRes = await runSafe('docker', ['build', '-t', targetImage, '.'], { cwd: buildDir, timeout: 300_000 });
+      const buildRes = await dockerService.buildImage(targetImage, buildDir);
 
       if (!buildRes.ok) {
         // Return full compilation output so the user can debug the Dockerfile
@@ -223,36 +298,25 @@ router.post('/containers/create', wrap(async (req, res) => {
     } else {
       // Pull image if using existing registry image
       console.log(`[docker] Descargando imagen: ${targetImage}...`);
-      const pullResult = await dockerRequest('POST', `/images/create?fromImage=${encodeURIComponent(targetImage)}`);
+      const pullResult = await dockerService.pullImage(targetImage);
       if (pullResult.statusCode >= 400) {
         return fail(res, pullResult.statusCode, `Error al descargar la imagen: ${pullResult.body.toString()}`);
       }
     }
 
     // 2. Build configuration (helper reutilizado por el asistente de despliegue).
-    const config = buildContainerConfig({ image: targetImage, envs, hostPort, containerPort, volumeBind, proxyDomain });
+    const config = buildContainerConfig({ image: targetImage, envs: envCheck.value, hostPort: hostPortCheck.port, containerPort: containerPortCheck.port, volumeBind, proxyDomain });
 
     // 3. Create container
-    let createUrl = '/containers/create';
-    if (name && name.trim()) {
-      createUrl += `?name=${encodeURIComponent(name.trim())}`;
-    }
-
     console.log(`[docker] Creando contenedor con config:`, JSON.stringify(config));
-    const createResult = await dockerRequest('POST', createUrl, config);
-    if (createResult.statusCode >= 400) {
-      return fail(res, createResult.statusCode, `Error al crear contenedor: ${createResult.body.toString()}`);
+    const deployed = await dockerService.createAndStartContainer(name.trim(), config);
+    if (deployed.create.statusCode >= 400) {
+      return fail(res, deployed.create.statusCode, `Error al crear contenedor: ${deployed.create.body.toString()}`);
     }
-
-    const response = JSON.parse(createResult.body.toString());
-    const containerId = response.Id;
-
-    // 4. Start container
-    console.log(`[docker] Iniciando contenedor: ${containerId}...`);
-    const startResult = await dockerRequest('POST', `/containers/${containerId}/start`);
-    if (startResult.statusCode >= 400) {
-      return fail(res, startResult.statusCode, `Contenedor creado pero falló al iniciar: ${startResult.body.toString()}`);
+    if (deployed.start.statusCode >= 400) {
+      return fail(res, deployed.start.statusCode, `Contenedor creado pero falló al iniciar: ${deployed.start.body.toString()}`);
     }
+    const containerId = deployed.containerId;
 
     // 5. Abrir el puerto en el firewall para que sea accesible desde fuera (best-effort).
     if (hostPort) {
@@ -308,16 +372,28 @@ router.post('/deploy/upload', (req, res) => {
   const target = path.join(dir, 'upload.zip');
   const ws = fs.createWriteStream(target);
   let failed = false;
+  let received = 0;
   const abort = (code, msg) => {
     if (failed) return;
     failed = true;
     try { ws.destroy(); } catch (_) {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
     if (!res.headersSent) fail(res, code, msg);
   };
   ws.on('error', () => abort(500, 'Error al escribir el archivo'));
   req.on('error', () => abort(400, 'Error en la transferencia'));
   ws.on('finish', () => { if (!failed && !res.headersSent) ok(res, { success: true }); });
-  req.pipe(ws);
+  req.on('data', (chunk) => {
+    received += chunk.length;
+    if (received > MAX_UPLOAD_BYTES) {
+      abort(413, 'El ZIP supera el límite de ' + Math.round(MAX_UPLOAD_BYTES / 1024 / 1024) + ' MB.');
+      req.destroy();
+      return;
+    }
+    if (!failed && !ws.write(chunk)) req.pause(); // respeta backpressure: no acumular en memoria
+  });
+  ws.on('drain', () => { if (!failed) req.resume(); });
+  req.on('end', () => { if (!failed) ws.end(); });
 });
 
 // Paso 2: extraer, generar/usar Dockerfile, construir la imagen (logs en vivo),
@@ -329,9 +405,14 @@ router.post('/deploy/build', wrap(async (req, res) => {
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre inválido (letras, números, - y _).');
   const tpl = DEPLOY_TEMPLATES[template];
   if (!tpl) return fail(res, 400, 'Plantilla desconocida.');
+  const deployEnvCheck = dockerDeploy.normalizeEnvLines(envs);
+  if (!deployEnvCheck.ok) return fail(res, 400, deployEnvCheck.error);
+  const deployHostPort = dockerDeploy.validatePort(hostPort);
+  if (!deployHostPort.ok) return fail(res, 400, 'Puerto Host inválido (debe ser un número entre 1 y 65535).');
 
   const dir = path.join(DOCKER_BUILDS_DIR, name);
   if (!fs.existsSync(path.join(dir, 'upload.zip'))) return fail(res, 400, 'Primero sube el código de tu app (ZIP).');
+  const jobId = dockerJobs.createJob({ kind: 'zip', containerName: name, userName: req.user.username });
 
   // Volumen persistente (opcional)
   const volChk = dockerDeploy.parseVolumeBind(volumeName, volumePath);
@@ -343,10 +424,9 @@ router.post('/deploy/build', wrap(async (req, res) => {
   if (tpl.fixedPort) {
     effContainerPort = tpl.containerPort;
   } else if (containerPort) {
-    effContainerPort = parseInt(containerPort, 10);
-    if (!Number.isInteger(effContainerPort) || effContainerPort < 1 || effContainerPort > 65535) {
-      return fail(res, 400, 'Puerto Contenedor inválido (debe ser un número entre 1 y 65535).');
-    }
+    const deployContainerPort = dockerDeploy.validatePort(containerPort);
+    if (!deployContainerPort.ok) return fail(res, 400, 'Puerto Contenedor inválido (debe ser un número entre 1 y 65535).');
+    effContainerPort = deployContainerPort.port;
   } else {
     effContainerPort = tpl.containerPort;
   }
@@ -357,7 +437,7 @@ router.post('/deploy/build', wrap(async (req, res) => {
   if (domain) {
     const d = String(domain).trim();
     if (!isValidDomain(d)) return fail(res, 400, 'Dominio inválido.');
-    if (!hostPort) return fail(res, 400, 'Para usar un dominio necesitas indicar un Puerto Host.');
+    if (!deployHostPort.port) return fail(res, 400, 'Para usar un dominio necesitas indicar un Puerto Host.');
     proxyDomain = d;
   }
   if (hostPort && !effContainerPort) {
@@ -368,22 +448,35 @@ router.post('/deploy/build', wrap(async (req, res) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-TXPL-Job-Id', jobId);
   res.flushHeaders?.();
-  const log = (s) => res.write(s);
+  const log = (s) => { res.write(s); dockerJobs.appendLog(jobId, s); };
   const finish = (code) => {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+    dockerJobs.finishJob(jobId, code === 0 ? 'success' : 'failed'); // finishJob marca 'cancelled' si se pidió cancelar
     res.end('\n__TXPL_DONE__' + code);
   };
 
   try {
     // 1. Extraer el ZIP
     log('▶ Extrayendo el código...\n');
-    let probe = await runSafe('unzip', ['-v']);
-    if (!probe.ok) await runSafe('apt-get', ['install', '-y', 'unzip'], { timeout: 120_000 });
-    const ex = await runSafe('unzip', ['-o', path.join(dir, 'upload.zip'), '-d', dir], { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+    const probe = await runSafe('unzip', ['-v'], { env: COMMAND_ENV });
+    if (!probe.ok) {
+      log('✖ unzip no está instalado en el servidor. Instálalo antes de desplegar.\n');
+      return finish(1);
+    }
+    const listing = await runSafe('unzip', ['-Z1', path.join(dir, 'upload.zip')], { env: COMMAND_ENV, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+    const zipCheck = dockerDeploy.validateZipEntries((listing.stdout || '').split(/\r?\n/).filter(Boolean));
+    if (!listing.ok || !zipCheck.ok) {
+      log('✖ ZIP rechazado: ' + (zipCheck.error || 'no se pudo inspeccionar su contenido') + '\n');
+      return finish(1);
+    }
+    const ex = await runSafe('unzip', ['-o', '-q', path.join(dir, 'upload.zip'), '-d', dir], { env: COMMAND_ENV, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
     if (!ex.ok) { log('✖ Error al extraer el ZIP: ' + (ex.stderr.split('\n').filter(Boolean).slice(-2).join(' ') || 'desconocido') + '\n'); return finish(1); }
     try { fs.unlinkSync(path.join(dir, 'upload.zip')); } catch (_) {}
     flattenSingleSubdir(dir);
+    ensureDockerignore(dir);
+    if (jobCancelled(jobId)) { log('\n✖ Despliegue cancelado por el usuario.\n'); return finish(1); }
 
     // 2. Determinar el Dockerfile
     const hasDockerfile = fs.existsSync(path.join(dir, 'Dockerfile'));
@@ -399,34 +492,37 @@ router.post('/deploy/build', wrap(async (req, res) => {
 
     // 3. Construir la imagen (salida en vivo)
     const imageTag = `txpl-app-${name}`;
+    dockerJobs.updateJob(jobId, { imageTag });
     log(`\n▶ Construyendo la imagen ${imageTag} (esto puede tardar unos minutos)...\n\n`);
     const buildCode = await new Promise((resolve) => {
       let child;
       try {
-        child = spawn('docker', ['build', '-t', imageTag, '.'], { cwd: dir, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+      child = spawn('docker', ['build', '-t', imageTag, '.'], { cwd: dir, env: COMMAND_ENV });
       } catch (e) { res.write('[error] No se pudo iniciar docker build: ' + e.message + '\n'); return resolve(1); }
-      child.stdout.on('data', (d) => res.write(d));
-      child.stderr.on('data', (d) => res.write(d));
-      child.on('error', (e) => { res.write('\n[error] ' + e.message + '\n'); resolve(1); });
-      child.on('close', (c) => resolve(c === null ? 1 : c));
+      dockerJobs.registerProcess(jobId, child);
+      child.stdout.on('data', (d) => log(d));
+      child.stderr.on('data', (d) => log(d));
+      child.on('error', (e) => { dockerJobs.unregisterProcess(jobId, child); log('\n[error] ' + e.message + '\n'); resolve(1); });
+      child.on('close', (c) => { dockerJobs.unregisterProcess(jobId, child); resolve(c === null ? 1 : c); });
     });
     if (buildCode !== 0) { log(`\n✖ Falló la construcción de la imagen (código ${buildCode}).\n`); return finish(1); }
     log('\n✓ Imagen construida correctamente.\n');
 
     // 4. Variables de entorno: inyectar PORT para Node/Python si no está definido
-    let effEnvs = typeof envs === 'string' ? envs : '';
+    let effEnvs = deployEnvCheck.value;
     if ((template === 'node' || template === 'python') && effContainerPort && !/^\s*PORT\s*=/m.test(effEnvs)) {
       effEnvs = (effEnvs ? effEnvs + '\n' : '') + `PORT=${effContainerPort}`;
     }
 
     // 5. Crear y arrancar el contenedor
+    if (jobCancelled(jobId)) { log('\n✖ Despliegue cancelado por el usuario.\n'); return finish(1); }
     log('\n▶ Creando y arrancando el contenedor...\n');
     const config = buildContainerConfig({ image: imageTag, envs: effEnvs, hostPort, containerPort: effContainerPort, volumeBind, proxyDomain });
-    const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
-    if (createRes.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + createRes.body.toString() + '\n'); return finish(1); }
-    const containerId = JSON.parse(createRes.body.toString()).Id;
-    const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
-    if (startRes.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + startRes.body.toString() + '\n'); return finish(1); }
+    const deployed = await dockerService.createAndStartContainer(name, config);
+    if (deployed.create.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + deployed.create.body.toString() + '\n'); return finish(1); }
+    if (deployed.start.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + deployed.start.body.toString() + '\n'); return finish(1); }
+    const containerId = deployed.containerId;
+    dockerJobs.updateJob(jobId, { containerId });
     log('✓ Contenedor arrancado.\n');
 
     // 6. Red: firewall + dominio + HTTPS (best-effort)
@@ -458,6 +554,8 @@ const deployGitHandler = wrap(async (req, res) => {
   const hpChk = dockerDeploy.validatePort(hostPortRaw);
   if (!hpChk.ok) return fail(res, 400, 'Puerto Host inválido (debe ser un número entre 1 y 65535).');
   const hostPort = hpChk.port;
+  const envCheck = dockerDeploy.normalizeEnvLines(envs);
+  if (!envCheck.ok) return fail(res, 400, envCheck.error);
   if (!gitRepo || typeof gitRepo !== 'string' || !gitRepo.trim()) {
     return fail(res, 400, 'Se requiere la URL del repositorio Git / GitHub.');
   }
@@ -510,16 +608,20 @@ const deployGitHandler = wrap(async (req, res) => {
     return fail(res, 500, 'No se pudo preparar el directorio de build');
   }
 
+  const jobId = dockerJobs.createJob({ kind: 'git', containerName: name, userName: req.user.username });
+
   // ── Transmisión en vivo ──
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('X-TXPL-Job-Id', jobId);
   res.flushHeaders?.();
-  const log = (s) => res.write(s);
+  const log = (s) => { res.write(s); dockerJobs.appendLog(jobId, s); };
   const finish = (code, cleanup = true) => {
     if (cleanup) {
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
     }
+    dockerJobs.finishJob(jobId, code === 0 ? 'success' : 'failed'); // finishJob marca 'cancelled' si se pidió cancelar
     res.end('\n__TXPL_DONE__' + code);
   };
 
@@ -530,27 +632,30 @@ const deployGitHandler = wrap(async (req, res) => {
   const spawnLive = (cmd, args, cwd) => new Promise((resolve) => {
     let child, enoent = false, timedOut = false;
     try {
-      child = spawn(cmd, args, { cwd, env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+      child = spawn(cmd, args, { cwd, env: COMMAND_ENV });
+      dockerJobs.registerProcess(jobId, child);
     } catch (e) {
-      if (e.code === 'ENOENT') enoent = true; else res.write('[error] ' + e.message + '\n');
+      if (e.code === 'ENOENT') enoent = true; else log('[error] ' + e.message + '\n');
       return resolve({ code: 1, enoent });
     }
     const to = setTimeout(() => { timedOut = true; try { child.kill('SIGKILL'); } catch (_) {} }, MAX_BUILD_MS);
-    child.stdout.on('data', (d) => res.write(d));
-    child.stderr.on('data', (d) => res.write(d));
+    child.stdout.on('data', (d) => log(d));
+    child.stderr.on('data', (d) => log(d));
     child.on('error', (e) => {
       clearTimeout(to);
-      if (e.code === 'ENOENT') enoent = true; else res.write('\n[error] ' + e.message + '\n');
+      dockerJobs.unregisterProcess(jobId, child);
+      if (e.code === 'ENOENT') enoent = true; else log('\n[error] ' + e.message + '\n');
       resolve({ code: 1, enoent });
     });
     child.on('close', (c) => {
+      dockerJobs.unregisterProcess(jobId, child);
       clearTimeout(to);
       if (timedOut) { res.write('\n[error] Timeout: el proceso superó los 30 minutos y fue abortado.\n'); return resolve({ code: 124, enoent }); }
       resolve({ code: c === null ? 1 : c, enoent });
     });
   });
 
-  const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
+  const gitOpts = { cwd: dir, timeout: 300_000, maxBuffer: 16 * 1024 * 1024, env: dockerDeploy.buildCommandEnv({ GIT_TERMINAL_PROMPT: '0' }) };
 
   // Autenticación sin exponer el token (cabecera vía GIT_CONFIG_*, no en argv ni
   // en .git/config) y URL saneada para mostrar en logs. Ver lib/dockerDeploy.
@@ -643,6 +748,7 @@ const deployGitHandler = wrap(async (req, res) => {
     // Quitar .git: el build/compose no lo necesita y así no queda ninguna URL de
     // remoto ni historia en el directorio (que en modo compose se conserva).
     try { fs.rmSync(path.join(dir, '.git'), { recursive: true, force: true }); } catch (_) {}
+    ensureDockerignore(dir);
 
     // Normalizar finales de línea (CRLF -> LF) en scripts ejecutables (gradlew, mvnw, *.sh)
     try {
@@ -782,6 +888,7 @@ const deployGitHandler = wrap(async (req, res) => {
     // 4. Construir la imagen (salida en vivo con heartbeat anti-timeout)
     const imageTag = `txpl-app-${name}`;
     log(`\n▶ Construyendo la imagen Docker: ${imageTag}...\n`);
+    dockerJobs.updateJob(jobId, { imageTag });
     log(`  Contexto: ${path.relative(dir, buildCwd) || '.'}\n`);
     log(`  Dockerfile: ${path.relative(dir, buildDockerfilePath)}\n\n`);
 
@@ -798,24 +905,25 @@ const deployGitHandler = wrap(async (req, res) => {
     log('\n✓ Imagen compilada correctamente.\n');
 
     // 5. Variables de entorno: inyectar PORT para Node/Python si no está definido
-    let effEnvs = typeof envs === 'string' ? envs : '';
+    let effEnvs = envCheck.value;
     if ((template === 'node' || template === 'python') && effContainerPort && !/^\s*PORT\s*=/m.test(effEnvs)) {
       effEnvs = (effEnvs ? effEnvs + '\n' : '') + `PORT=${effContainerPort}`;
     }
 
     // 6. Crear y arrancar el contenedor (elimina contenedor previo con el mismo nombre si existía)
+    if (jobCancelled(jobId)) { log('\n✖ Despliegue cancelado por el usuario.\n'); return finish(1); }
     log('\n▶ Creando y arrancando contenedor en Docker socket...\n');
     if (name) {
       try {
-        await dockerRequest('DELETE', `/containers/${encodeURIComponent(name.trim())}?v=1&force=1`);
+        await dockerService.removeContainer(name.trim());
       } catch (_) {}
     }
     const config = buildContainerConfig({ image: imageTag, envs: effEnvs, hostPort, containerPort: effContainerPort, volumeBind, proxyDomain });
-    const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
-    if (createRes.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + createRes.body.toString() + '\n'); return finish(1); }
-    const containerId = JSON.parse(createRes.body.toString()).Id;
-    const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
-    if (startRes.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + startRes.body.toString() + '\n'); return finish(1); }
+    const deployed = await dockerService.createAndStartContainer(name, config);
+    if (deployed.create.statusCode >= 400) { log('✖ Error al crear el contenedor: ' + deployed.create.body.toString() + '\n'); return finish(1); }
+    if (deployed.start.statusCode >= 400) { log('✖ Contenedor creado pero falló al arrancar: ' + deployed.start.body.toString() + '\n'); return finish(1); }
+    const containerId = deployed.containerId;
+    dockerJobs.updateJob(jobId, { containerId });
     log(`✓ Contenedor ${name} arrancado con ID ${containerId.substring(0, 12)}.\n`);
 
     // 7. Red: firewall + dominio + HTTPS (best-effort)
@@ -835,7 +943,7 @@ const deployGitHandler = wrap(async (req, res) => {
         ssl: wantSsl ? 1 : 0,
         volume_name: volumeName || null,
         volume_path: volumePath || null,
-        envs: envs || null,
+        envs: envs ? encryptText(envs) : null,
         sub_dir: (typeof subDir === 'string' && subDir.trim()) ? subDir.trim() : null,
         dockerfile_path: (typeof dockerfilePath === 'string' && dockerfilePath.trim()) ? dockerfilePath.trim() : null
       });
@@ -880,7 +988,7 @@ router.post('/containers/:name/redeploy', wrap(async (req, res, next) => {
     ssl: deploy.ssl === 1,
     volumeName: deploy.volume_name,
     volumePath: deploy.volume_path,
-    envs: deploy.envs,
+    envs: decryptText(deploy.envs) || deploy.envs,
     subDir: deploy.sub_dir || undefined,
     dockerfilePath: deploy.dockerfile_path || undefined,
   };
@@ -964,7 +1072,7 @@ router.get('/containers/:name/file/:type', wrap(async (req, res) => {
     let df = `FROM ${details.image}\n`;
     if (details.workDir) df += `WORKDIR ${details.workDir}\n`;
     if (details.envs.length) {
-      df += details.envs.map(e => `ENV ${e}`).join('\n') + '\n';
+      df += dockerDeploy.redactEnvLines(details.envs).map(e => `ENV ${e}`).join('\n') + '\n';
     }
     if (details.exposedPorts.length) {
       df += details.exposedPorts.map(p => `EXPOSE ${p}`).join('\n') + '\n';
@@ -983,7 +1091,7 @@ router.get('/containers/:name/file/:type', wrap(async (req, res) => {
       composeStr += `    ports:\n      - "8080:80"\n`;
     }
     if (details.envs.length) {
-      composeStr += `    environment:\n` + details.envs.map(e => `      - ${e}`).join('\n') + '\n';
+      composeStr += `    environment:\n` + dockerDeploy.redactEnvLines(details.envs).map(e => `      - ${e}`).join('\n') + '\n';
     }
     return ok(res, { content: composeStr });
   }
@@ -1003,6 +1111,9 @@ router.post('/containers/:name/file/:type', wrap(async (req, res) => {
   if (typeof content !== 'string') {
     return fail(res, 400, 'El contenido del archivo es requerido.');
   }
+  if (Buffer.byteLength(content, 'utf8') > MAX_DOCKERFILE_BYTES) {
+    return fail(res, 413, 'El contenido supera el límite de 1 MB.');
+  }
 
   const dir = path.join(DOCKER_BUILDS_DIR, name);
   fs.mkdirSync(dir, { recursive: true });
@@ -1013,16 +1124,14 @@ router.post('/containers/:name/file/:type', wrap(async (req, res) => {
 
     const imageTag = `txpl-app-${name}`;
     console.log(`[docker] Recompilando Dockerfile de ${name} (${imageTag})...`);
-    const buildRes = await runSafe('docker', ['build', '-t', imageTag, '.'], { cwd: dir, timeout: 300_000 });
+    const buildRes = await dockerService.buildImage(imageTag, dir);
 
     if (!buildRes.ok) {
       const errMsg = buildRes.stderr || buildRes.stdout || 'Error al compilar Dockerfile';
       return fail(res, 400, `Error de compilación del Dockerfile:\n${errMsg}`);
     }
 
-    try {
-      await dockerRequest('DELETE', `/containers/${encodeURIComponent(name)}?v=1&force=1`);
-    } catch (_) {}
+    try { await dockerService.removeContainer(name); } catch (_) {}
 
     let deploy = null;
     try { deploy = queries.getDockerDeploy.get(name); } catch (_) {}
@@ -1032,18 +1141,15 @@ router.post('/containers/:name/file/:type', wrap(async (req, res) => {
     const volChk = dockerDeploy.parseVolumeBind(deploy?.volume_name, deploy?.volume_path);
     const volumeBind = volChk.bind;
     const proxyDomain = deploy ? deploy.domain : undefined;
-    const envs = deploy ? deploy.envs : undefined;
+    const envs = deploy ? (decryptText(deploy.envs) || deploy.envs) : undefined;
 
     const config = buildContainerConfig({ image: imageTag, envs, hostPort, containerPort, volumeBind, proxyDomain });
-    const createRes = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(name)}`, config);
-    if (createRes.statusCode >= 400) {
-      return fail(res, createRes.statusCode, `Imagen compilada pero falló al crear el contenedor: ${createRes.body.toString()}`);
+    const deployed = await dockerService.createAndStartContainer(name, config);
+    if (deployed.create.statusCode >= 400) {
+      return fail(res, deployed.create.statusCode, `Imagen compilada pero falló al crear el contenedor: ${deployed.create.body.toString()}`);
     }
-
-    const containerId = JSON.parse(createRes.body.toString()).Id;
-    const startRes = await dockerRequest('POST', `/containers/${containerId}/start`);
-    if (startRes.statusCode >= 400) {
-      return fail(res, startRes.statusCode, `Contenedor creado pero falló al arrancar: ${startRes.body.toString()}`);
+    if (deployed.start.statusCode >= 400) {
+      return fail(res, deployed.start.statusCode, `Contenedor creado pero falló al arrancar: ${deployed.start.body.toString()}`);
     }
 
     if (hostPort) await runSafe('ufw', ['allow', `${hostPort}/tcp`]);
@@ -1056,10 +1162,7 @@ router.post('/containers/:name/file/:type', wrap(async (req, res) => {
     fs.writeFileSync(composePath, content, 'utf8');
 
     console.log(`[docker] Ejecutando docker compose up para ${name}...`);
-    let composeRes = await runSafe('docker', ['compose', 'up', '-d', '--build', '--remove-orphans'], { cwd: dir, timeout: 300_000 });
-    if (!composeRes.ok) {
-      composeRes = await runSafe('docker-compose', ['up', '-d', '--build', '--remove-orphans'], { cwd: dir, timeout: 300_000 });
-    }
+    const composeRes = await dockerService.composeUp(dir, { build: true });
 
     if (!composeRes.ok) {
       const errMsg = composeRes.stderr || composeRes.stdout || 'Error de Docker Compose';
@@ -1096,13 +1199,16 @@ router.post('/dockerfile', wrap(async (req, res) => {
   if (typeof content !== 'string') {
     return fail(res, 400, 'El contenido del Dockerfile es requerido.');
   }
+  if (Buffer.byteLength(content, 'utf8') > MAX_DOCKERFILE_BYTES) {
+    return fail(res, 413, 'El Dockerfile supera el límite de 1 MB.');
+  }
 
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(DOCKERFILE_PATH, content, 'utf8');
 
     console.log('[docker] Compilando Dockerfile global...');
-    const buildRes = await runSafe('docker', ['build', '-t', 'txpl-global-image', '.'], { cwd: DATA_DIR, timeout: 300_000 });
+    const buildRes = await dockerService.buildImage('txpl-global-image', DATA_DIR);
 
     if (!buildRes.ok) {
       const errMsg = buildRes.stderr || buildRes.stdout || 'Error de compilación';
@@ -1141,12 +1247,7 @@ router.post('/compose', wrap(async (req, res) => {
     fs.writeFileSync(DOCKER_COMPOSE_PATH, content, 'utf8');
 
     console.log('[docker] Ejecutando docker compose up -d...');
-    let composeRes = await runSafe('docker', ['compose', 'up', '-d', '--remove-orphans'], { cwd: DATA_DIR, timeout: 300_000 });
-
-    if (!composeRes.ok) {
-      console.log('[docker] docker compose falló, reintentando con docker-compose...');
-      composeRes = await runSafe('docker-compose', ['up', '-d', '--remove-orphans'], { cwd: DATA_DIR, timeout: 300_000 });
-    }
+    const composeRes = await dockerService.composeUp(DATA_DIR);
 
     if (!composeRes.ok) {
       const errMsg = composeRes.stderr || composeRes.stdout || 'Error de Docker Compose';
@@ -1161,4 +1262,3 @@ router.post('/compose', wrap(async (req, res) => {
 }));
 
 module.exports = router;
-

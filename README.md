@@ -316,6 +316,8 @@ El panel incluye un módulo de **Docker** que habla directamente con el socket d
 **Qué puedes hacer:**
 
 - **Gestionar contenedores**: listarlos con su estado y puertos, arrancarlos, detenerlos, reiniciarlos, eliminarlos y ver sus **logs** (últimas líneas) en vivo.
+- **Inspeccionar recursos**: abre **Detalles** para consultar healthcheck, CPU, memoria, red, I/O, montajes y redes; la vista se actualiza automáticamente mientras el modal está abierto. La cabecera muestra también el número de imágenes, volúmenes y redes disponibles.
+- **Despliegues largos**: las operaciones ZIP/Git crean jobs persistentes consultables desde `/api/docker/jobs`; cada job conserva estado, logs acotados a 64 KB y permite cancelación desde `/api/docker/jobs/:id/cancel`.
 - **Despliegue y actualización desde Git**: despliega desde repositorios de GitHub (públicos o privados). El token introducido inicialmente se almacena **cifrado en reposo (AES-256-GCM)** en la BD. En cualquier momento puedes pulsar **"Actualizar desde Git"** en el contenedor para clonar la última versión del código y reconstruir la aplicación automáticamente sin volver a pedir credenciales.
 - **Crear un contenedor**: a partir de una imagen del registro o **compilando un Dockerfile** desde el panel (con la salida de compilación en directo), definiendo puertos, variables de entorno, **volúmenes persistentes** y, opcionalmente, un dominio con proxy Nginx + HTTPS.
 - **Despliegue desde código local**: sube un `.zip`/`.tar.gz`, elige una plantilla (Node.js, Python, Dockerfile a medida) y el panel construye la imagen y levanta el contenedor.
