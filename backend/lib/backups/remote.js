@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { runInput } = require('../common/run');
 const R = require('../rclone');
 // Import directo (mismo motivo que en engine.js): evita el ciclo con ./index
 // y da acceso al namespace .manifest que index no expone.
@@ -19,14 +20,18 @@ const getQueries = () => require('../../database').queries;
 
 const execFileP = promisify(execFile);
 
-function runRclone(args, extraEnv = {}) {
+function rcloneEnv(extraEnv = {}) {
   const base = {
     PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: process.env.HOME || '/root',
     LANG: process.env.LANG || 'C.UTF-8',
   };
+  return { ...base, ...extraEnv };
+}
+
+function runRclone(args, extraEnv = {}) {
   return execFileP('rclone', args, {
-    env: { ...base, ...extraEnv },
+    env: rcloneEnv(extraEnv),
     maxBuffer: 64 * 1024 * 1024,
     timeout: 0,
   });
@@ -38,14 +43,21 @@ function joinRemote(remote, filename) {
 }
 
 async function obscurePassword(pass) {
-  const { stdout } = await runRclone(R.obscureArgs(pass));
-  return String(stdout || '').trim();
+  const result = await runInput('rclone', ['obscure', '-'], String(pass) + '\n', { env: rcloneEnv(), timeout: 30_000 });
+  if (!result.ok) throw new Error(String(result.stderr || 'No se pudo proteger la passphrase').slice(0, 300));
+  return String(result.stdout || '').trim();
 }
 
 async function buildEnv() {
   const cfg = getQueries().getBackupRemote.get();
   if (!cfg) { const e = new Error('Destino remoto no configurado.'); e.http = 400; throw e; }
-  const creds = JSON.parse(decryptSecret(cfg.config_enc));
+  let creds;
+  try {
+    creds = JSON.parse(decryptSecret(cfg.config_enc));
+    if (!creds || typeof creds !== 'object') throw new Error('configuración vacía');
+  } catch (_) {
+    const e = new Error('La configuración del destino remoto no se puede descifrar.'); e.http = 500; throw e;
+  }
 
   let env = {};
   let cleanup = async () => {};
@@ -63,11 +75,17 @@ async function buildEnv() {
     const e = new Error('Tipo de remoto no soportado.'); e.http = 400; throw e;
   }
 
-  if (cfg.encrypt_enabled) {
-    if (!cfg.crypt_pass_enc) { await cleanup(); const e = new Error('Cifrado activado sin passphrase.'); e.http = 400; throw e; }
-    const pass = decryptSecret(cfg.crypt_pass_enc);
-    const obsc = await obscurePassword(pass);
-    Object.assign(env, R.buildCryptEnv({ passphraseObscured: obsc, remotePath: cfg.remote_path }));
+  try {
+    if (cfg.encrypt_enabled) {
+      if (!cfg.crypt_pass_enc) { const e = new Error('Cifrado activado sin passphrase.'); e.http = 400; throw e; }
+      const pass = decryptSecret(cfg.crypt_pass_enc);
+      if (!pass) { const e = new Error('La passphrase remota no se puede descifrar.'); e.http = 500; throw e; }
+      const obsc = await obscurePassword(pass);
+      Object.assign(env, R.buildCryptEnv({ passphraseObscured: obsc, remotePath: cfg.remote_path }));
+    }
+  } catch (error) {
+    await cleanup();
+    throw error;
   }
   const remote = R.effectiveRemote(!!cfg.encrypt_enabled, cfg.remote_path);
   return { env, cleanup, remote, cfg };

@@ -1,73 +1,77 @@
-<div class="page-header">
-  <h1><i class="ti ti-database-export"></i> Copias de seguridad</h1>
-  <div class="page-actions">
-    <button class="btn btn-primary" onclick="backupNow('full')"><i class="ti ti-player-record"></i> Backup ahora</button>
-  </div>
-</div>
+<div class="backup-page">
+  <section class="backup-hero">
+    <div class="backup-hero-copy">
+      <div class="eyebrow"><i class="ti ti-shield-check"></i> Centro de protección</div>
+      <h1>Copias de seguridad</h1>
+      <p>Protege bases de datos, sitios, aplicaciones y la configuración del panel desde un único lugar.</p>
+      <div class="backup-hero-actions">
+        <button class="btn btn-primary" onclick="backupNow('full')"><i class="ti ti-player-record"></i> Crear backup ahora</button>
+        <button class="btn backup-secondary-btn" onclick="loadBackups()"><i class="ti ti-refresh"></i> Actualizar estado</button>
+      </div>
+    </div>
+    <div class="backup-hero-mark" aria-hidden="true"><i class="ti ti-database-export"></i><span></span></div>
+  </section>
 
-<div class="card" id="backups-schedule">
-  <h3><i class="ti ti-clock"></i> Programación</h3>
-  <div class="form-row">
-    <label><input type="checkbox" id="bk-enabled"> Activar backups automáticos</label>
-  </div>
-  <div class="form-row">
-    <select id="bk-frequency"><option value="daily">Diario</option><option value="weekly">Semanal</option></select>
-    <input type="time" id="bk-time" value="03:00">
-    <label>Retención (días): <input type="number" id="bk-retention" value="7" min="1" style="width:70px"></label>
-  </div>
-  <button class="btn" onclick="saveBackupSchedule()"><i class="ti ti-device-floppy"></i> Guardar programación</button>
-</div>
+  <section class="backup-metrics" aria-label="Resumen de backups">
+    <article class="backup-metric"><div class="backup-metric-icon metric-gold"><i class="ti ti-clock-check"></i></div><div><span>Última copia correcta</span><strong id="bk-stat-last">—</strong></div></article>
+    <article class="backup-metric"><div class="backup-metric-icon metric-blue"><i class="ti ti-calendar-event"></i></div><div><span>Próxima ejecución</span><strong id="bk-stat-next">Desactivada</strong></div></article>
+    <article class="backup-metric"><div class="backup-metric-icon metric-green"><i class="ti ti-archive"></i></div><div><span>Copias locales</span><strong id="bk-stat-count">0</strong></div></article>
+    <article class="backup-metric"><div class="backup-metric-icon metric-purple"><i class="ti ti-database"></i></div><div><span>Espacio utilizado</span><strong id="bk-stat-size">0 B</strong></div></article>
+  </section>
 
-<div class="card">
-  <h3><i class="ti ti-archive"></i> Backups disponibles</h3>
-  <div id="backups-list">Cargando…</div>
-</div>
+  <section class="backup-layout">
+    <div class="backup-main-column">
+      <article class="card backup-card backup-resources-card">
+        <div class="backup-card-heading"><div><span class="eyebrow">Cobertura</span><h2>Recursos protegidos</h2></div><span class="backup-live-pill"><i class="ti ti-circle-check"></i> Listo para copiar</span></div>
+        <p class="backup-card-subtitle">La programación automática incluye todos los recursos disponibles actualmente.</p>
+        <div id="bk-resource-summary" class="backup-resource-grid"><div class="backup-skeleton"></div><div class="backup-skeleton"></div><div class="backup-skeleton"></div><div class="backup-skeleton"></div></div>
+      </article>
 
-<div class="card">
-  <h3><i class="ti ti-cloud-upload"></i> Destino remoto</h3>
-  <div id="remote-summary" class="muted">Cargando…</div>
-  <div class="form-row">
-    <label>Tipo:
-      <select id="rm-type" onchange="backupRemoteTypeChange()">
-        <option value="s3">S3-compatible</option>
-        <option value="sftp">SFTP</option>
-      </select>
-    </label>
-    <label>Ruta remota: <input type="text" id="rm-path" placeholder="mi-bucket/prefijo o /ruta/absoluta" style="width:240px"></label>
-  </div>
-  <div id="rm-s3" class="form-row">
-    <input type="text" id="rm-endpoint" placeholder="Endpoint (ej. https://s3.eu-west-1.amazonaws.com)" style="width:280px">
-    <input type="text" id="rm-region" placeholder="Región (ej. eu-west-1)" style="width:140px">
-    <input type="text" id="rm-akey" placeholder="Access Key" style="width:160px">
-    <input type="password" id="rm-skey" placeholder="Secret Key" style="width:160px">
-  </div>
-  <div id="rm-sftp" class="form-row" style="display:none">
-    <input type="text" id="rm-host" placeholder="host" style="width:180px">
-    <input type="number" id="rm-port" placeholder="22" value="22" style="width:70px">
-    <input type="text" id="rm-user" placeholder="usuario" style="width:140px">
-    <input type="password" id="rm-pass" placeholder="contraseña (o clave abajo)" style="width:180px">
-    <textarea id="rm-key" placeholder="Clave privada SSH (opcional, prevalece sobre contraseña)" style="width:100%;height:60px"></textarea>
-  </div>
-  <div class="form-row">
-    <label><input type="checkbox" id="rm-encrypt" onchange="backupRemoteEncryptToggle()"> Cifrar los backups en el remoto</label>
-    <input type="password" id="rm-cryptpass" placeholder="Passphrase de cifrado (mínimo 8)" style="width:280px;display:none">
-  </div>
-  <div class="form-row">
-    <label><input type="checkbox" id="rm-auto"> Subir automáticamente tras cada backup</label>
-    <label>Retención remota (días): <input type="number" id="rm-retention" value="30" min="1" style="width:80px"></label>
-  </div>
-  <div class="form-row">
-    <button class="btn btn-primary" onclick="backupRemoteSave()"><i class="ti ti-device-floppy"></i> Guardar</button>
-    <button class="btn" onclick="backupRemoteTest()"><i class="ti ti-plug"></i> Probar conexión</button>
-    <button class="btn btn-danger" onclick="backupRemoteClear()"><i class="ti ti-trash"></i> Desconectar</button>
-  </div>
-  <p class="muted"><b>Aviso:</b> si activas el cifrado, guarda tu passphrase fuera del VPS. Sin ella no podrás descifrar los backups remotos si pierdes el servidor.</p>
-</div>
+      <article class="card backup-card">
+        <div class="backup-card-heading"><div><span class="eyebrow">Historial</span><h2>Copias locales</h2></div><span class="backup-card-caption">Guardadas en el VPS</span></div>
+        <div id="backups-list"><div class="backup-loading"><i class="ti ti-loader-2 ti-spin"></i> Cargando historial…</div></div>
+      </article>
 
-<div class="card">
-  <h3><i class="ti ti-cloud"></i> Backups remotos</h3>
-  <div class="form-row"><button class="btn" onclick="loadRemoteBackups()"><i class="ti ti-refresh"></i> Actualizar</button></div>
-  <div id="remote-list">—</div>
-</div>
+      <article class="card backup-card backup-console-card">
+        <div class="backup-card-heading"><div><span class="eyebrow">Actividad</span><h2>Consola de operación</h2></div></div>
+        <div class="console" id="backups-console" style="display:none"></div>
+        <div id="bk-console-empty" class="backup-console-empty"><i class="ti ti-terminal-2"></i><span>Los mensajes de creación y restauración aparecerán aquí.</span></div>
+      </article>
+    </div>
 
-<div class="console" id="backups-console" style="display:none"></div>
+    <aside class="backup-side-column">
+      <article class="card backup-card backup-schedule-card" id="backups-schedule">
+        <div class="backup-card-heading"><div><span class="eyebrow">Automatización</span><h2>Programación</h2></div><span class="backup-status-dot"><i class="ti ti-point-filled"></i></span></div>
+        <label class="backup-toggle-row"><span><strong>Backups automáticos</strong><small>Ejecutar según horario</small></span><input type="checkbox" id="bk-enabled"><span class="backup-toggle"></span></label>
+        <div class="backup-form-stack">
+          <label>Frecuencia<select id="bk-frequency"><option value="daily">Diario</option><option value="weekly">Semanal</option></select></label>
+          <div class="backup-form-split"><label>Hora<input type="time" id="bk-time" value="03:00"></label><label>Retención<input type="number" id="bk-retention" value="7" min="1" max="3650"><small>días</small></label></div>
+        </div>
+        <button class="btn btn-primary backup-full-btn" onclick="saveBackupSchedule()"><i class="ti ti-device-floppy"></i> Guardar programación</button>
+        <p class="backup-helper"><i class="ti ti-info-circle"></i> Se conservan solo las copias automáticas dentro del periodo indicado.</p>
+      </article>
+
+      <article class="card backup-card backup-remote-card">
+        <div class="backup-card-heading"><div><span class="eyebrow">Continuidad</span><h2>Destino remoto</h2></div><i class="ti ti-cloud-lock backup-heading-icon"></i></div>
+        <div id="remote-summary" class="backup-remote-summary">Cargando estado remoto…</div>
+        <div class="backup-form-stack">
+          <label>Tipo<select id="rm-type" onchange="backupRemoteTypeChange()"><option value="s3">S3-compatible</option><option value="sftp">SFTP</option></select></label>
+          <label>Ruta remota<input type="text" id="rm-path" placeholder="bucket/prefijo o /ruta"></label>
+        </div>
+        <div id="rm-s3" class="backup-remote-fields"><input type="text" id="rm-endpoint" placeholder="Endpoint S3 (https://…)" aria-label="Endpoint S3"><input type="text" id="rm-region" placeholder="Región" aria-label="Región"><input type="text" id="rm-akey" placeholder="Access Key" aria-label="Access Key"><input type="password" id="rm-skey" placeholder="Secret Key" aria-label="Secret Key"></div>
+        <div id="rm-sftp" class="backup-remote-fields" style="display:none"><input type="text" id="rm-host" placeholder="Host SFTP" aria-label="Host SFTP"><input type="number" id="rm-port" placeholder="22" value="22" aria-label="Puerto SFTP"><input type="text" id="rm-user" placeholder="Usuario" aria-label="Usuario SFTP"><input type="password" id="rm-pass" placeholder="Contraseña" aria-label="Contraseña SFTP"><textarea id="rm-key" placeholder="Clave privada SSH opcional" aria-label="Clave privada SSH"></textarea></div>
+        <label class="backup-check-row"><input type="checkbox" id="rm-encrypt" onchange="backupRemoteEncryptToggle()"><span><strong>Cifrar en remoto</strong><small>Protege también el nombre de los archivos</small></span></label>
+        <input type="password" id="rm-cryptpass" placeholder="Passphrase de cifrado (mín. 8 caracteres)" style="display:none" class="backup-secret-input">
+        <label class="backup-check-row"><input type="checkbox" id="rm-auto"><span><strong>Subida automática</strong><small>Replicar cada backup nuevo</small></span></label>
+        <label class="backup-retention-row">Retención remota <input type="number" id="rm-retention" value="30" min="1" max="3650"><span>días</span></label>
+        <div class="backup-button-row"><button class="btn btn-primary" onclick="backupRemoteSave()"><i class="ti ti-device-floppy"></i> Guardar</button><button class="btn" onclick="backupRemoteTest()"><i class="ti ti-plug"></i> Probar</button></div>
+        <button class="btn btn-quiet-danger" onclick="backupRemoteClear()"><i class="ti ti-unlink"></i> Desconectar destino</button>
+      </article>
+
+      <article class="card backup-card backup-remote-list-card">
+        <div class="backup-card-heading"><div><span class="eyebrow">Almacenamiento externo</span><h2>Copias remotas</h2></div><button class="btn btn-sm" onclick="loadRemoteBackups()" title="Actualizar copias remotas"><i class="ti ti-refresh"></i></button></div>
+        <div id="remote-list" class="backup-remote-list"><span class="muted">Pulsa actualizar para consultar el remoto.</span></div>
+      </article>
+    </aside>
+  </section>
+</div>

@@ -53,7 +53,7 @@ function effectiveRemote(encryptEnabled, remotePath) {
 
 // Env para un remoto `crypt` que envuelve al remoto de almacenamiento.
 // La passphrase debe venir YA obscurecida por `rclone obscure` (el ejecutor
-// lo hace en tiempo real, ver lib/backupRemote.js). El nombre de fichero
+// la envía por stdin, ver lib/backups/remote.js). El nombre de fichero
 // también se cifra ('standard'), así el remoto no revela los backups por su nombre.
 function buildCryptEnv({ passphraseObscured, remotePath } = {}) {
   return {

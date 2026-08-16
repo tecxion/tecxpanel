@@ -11,6 +11,7 @@ const { run, runSafe, runInput } = require('../common/run');
 const getQueries = () => require('../../database').queries;
 const nginx = require('../nginx');
 const { checkBuildRequirements } = require('../appdeploy');
+const { isValidDomain, RE_APP_NAME, RE_DB_NAME } = require('../validators');
 // Imports directos a los submódulos hermanos: evita el ciclo con ./index
 // (index.js requiere a su vez este engine) y accesos anidados a B.manifest.X
 // que no existían porque index.js hace spread, no namespace.
@@ -54,16 +55,43 @@ function ts() {
 }
 const emit = (write, msg) => { if (write) write(msg + '\n'); };
 
-function resolveResourceItems(selection) {
+// Resuelve UN recurso a su pieza de backup, validando existencia. Lanza si no
+// existe o es inválido (el que llama decide si abortar o saltarlo).
+function resolveOne(sel, queries) {
+  if (!sel || typeof sel.name !== 'string') throw new Error('Recurso de backup inválido');
+  if (sel.class === 'db-mysql' || sel.class === 'db-pg') {
+    if (!RE_DB_NAME.test(sel.name)) throw new Error('Nombre de base de datos inválido');
+    const type = sel.class === 'db-pg' ? 'postgresql' : 'mysql';
+    if (!queries.listDatabases.all().some(db => db.name === sel.name && db.type === type)) throw new Error('La base de datos ' + sel.name + ' no existe en el panel');
+    const folder = sel.class === 'db-pg' ? 'db/pg' : 'db/mysql';
+    return { class: sel.class, name: sel.name, path: folder + '/' + sel.name + '.sql.gz', size: 0 };
+  }
+  if (sel.class === 'site') {
+    if (!isValidDomain(sel.name) || !queries.listWebsites.all().some(site => site.domain === sel.name)) throw new Error('El sitio ' + sel.name + ' no existe en el panel');
+    return { class: 'site', name: sel.name, path: 'sites/' + sel.name + '.tar.gz', size: 0 };
+  }
+  if (sel.class === 'app') {
+    if (!RE_APP_NAME.test(sel.name)) throw new Error('Nombre de app inválido');
+    const app = queries.listApps.all().find((a) => a.name === sel.name);
+    if (!app) throw new Error('La app ' + sel.name + ' no existe en el panel');
+    return { class: 'app', name: sel.name, path: 'apps/' + sel.name + '.tar.gz', size: 0, _appPath: app.path };
+  }
+  if (sel.class === 'panel' && sel.name === 'panel') return { class: 'panel', name: 'panel', path: 'panel/txpl.db', size: 0 };
+  throw new Error('Clase de recurso de backup inválida');
+}
+
+// skipMissing=true (backups programados): salta los recursos que ya no existen
+// en vez de abortar todo el lote, avisando por onSkip. Sin él (manual), es estricto.
+function resolveResourceItems(selection, { skipMissing = false, onSkip } = {}) {
+  const queries = getQueries();
   const items = [];
   for (const sel of selection) {
-    if (sel.class === 'db-mysql') items.push({ class: 'db-mysql', name: sel.name, path: `db/mysql/${sel.name}.sql.gz`, size: 0 });
-    else if (sel.class === 'db-pg') items.push({ class: 'db-pg', name: sel.name, path: `db/pg/${sel.name}.sql.gz`, size: 0 });
-    else if (sel.class === 'site') items.push({ class: 'site', name: sel.name, path: `sites/${sel.name}.tar.gz`, size: 0 });
-    else if (sel.class === 'app') {
-      const app = getQueries().listApps.all().find((a) => a.name === sel.name);
-      items.push({ class: 'app', name: sel.name, path: `apps/${sel.name}.tar.gz`, size: 0, _appPath: app && app.path });
-    } else if (sel.class === 'panel') items.push({ class: 'panel', name: 'panel', path: 'panel/txpl.db', size: 0 });
+    try {
+      items.push(resolveOne(sel, queries));
+    } catch (e) {
+      if (skipMissing) { if (onSkip) onSkip(sel, e); continue; }
+      throw e;
+    }
   }
   return items;
 }
@@ -102,8 +130,9 @@ async function dumpItem(item, stageDir, write) {
       if (!rb.ok && !/ENOENT/.test(rb.stderr || '')) {
         throw new Error(`sqlite3 .backup falló: ${(rb.stderr || '').trim().slice(0, 200)}`);
       }
-      emit(write, '⚠️ sqlite3 no disponible; copia directa de la BD del panel (puede ser inconsistente en WAL)');
-      fs.copyFileSync(PANEL_DB, dest);
+      emit(write, 'ℹ️ sqlite3 no disponible; usando backup online de SQLite');
+      const { db } = require('../../database');
+      await db.backup(dest);
     }
     if (fs.existsSync(PANEL_ENV)) fs.copyFileSync(PANEL_ENV, path.join(path.dirname(dest), 'txpl.env'));
   }
@@ -123,7 +152,11 @@ async function createBackup({ items, kind, origin = 'manual', write }) {
   const id = info.lastInsertRowid;
 
   try {
-    const resolved = resolveResourceItems(items);
+    const resolved = resolveResourceItems(items, {
+      skipMissing: origin === 'scheduled',
+      onSkip: (sel, e) => emit(write, `⚠️ Se omite ${sel && sel.class || '?'}/${sel && sel.name || '?'}: ${e.message}`),
+    });
+    if (!resolved.length) throw new Error('Ningún recurso programado sigue existiendo; no hay nada que respaldar');
     for (const it of resolved) it.size = await dumpItem(it, stageDir, write);
     const manifest = B.manifest.buildManifest({ kind, createdAt, items: resolved.map(({ _appPath, ...rest }) => rest) });
     fs.writeFileSync(path.join(stageDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -135,6 +168,7 @@ async function createBackup({ items, kind, origin = 'manual', write }) {
     emit(write, `✅ Backup completado: ${filename}`);
     return { filename, size, id };
   } catch (e) {
+    try { if (fs.existsSync(archive)) fs.unlinkSync(archive); } catch (_) {}
     getQueries().updateBackupStatus.run({ id, status: 'failed', size_bytes: 0, notes: e.message });
     emit(write, `❌ Error: ${e.message}`);
     throw e;
@@ -157,6 +191,8 @@ async function restoreItem({ filename, item, write }) {
   if (typeof item.path !== 'string' || item.path.includes('..') || path.isAbsolute(item.path)) {
     throw new Error('Ruta de pieza inválida');
   }
+  const source = (await readManifest(filename)).items.find((entry) => entry.class === item.class && entry.name === item.name && entry.path === item.path);
+  if (!source) throw new Error('La pieza solicitada no pertenece al manifest del backup');
   const archive = path.join(B.manifest.BACKUP_DIR, filename);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-restore-'));
   try {
@@ -177,18 +213,21 @@ async function restoreItem({ filename, item, write }) {
     } else if (item.class === 'site') {
       emit(write, `🌐 Restaurando sitio: ${item.name}`);
       const siteTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'txpl-site-r-'));
-      await run('tar', ['-xzf', extracted, '-C', siteTmp], { timeout: 0, maxBuffer: 64 * 1024 * 1024 });
-      const wwwDir = path.join(siteTmp, 'www');
-      if (fs.existsSync(wwwDir)) fs.cpSync(wwwDir, path.join(SITES_DIR, item.name), { recursive: true });
-      const conf = path.join(siteTmp, 'nginx.conf');
-      if (fs.existsSync(conf)) await nginx.enableSite(item.name, fs.readFileSync(conf, 'utf8'));
-      else await nginx.reload();
-      fs.rmSync(siteTmp, { recursive: true, force: true });
+      try {
+        await run('tar', ['-xzf', extracted, '--no-absolute-names', '--no-same-owner', '--no-same-permissions', '-C', siteTmp], { timeout: 0, maxBuffer: 64 * 1024 * 1024 });
+        const wwwDir = path.join(siteTmp, 'www');
+        if (fs.existsSync(wwwDir)) fs.cpSync(wwwDir, path.join(SITES_DIR, item.name), { recursive: true });
+        const conf = path.join(siteTmp, 'nginx.conf');
+        if (fs.existsSync(conf)) await nginx.enableSite(item.name, fs.readFileSync(conf, 'utf8'));
+        else await nginx.reload();
+      } finally {
+        fs.rmSync(siteTmp, { recursive: true, force: true });
+      }
     } else if (item.class === 'app') {
       emit(write, `📦 Restaurando app: ${item.name}`);
       const app = getQueries().listApps.all().find((a) => a.name === item.name);
       if (!app || !app.path) throw new Error(`La app ${item.name} no existe en el panel`);
-      await run('tar', ['-xzf', extracted, '-C', path.dirname(app.path)], { timeout: 0, maxBuffer: 64 * 1024 * 1024 });
+      await run('tar', ['-xzf', extracted, '--no-absolute-names', '--no-same-owner', '--no-same-permissions', '-C', path.dirname(app.path)], { timeout: 0, maxBuffer: 64 * 1024 * 1024 });
       const aviso = checkBuildRequirements(app);
       if (aviso) { emit(write, `⚠️ ${aviso} No se reinicia automáticamente.`); }
       else { await runSafe('pm2', ['restart', app.pm2_name]); }

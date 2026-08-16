@@ -17,7 +17,7 @@ function parseManifest(text) {
   try { m = JSON.parse(text); } catch (_) { throw new Error('manifest inválido'); }
   const okKind = m && (m.kind === 'full' || m.kind === 'resource');
   const okVersion = m && typeof m.version === 'number';
-  const okItems = m && Array.isArray(m.items) && m.items.every((it) => isValidResourceClass(it.class));
+  const okItems = m && Array.isArray(m.items) && m.items.length <= 1000 && m.items.every((it) => it && isValidResourceClass(it.class) && typeof it.name === 'string' && it.name.length <= 253 && typeof it.path === 'string' && it.path.length <= 512 && !it.path.startsWith('/') && !it.path.includes('..') && !it.path.includes('\\'));
   if (!okKind || !okVersion || !okItems) throw new Error('manifest inválido');
   return m;
 }

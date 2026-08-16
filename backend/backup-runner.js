@@ -16,7 +16,14 @@ async function main() {
   const sched = queries.getSchedule.get();
   if (!sched || !sched.enabled) { console.log('[backup-runner] programación desactivada'); return; }
 
-  const resources = JSON.parse(sched.resources || '[]').filter((r) => B.isValidResourceClass(r.class));
+  let resources;
+  try {
+    resources = JSON.parse(sched.resources || '[]').filter((r) => B.isValidResourceClass(r?.class));
+  } catch (_) {
+    console.error('[backup-runner] recursos programados inválidos');
+    process.exitCode = 1;
+    return;
+  }
   if (!resources.length) { console.log('[backup-runner] sin recursos configurados'); return; }
 
   console.log(`[backup-runner] iniciando backup programado (${resources.length} piezas)`);

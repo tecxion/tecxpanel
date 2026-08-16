@@ -30,6 +30,7 @@ test('parseManifest ida y vuelta', () => {
 test('parseManifest rechaza JSON inválido o clases desconocidas', () => {
   assert.throws(() => b.parseManifest('{}'), /manifest inválido/);
   assert.throws(() => b.parseManifest(JSON.stringify({ version: 1, kind: 'full', items: [{ class: 'malo', name: 'n', path: 'p', size: 1 }] })), /manifest inválido/);
+  assert.throws(() => b.parseManifest(JSON.stringify({ version: 1, kind: 'full', items: [{ class: 'panel', name: 'panel', path: '../etc/passwd' }] })), /manifest inválido/);
 });
 
 test('isValidBackupFilename bloquea traversal', () => {

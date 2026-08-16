@@ -13,7 +13,7 @@ const { ok, fail, clientIp, run, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
 const B = require('../lib/backups');
 const engine = require('../lib/backupEngine');
-const { encryptSecret } = require('../lib/crypto');
+const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const remote = require('../lib/backupRemote');
 
 const router = express.Router();
@@ -46,7 +46,13 @@ router.get('/resources', (req, res) => {
 // ── Crear backup (streaming) ─────────────────────────────────
 router.post('/', (req, res) => {
   const { kind = 'full', resources = [] } = req.body || {};
-  const items = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r.class)) : [];
+  let items = [];
+  try {
+    const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
+    items = engine.resolveResourceItems(requested).map(({ class: resourceClass, name }) => ({ class: resourceClass, name }));
+  } catch (error) {
+    return fail(res, 400, error.message || 'Recursos de backup inválidos');
+  }
   if (!items.length) return fail(res, 400, 'No hay recursos válidos que respaldar');
   audit(req.user?.username || 'system', clientIp(req), 'backup.create', `${kind} (${items.length} piezas)`);
   startStream(res);
@@ -122,8 +128,19 @@ router.delete('/:id', wrap(async (req, res) => {
 router.post('/schedule', wrap(async (req, res) => {
   const { enabled = 0, frequency = 'daily', time = '03:00', retention_days = 7, resources = [] } = req.body || {};
   if (!['daily', 'weekly'].includes(frequency)) return fail(res, 400, 'Frecuencia inválida');
-  if (!/^\d{2}:\d{2}$/.test(time)) return fail(res, 400, 'Hora inválida (HH:MM)');
-  queries.saveSchedule.run({ enabled: enabled ? 1 : 0, frequency, time, retention_days: +retention_days || 7, resources: JSON.stringify(resources) });
+  const timeMatch = String(time).match(/^(\d{2}):(\d{2})$/);
+  if (!timeMatch || Number(timeMatch[1]) > 23 || Number(timeMatch[2]) > 59) return fail(res, 400, 'Hora inválida (HH:MM)');
+  const retention = Number(retention_days);
+  if (!Number.isInteger(retention) || retention < 1 || retention > 3650) return fail(res, 400, 'Retención inválida (1-3650 días)');
+  let normalizedResources = [];
+  try {
+    const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
+    normalizedResources = engine.resolveResourceItems(requested).map(({ class: resourceClass, name }) => ({ class: resourceClass, name }));
+  } catch (error) {
+    return fail(res, 400, error.message || 'Recursos de backup inválidos');
+  }
+  if (enabled && !normalizedResources.length) return fail(res, 400, 'Selecciona al menos un recurso para la programación');
+  queries.saveSchedule.run({ enabled: enabled ? 1 : 0, frequency, time: String(time), retention_days: retention, resources: JSON.stringify(normalizedResources) });
 
   // Reescribe la línea de cron: elimina la anterior y añade la nueva si está activa.
   // Instalamos vía fichero temporal (`crontab <file>`) para no depender de stdin.
@@ -159,29 +176,37 @@ router.post('/remote', wrap(async (req, res) => {
   const auto_upload = b.auto_upload ? 1 : 0;
   const retention_days = Number.isInteger(+b.retention_days) && +b.retention_days > 0 ? +b.retention_days : 30;
   const encrypt_enabled = b.encrypt_enabled ? 1 : 0;
+  const prev = queries.getBackupRemote.get();
+  let previousCreds = {};
+  if (prev && prev.type === type) {
+    try { previousCreds = JSON.parse(decryptSecret(prev.config_enc)) || {}; } catch (_) {}
+  }
 
   let creds;
   if (type === 's3') {
     const { endpoint, region, accessKey, secretKey } = b;
-    if (!endpoint || !region || !accessKey || !secretKey) return fail(res, 400, 'Credenciales S3 incompletas.');
-    creds = { endpoint, region, accessKey, secretKey };
+    creds = { endpoint: endpoint || previousCreds.endpoint, region: region || previousCreds.region, accessKey: accessKey || previousCreds.accessKey, secretKey: secretKey || previousCreds.secretKey };
+    if (!creds.endpoint || !creds.region || !creds.accessKey || !creds.secretKey) return fail(res, 400, 'Credenciales S3 incompletas.');
   } else {
     const { host, user, password, keyContent } = b;
     const port = +b.port;
-    if (!host || !user || (!password && !keyContent)) return fail(res, 400, 'Credenciales SFTP incompletas.');
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return fail(res, 400, 'Puerto SFTP inválido (1-65535).');
-    creds = { host, port, user, password: password || null, keyContent: keyContent || null };
+    creds = { host: host || previousCreds.host, port: Number.isInteger(port) ? port : previousCreds.port, user: user || previousCreds.user, password: password || previousCreds.password || null, keyContent: keyContent || previousCreds.keyContent || null };
+    if (!creds.host || !creds.user || (!creds.password && !creds.keyContent)) return fail(res, 400, 'Credenciales SFTP incompletas.');
+    if (!Number.isInteger(creds.port) || creds.port < 1 || creds.port > 65535) return fail(res, 400, 'Puerto SFTP inválido (1-65535).');
   }
 
   let crypt_pass_enc = null;
   if (encrypt_enabled) {
     const pass = String(b.crypt_pass || '');
+    if (!pass && prev?.encrypt_enabled && prev.crypt_pass_enc) {
+      crypt_pass_enc = prev.crypt_pass_enc;
+    } else {
     if (pass.length < 8) return fail(res, 400, 'La passphrase de cifrado debe tener al menos 8 caracteres.');
     crypt_pass_enc = encryptSecret(pass);
+    }
   }
 
   // Snapshot de la config actual para poder restaurarla si el test falla.
-  const prev = queries.getBackupRemote.get();
   const cfgRow = {
     type, config_enc: encryptSecret(JSON.stringify(creds)),
     remote_path, encrypt_enabled, crypt_pass_enc,

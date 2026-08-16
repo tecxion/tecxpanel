@@ -5,6 +5,9 @@
 async function loadBackups() {
   const data = await req('GET', '/backups');
   if (!data) return;
+  loadBackupRemote();
+  loadBackupResourceSummary();
+  updateBackupMetrics(data);
   const s = data.schedule || {};
   document.getElementById('bk-enabled').checked = !!s.enabled;
   document.getElementById('bk-frequency').value = s.frequency || 'daily';
@@ -26,16 +29,39 @@ async function loadBackups() {
         <button class="btn btn-sm" onclick="backupDownload(${b.id})"><i class="ti ti-download"></i></button>
         <button class="btn btn-sm btn-danger" onclick="backupDelete(${b.id})"><i class="ti ti-trash"></i></button>
       </td></tr>`).join('') + '</tbody></table></div>';
-  loadBackupRemote();
+}
+
+function updateBackupMetrics(data) {
+  const backups = Array.isArray(data.backups) ? data.backups : [];
+  const successful = backups.filter(b => b.status === 'ok').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  const total = backups.reduce((sum, backup) => sum + Number(backup.size_bytes || 0), 0);
+  const schedule = data.schedule || {};
+  const last = successful[0];
+  document.getElementById('bk-stat-last').textContent = last ? fmtDate(last.created_at) : 'Sin copias';
+  document.getElementById('bk-stat-next').textContent = schedule.enabled ? (schedule.frequency === 'weekly' ? 'Semanal · ' : 'Diario · ') + (schedule.time || '03:00') : 'Desactivada';
+  document.getElementById('bk-stat-count').textContent = String(backups.length);
+  document.getElementById('bk-stat-size').textContent = fmtBytes(total);
+}
+
+async function loadBackupResourceSummary() {
+  const target = document.getElementById('bk-resource-summary');
+  if (!target) return;
+  const data = await req('GET', '/backups/resources');
+  if (!data) { target.innerHTML = '<div class="backup-resource-error">No se pudieron cargar los recursos.</div>'; return; }
+  const resources = [
+    ['ti-database', 'Bases de datos', (data.databases || []).length, 'metric-gold'],
+    ['ti-world-www', 'Sitios web', (data.sites || []).length, 'metric-blue'],
+    ['ti-app-window', 'Aplicaciones', (data.apps || []).length, 'metric-purple'],
+    ['ti-settings', 'Panel', (data.panel || []).length, 'metric-green'],
+  ];
+  target.innerHTML = resources.map(item => '<div class="backup-resource-item"><div class="backup-resource-icon ' + item[3] + '"><i class="ti ' + item[0] + '"></i></div><div><span>' + item[1] + '</span><strong>' + item[2] + '</strong></div></div>').join('');
 }
 
 // ── Destino remoto de backups (S3/SFTP) ───────────────────────
 async function loadBackupRemote() {
   const r = await req('GET', '/backups/remote');
   const s = (r && r.remote) || null;
-  document.getElementById('remote-summary').textContent = s
-    ? `Configurado: ${s.type.toUpperCase()} → ${s.remote_path || '(raíz)'} · cifrado: ${s.encrypt_enabled ? 'sí' : 'no'} · auto-subida: ${s.auto_upload ? 'sí' : 'no'} · estado: ${s.status}`
-    : 'Aún no hay destino remoto configurado.';
+  renderBackupRemoteSummary(s);
   if (s) {
     document.getElementById('rm-type').value = s.type;
     document.getElementById('rm-path').value = s.remote_path || '';
@@ -45,6 +71,14 @@ async function loadBackupRemote() {
   }
   backupRemoteTypeChange();
   backupRemoteEncryptToggle();
+}
+
+function renderBackupRemoteSummary(s) {
+  const target = document.getElementById('remote-summary');
+  if (!target) return;
+  target.innerHTML = s
+    ? '<div class="backup-remote-state"><span class="backup-remote-state-dot"></span><strong>' + esc(s.type.toUpperCase()) + '</strong><span>' + esc(s.remote_path || '(raíz)') + '</span></div><div class="backup-remote-tags"><span>' + (s.encrypt_enabled ? '🔒 Cifrado activo' : 'Sin cifrado') + '</span><span>' + (s.auto_upload ? '☁️ Auto-subida activa' : 'Auto-subida inactiva') + '</span></div>'
+    : '<div class="backup-remote-state is-empty"><span class="backup-remote-state-dot"></span><span>Aún no hay destino configurado</span></div>';
 }
 
 function backupRemoteTypeChange() {
@@ -82,7 +116,11 @@ async function backupRemoteSave() {
   });
   const r = await req('POST', '/backups/remote', body);
   if (r && r.error) { alert(r.error); return; }
-  alert('Guardado.');
+  document.getElementById('rm-skey').value = '';
+  document.getElementById('rm-pass').value = '';
+  document.getElementById('rm-key').value = '';
+  document.getElementById('rm-cryptpass').value = '';
+  toast('Destino remoto guardado y verificado', 'success');
   loadBackupRemote();
 }
 
@@ -122,6 +160,7 @@ async function backupRemoteRestore(filename) {
   if (!confirm(`Se descargará ${filename}, se creará un snapshot de seguridad y luego se restaurará el backup completo. ¿Continuar?`)) return;
   const con = document.getElementById('backups-console');
   con.style.display = 'block'; con.textContent = '';
+  document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
   await streamConsole(`/backups/remote/${encodeURIComponent(filename)}/restore`, {}, con);
   loadBackups();
 }
@@ -138,6 +177,7 @@ async function backupNow(kind) {
   const all = [...r.databases, ...r.sites, ...r.apps, ...r.panel];
   const con = document.getElementById('backups-console');
   con.style.display = 'block'; con.textContent = '';
+  document.getElementById('bk-console-empty')?.style.setProperty('display', 'none');
   await streamConsole('/backups', { kind, resources: all }, con);
   loadBackups();
 }
@@ -191,4 +231,5 @@ Object.assign(window, {
   backupRemoteEncryptToggle, backupRemoteRestore, backupRemoteSave, backupRemoteTest,
   backupRemoteTypeChange, backupRestore, backupUpload, loadBackupRemote, loadBackups,
   loadRemoteBackups, saveBackupSchedule,
+  loadBackupResourceSummary, updateBackupMetrics, renderBackupRemoteSummary,
 });
