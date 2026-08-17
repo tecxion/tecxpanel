@@ -48,6 +48,28 @@ function termCleanup(userInitiated) {
   setTermStatus('off');
 }
 
+// Carga xterm.js bajo demanda (no en cada arranque del panel). Se inyecta la
+// primera vez que se abre la Terminal; las siguientes reutilizan la promesa.
+let xtermLoad = null;
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('No se pudo cargar ' + src));
+    document.head.appendChild(s);
+  });
+}
+function ensureXterm() {
+  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  if (!xtermLoad) {
+    xtermLoad = loadScript('vendor/xterm/xterm.min.js?v=5.5.0')
+      .then(() => loadScript('vendor/xterm/addon-fit.min.js?v=0.10.0'))
+      .catch((e) => { xtermLoad = null; throw e; });
+  }
+  return xtermLoad;
+}
+
 // initTerminal: abre la terminal SSH. Antes comprueba /system/features para no
 // intentar abrir el WS si node-pty no está instalado (mensaje más claro).
 async function initTerminal() {
@@ -64,6 +86,7 @@ async function initTerminal() {
   termShouldConnect = true;
   termBackoffMs = 2000;
 
+  try { await ensureXterm(); } catch (_) {}
   if (!window.Terminal || !window.FitAddon) {
     toast('No se pudo cargar xterm.js', 'error');
     setTermStatus('err');

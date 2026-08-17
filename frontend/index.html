@@ -18,11 +18,12 @@
 <title>TecXPaneL — Panel de Control VPS</title>
 <link rel="stylesheet" href="vendor/tabler/tabler-icons.min.css?v=20260723">
 <link rel="stylesheet" href="vendor/xterm/xterm.min.css?v=5.5.0">
-<script src="vendor/xterm/xterm.min.js?v=5.5.0"></script>
-<script src="vendor/xterm/addon-fit.min.js?v=0.10.0"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- xterm.js se carga bajo demanda al abrir la Terminal (ver terminal.js), no en cada carga del panel. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Fuentes no bloqueantes: preload + swap a stylesheet en onload (con fallback noscript). -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap"></noscript>
 <script>
 // Anti-flash: aplica el tema guardado antes del primer pintado.
 (function(){try{

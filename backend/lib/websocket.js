@@ -159,9 +159,19 @@ function setupWebSockets(server, verifyToken) {
     // Preserva locales LC_* si están puestas (no son secretos y afectan a la UX).
     for (const k of Object.keys(parentEnv)) if (k.startsWith('LC_')) safeEnv[k] = parentEnv[k];
 
-    const shell = pty.spawn(safeEnv.SHELL, ['-l'], {
-      name: 'xterm-256color', cols: 80, rows: 24, cwd: safeEnv.HOME, env: safeEnv,
-    });
+    // pty.spawn puede lanzar (binding nativo incompatible, shell inexistente…).
+    // Como este handler corre dentro del emit('connection') del upgrade, una
+    // excepción sin capturar tumbaría TODO el proceso del panel: la aislamos.
+    let shell;
+    try {
+      shell = pty.spawn(safeEnv.SHELL, ['-l'], {
+        name: 'xterm-256color', cols: 80, rows: 24, cwd: safeEnv.HOME, env: safeEnv,
+      });
+    } catch (e) {
+      try { ws.send(JSON.stringify({ type: 'output', data: 'No se pudo iniciar la terminal: ' + e.message + '\r\n' })); } catch (_) {}
+      ws.close();
+      return;
+    }
     // Lo que escupe la shell → se envía al navegador.
     shell.onData((data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'output', data })); });
     // Lo que llega del navegador → se escribe en la shell (o se redimensiona).

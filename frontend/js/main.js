@@ -25,6 +25,18 @@ Object.assign(window, {
   currentPage: 'dashboard', statsWS: null, serverIp: '',
 });
 
+// initApp: arranca la carga de datos del panel (dashboard + servicios + IP).
+// Lo llama boot() al abrir el panel ya autenticado y auth.js tras un login
+// (antes vivía en el core.js v1, que ya no se carga → "initApp is not defined").
+function initApp() {
+  window.loadDashboard?.();
+  window.loadServices?.();
+  window.loadProcesses?.();
+  window.connectStatsWS?.();
+  window.req?.('GET', '/system/ip').then(d => { if (d?.ip) window.serverIp = d.ip; }).catch(() => {});
+}
+window.initApp = initApp;
+
 async function loadTemplates() {
   const pages = ['dashboard','terminal','websites','apps','databases','docker','n8n','catalog',
     'backups','cron','mail','dns','files','firewall','ssl','logs','plugins','help','settings'];
@@ -85,12 +97,7 @@ async function boot() {
   // el panel y sus loaders (loadDashboard/Services/Processes/connectStatsWS)
   // quedarían esperando al setInterval de 30 s (Services/Processes) o para
   // siempre (WebSocket de stats). Los invocamos aquí una vez.
-  if (window.currentPage === 'dashboard') {
-    window.loadDashboard?.();
-    window.loadServices?.();
-    window.loadProcesses?.();
-    window.connectStatsWS?.();
-  }
+  if (window.currentPage === 'dashboard') initApp();
   setInterval(()=>{ if(window.currentPage==='dashboard'){window.loadServices?.();window.loadProcesses?.()}if(window.currentPage==='docker')window.loadDockerContainers?.() },30000);
 }
 boot();

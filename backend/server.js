@@ -51,6 +51,13 @@ const app = express();
 app.set('trust proxy', 1);          // confiamos en el proxy nginx que tenemos delante
 app.disable('x-powered-by');        // ocultamos que usamos Express (menos pistas a atacantes)
 app.use(helmet({ contentSecurityPolicy: false })); // cabeceras de seguridad
+// Compresión gzip de HTML/CSS/JS/JSON (reduce ~78% el peso de los assets). NO
+// comprime las respuestas de streaming en vivo (logs de deploy/cron/backups),
+// que marcan `X-Accel-Buffering: no`, para que el frontend las reciba al instante.
+const compression = require('compression');
+app.use(compression({
+  filter: (req, res) => (res.getHeader('X-Accel-Buffering') === 'no' ? false : compression.filter(req, res)),
+}));
 app.use(express.json({ limit: '50mb' }));           // parsea cuerpos JSON (hasta 50 MB)
 
 // Límite de peticiones: 120/min en toda la API, y un límite más estricto en el login.
