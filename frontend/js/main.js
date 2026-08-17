@@ -57,27 +57,33 @@ async function checkAuth() {
 }
 
 // ── Carga lazy de todas las páginas JS v1 (hacen funciones globales) ──
+// ASSET_V se añade como ?v= a cada import dinámico para que un despliegue
+// invalide la caché del navegador/nginx (que sirve JS con `immutable`); sin
+// esto quedaban módulos viejos servidos (p. ej. terminal.js sin la carga lazy
+// de xterm → "no se pudo cargar xterm.js"). SUBIR al cambiar cualquier página.
+const ASSET_V = '20260817';
+const imp = (name) => import(`./${name}.js?v=${ASSET_V}`);
 const PAGE_IMPORTS = {
-  auth:        ()=>import('./auth.js'),
-  dashboard:   ()=>import('./dashboard.js'),
-  websites:    ()=>import('./websites.js'),
-  apps:        ()=>import('./apps.js'),
-  databases:   ()=>import('./databases.js'),
-  files:       ()=>import('./files.js'),
-  firewall:    ()=>import('./firewall.js'),
-  ssl:         ()=>import('./ssl.js'),
-  settings:    ()=>import('./settings.js'),
-  notifications:()=>import('./notifications.js'),
-  logs:        ()=>import('./logs.js'),
-  terminal:    ()=>import('./terminal.js'),
-  plugins:     ()=>import('./plugins.js'),
-  n8n:         ()=>import('./n8n.js'),
-  catalog:     ()=>import('./catalog.js'),
-  backups:     ()=>import('./backups.js'),
-  mail:        ()=>import('./mail.js'),
-  dns:         ()=>import('./dns.js'),
-  cron:        ()=>import('./cron.js'),
-  docker:      ()=>import('./docker.js'),
+  auth:        () => imp('auth'),
+  dashboard:   () => imp('dashboard'),
+  websites:    () => imp('websites'),
+  apps:        () => imp('apps'),
+  databases:   () => imp('databases'),
+  files:       () => imp('files'),
+  firewall:    () => imp('firewall'),
+  ssl:         () => imp('ssl'),
+  settings:    () => imp('settings'),
+  notifications: () => imp('notifications'),
+  logs:        () => imp('logs'),
+  terminal:    () => imp('terminal'),
+  plugins:     () => imp('plugins'),
+  n8n:         () => imp('n8n'),
+  catalog:     () => imp('catalog'),
+  backups:     () => imp('backups'),
+  mail:        () => imp('mail'),
+  dns:         () => imp('dns'),
+  cron:        () => imp('cron'),
+  docker:      () => imp('docker'),
 };
 
 async function boot() {
