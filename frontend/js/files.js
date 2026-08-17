@@ -1,5 +1,10 @@
 // TecXPaneL — files (file manager, drag&drop, editor)
 let currentFilePath = '/';
+let fileEditorState = null;
+
+function pathCall(fn, path) {
+  return fn + '(' + esc(JSON.stringify(path)) + ')';
+}
 
 // loadFiles: lista el contenido de la carpeta actual en el gestor de archivos.
 async function loadFiles() {
@@ -12,13 +17,14 @@ async function loadFiles() {
   const items = data.items || [];
 
   if (!items.length) {
-    tb.innerHTML = '<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted)"><i class="ti ti-inbox"></i> Directorio vacío</td></tr>';
+    tb.innerHTML = '<tr><td colspan="5" class="files-empty"><i class="ti ti-inbox"></i><strong>Directorio vacío</strong><span>Arrastra archivos aquí o crea uno nuevo.</span></td></tr>';
+    setupDragDrop();
     return;
   }
 
   let itemsHtml = items.map(f => {
     const icon = f.type === 'directory' ? 'ti-folder' : getFileIcon(f.name);
-    const onClick = f.type === 'directory' ? `onclick="browseDir('${esc(f.path)}')"` : '';
+    const onClick = f.type === 'directory' ? `onclick="${pathCall('browseDir', f.path)}"` : '';
     const style = f.type === 'directory' ? 'cursor:pointer;color:var(--accent)' : '';
     const isArchive = /\.(zip|tar\.gz|tgz|tar)$/i.test(f.name);
     return `
@@ -29,9 +35,10 @@ async function loadFiles() {
         <td style="color:var(--text-muted)">${fmtDate(f.modified)}</td>
         <td>
           <div style="display:flex;gap:5px;justify-content:flex-end">
-            ${isArchive ? `<button class="btn btn-sm btn-success" onclick="extractFile('${esc(f.path)}')" title="Extraer aquí"><i class="ti ti-file-zip"></i></button>` : ''}
-            ${f.type === 'file' && !isArchive ? `<button class="btn btn-sm" onclick="editFile('${esc(f.path)}')" title="Editar"><i class="ti ti-edit"></i></button>` : ''}
-            <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.path)}')" title="Eliminar"><i class="ti ti-trash"></i></button>
+            ${isArchive ? `<button class="btn btn-sm btn-success" onclick="${pathCall('extractFile', f.path)}" title="Extraer aquí"><i class="ti ti-file-zip"></i></button>` : ''}
+            ${f.type === 'file' && !isArchive ? `<button class="btn btn-sm" onclick="${pathCall('editFile', f.path)}" title="Editar"><i class="ti ti-edit"></i></button>` : ''}
+            <button class="btn btn-sm" onclick="${pathCall('renameFile', f.path)}" title="Renombrar"><i class="ti ti-pencil"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="${pathCall('deleteFile', f.path)}" title="Eliminar"><i class="ti ti-trash"></i></button>
           </div>
         </td>
       </tr>
@@ -43,7 +50,7 @@ async function loadFiles() {
     itemsHtml = `
       <tr>
         <td style="width:40px"><i class="ti ti-arrow-up" style="font-size:16px;opacity:0.7"></i></td>
-        <td colspan="4"><span onclick="browseDir('${esc(parentPath)}')" style="cursor:pointer;color:var(--accent);text-decoration:underline">.. (Volver arriba)</span></td>
+        <td colspan="4"><span onclick="${pathCall('browseDir', parentPath)}" style="cursor:pointer;color:var(--accent);text-decoration:underline">.. (Volver arriba)</span></td>
       </tr>
     ` + itemsHtml;
   }
@@ -56,15 +63,17 @@ async function loadFiles() {
 function updateBreadcrumb(path) {
   if (path === '/') {
     document.getElementById('file-breadcrumb').innerHTML = '<span style="color:var(--text-muted)">/</span>';
+    document.getElementById('files-current-path').textContent = '/';
     return;
   }
 
   const parts = path.split('/').filter(p => p);
   const crumbs = parts.map((part, i) => {
     const subPath = '/' + parts.slice(0, i + 1).join('/');
-    return `<a href="#" onclick="event.preventDefault();browseDir('${subPath}')" style="color:var(--accent);text-decoration:none;cursor:pointer">${esc(part)}</a>`;
+    return '<a href="#" onclick="event.preventDefault();' + pathCall('browseDir', subPath) + '" style="color:var(--accent);text-decoration:none;cursor:pointer">' + esc(part) + '</a>';
   }).join(' <span style="color:var(--text-muted)">/</span> ');
-  document.getElementById('file-breadcrumb').innerHTML = `<a href="#" onclick="event.preventDefault();browseDir('/')" style="color:var(--text-muted);text-decoration:none;cursor:pointer">/</a> <span style="color:var(--text-muted)">/</span> ${crumbs}`;
+  document.getElementById('file-breadcrumb').innerHTML = '<a href="#" onclick="event.preventDefault();browseDir('/')" style="color:var(--text-muted);text-decoration:none;cursor:pointer">/</a> <span style="color:var(--text-muted)">/</span> ' + crumbs;
+  document.getElementById('files-current-path').textContent = path;
 }
 
 // getFileIcon: elige un icono según la extensión del archivo.
@@ -80,16 +89,20 @@ function getFileIcon(filename) {
 }
 
 let dragDropBound = false;
+let dragDropZone = null;
 // setupDragDrop: activa arrastrar y soltar archivos/carpetas en el gestor.
 function setupDragDrop() {
   const zone = document.getElementById('drop-zone');
-  if (!zone || dragDropBound) return;
-  dragDropBound = true;
+  if (!zone || dragDropZone === zone) return;
+  dragDropZone = zone;
+  if (!dragDropBound) {
+    dragDropBound = true;
 
   // Evita que el navegador abra el archivo al soltarlo fuera de la zona exacta
-  ['dragover', 'drop'].forEach(ev => {
-    window.addEventListener(ev, (e) => { e.preventDefault(); }, false);
-  });
+    ['dragover', 'drop'].forEach(ev => {
+      window.addEventListener(ev, (e) => { e.preventDefault(); }, false);
+    });
+  }
 
   zone.addEventListener('dragenter', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -329,43 +342,90 @@ async function extractFile(path) {
   else toast(r?.error || 'Error al extraer', 'error');
 }
 
-// editFile: abre un archivo de texto en el editor del panel.
+function updateEditorState() {
+  if (!fileEditorState) return;
+  const editor = document.getElementById('file-editor');
+  const dirty = editor.value !== fileEditorState.original;
+  fileEditorState.dirty = dirty;
+  document.getElementById('file-editor-status').textContent = dirty ? 'Cambios sin guardar' : 'Sin cambios';
+  document.getElementById('file-editor-status').className = dirty ? 'file-editor-status is-dirty' : 'file-editor-status';
+  document.getElementById('file-editor-save').disabled = !dirty;
+  document.getElementById('file-editor-stats').textContent = editor.value.length.toLocaleString('es-ES') + ' caracteres · ' + editor.value.split('\n').length + ' líneas';
+  const preview = document.getElementById('file-editor-preview');
+  if (preview && !preview.hidden) preview.srcdoc = editor.value;
+}
+
+function toggleFilePreview() {
+  const preview = document.getElementById('file-editor-preview');
+  const editor = document.getElementById('file-editor');
+  const button = document.getElementById('file-editor-preview-toggle');
+  if (!preview || !editor) return;
+  const visible = preview.hidden;
+  preview.hidden = !visible;
+  button.classList.toggle('active', visible);
+  if (visible) preview.srcdoc = editor.value;
+}
+
+function closeFileEditor(force = false) {
+  if (fileEditorState?.dirty && !force && !confirm('Hay cambios sin guardar. ¿Cerrar sin guardar?')) return;
+  document.getElementById('modal-edit-file')?.remove();
+  fileEditorState = null;
+}
+
+// editFile: abre un editor de texto con estado de cambios y vista previa HTML segura.
 async function editFile(path) {
   const name = path.split('/').pop();
-  const r = await req('GET', `/files/read?path=${encodeURIComponent(path)}`);
-  if (!r?.content && r?.content !== '') { toast('No se pudo leer el archivo', 'error'); return; }
-
+  const r = await req('GET', '/files/read?path=' + encodeURIComponent(path));
+  if (!r || typeof r.content !== 'string') { toast(r?.error || 'No se pudo leer el archivo', 'error'); return; }
+  fileEditorState = { path, original: r.content, dirty: false, language: r.language || 'text' };
   const modal = document.createElement('div');
   modal.className = 'modal-overlay open';
   modal.id = 'modal-edit-file';
   modal.dataset.dynamic = 'true';
-  modal.innerHTML = `
-    <div class="modal" style="width:92%;max-width:1050px;height:85vh;max-height:850px;display:flex;flex-direction:column">
-      <div class="modal-header">
-        <div class="modal-title"><i class="ti ti-edit" style="color:var(--accent)"></i> Editar: ${esc(name)}</div>
-        <button class="btn btn-sm" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i></button>
-      </div>
-      <div class="modal-body" style="flex:1;overflow:hidden;padding:1.25rem;display:flex;flex-direction:column;min-height:0">
-        <textarea id="file-editor" style="width:100%;flex:1;min-height:300px;background:var(--bg-app);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-family:var(--mono);font-size:13px;line-height:1.5;resize:none;outline:none">${esc(r.content)}</textarea>
-      </div>
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('modal-edit-file')"><i class="ti ti-x"></i> Cancelar</button>
-        <button class="btn btn-primary" onclick="saveFile('${esc(path)}')"><i class="ti ti-check"></i> Guardar</button>
-      </div>
-    </div>
-  `;
-  modal.addEventListener('click', e => { if (e.target === modal) closeModal('modal-edit-file'); });
+  modal.innerHTML = '<div class="modal file-editor-modal">'
+    + '<div class="modal-header file-editor-header"><div><div class="modal-title"><i class="ti ti-edit"></i> ' + esc(name) + '</div><div class="file-editor-path">' + esc(path) + '</div></div>'
+    + '<div class="file-editor-header-actions"><span class="file-editor-language">' + esc(fileEditorState.language) + '</span><button class="btn btn-sm" id="file-editor-close" aria-label="Cerrar editor"><i class="ti ti-x"></i></button></div></div>'
+    + '<div class="file-editor-toolbar"><span id="file-editor-status" class="file-editor-status">Sin cambios</span><span id="file-editor-stats" class="file-editor-stats"></span><div class="file-editor-toolbar-actions">'
+    + (fileEditorState.language === 'html' ? '<button class="btn btn-sm" id="file-editor-preview-toggle"><i class="ti ti-eye"></i> Vista previa</button>' : '')
+    + '<button class="btn btn-sm btn-primary" id="file-editor-save" disabled><i class="ti ti-device-floppy"></i> Guardar <kbd>⌘/Ctrl S</kbd></button></div></div>'
+    + '<div class="file-editor-workspace"><textarea id="file-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Contenido del archivo">' + esc(r.content) + '</textarea>'
+    + (fileEditorState.language === 'html' ? '<iframe id="file-editor-preview" class="file-editor-preview" title="Vista previa HTML" sandbox hidden></iframe>' : '') + '</div>'
+    + '<div class="modal-footer"><span class="file-editor-hint">Tab inserta dos espacios · Los archivos binarios no se abren como texto</span><button class="btn" id="file-editor-cancel">Cerrar</button></div></div>';
   document.body.appendChild(modal);
+  const editor = document.getElementById('file-editor');
+  editor.addEventListener('input', updateEditorState);
+  editor.addEventListener('keydown', (event) => {
+    if (event.key === 'Tab') { event.preventDefault(); editor.setRangeText('  ', editor.selectionStart, editor.selectionEnd, 'end'); updateEditorState(); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); saveFile(path); }
+  });
+  document.getElementById('file-editor-save').addEventListener('click', () => saveFile(path));
+  document.getElementById('file-editor-close').addEventListener('click', () => closeFileEditor());
+  document.getElementById('file-editor-cancel').addEventListener('click', () => closeFileEditor());
+  document.getElementById('file-editor-preview-toggle')?.addEventListener('click', toggleFilePreview);
+  modal.addEventListener('click', (event) => { if (event.target === modal) closeFileEditor(); });
+  editor.focus();
+  updateEditorState();
 }
 
-// saveFile: guarda los cambios del editor en el archivo.
 async function saveFile(path) {
-  const content = document.getElementById('file-editor').value;
-  const r = await req('POST', '/files/write', { path, content });
-  if (r?.success) { toast('Guardado', 'success'); closeModal('modal-edit-file'); loadFiles(); }
-  else toast(r?.error || 'Error', 'error');
+  const editor = document.getElementById('file-editor');
+  if (!editor) return;
+  const targetPath = fileEditorState?.path || path;
+  const r = await req('POST', '/files/write', { path: targetPath, content: editor.value });
+  if (r?.success) { fileEditorState.original = editor.value; updateEditorState(); toast('Archivo guardado', 'success'); loadFiles(); }
+  else toast(r?.error || 'Error al guardar', 'error');
+}
+
+async function renameFile(path) {
+  const name = path.split('/').pop();
+  const next = prompt('Nuevo nombre:', name);
+  if (!next || next.trim() === name) return;
+  const parent = path.slice(0, path.lastIndexOf('/') + 1);
+  const r = await req('POST', '/files/rename', { from: path, to: parent + next.trim() });
+  if (r?.success) { toast('Renombrado', 'success'); loadFiles(); }
+  else toast(r?.error || 'No se pudo renombrar', 'error');
 }
 
 Object.assign(window, {
-  browseDir, createFile, createFolder, deleteFile, editFile, extractFile, flattenEntry, getFileIcon, handleDrop, handleFileUpload, hideProgress, loadFiles, processEntries, readDirEntries, readEntryAsFile, saveFile, setupDragDrop, showProgress, updateBreadcrumb, uploadBinary, uploadFlatFiles,
+  browseDir, closeFileEditor, createFile, createFolder, deleteFile, editFile, extractFile, flattenEntry, getFileIcon, handleDrop, handleFileUpload, hideProgress, loadFiles, processEntries, readDirEntries, readEntryAsFile, renameFile, saveFile, setupDragDrop, showProgress, toggleFilePreview, updateBreadcrumb, uploadBinary, uploadFlatFiles,
 });
