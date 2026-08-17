@@ -3,7 +3,11 @@
 // URL con la que el NAVEGADOR abre n8n: el dominio si lo hay, o la IP/host con
 // el que entraste al panel + el puerto de n8n (no "localhost", que sería tu PC).
 function n8nOpenBase(st) {
-  return st.domain ? st.base_url : `http://${location.hostname}:${st.host_port}`;
+  if (st.domain) return st.base_url;
+  // Sin dominio: usa el IP del servidor (de /system/ip), NO el hostname con el
+  // que accedes al panel (si entras por un dominio, ese dominio no sirve n8n).
+  const ip = (window.serverIp && window.serverIp !== 'desconocida') ? window.serverIp : location.hostname;
+  return `http://${ip}:${st.host_port}`;
 }
 
 let n8nWorkflowsCache = [];
@@ -67,6 +71,10 @@ async function loadN8n() {
   }
 
   // state === 'ready' → dashboard
+  // Asegura el IP del servidor por si aún no se cargó (evita caer al hostname del panel).
+  if (!st.domain && (!window.serverIp || window.serverIp === 'desconocida')) {
+    try { const ipd = await req('GET', '/system/ip'); if (ipd?.ip) window.serverIp = ipd.ip; } catch (_) {}
+  }
   const openUrl = n8nOpenBase(st);
   body.innerHTML = `<div class="n8n-dashboard">
   <div class="n8n-hero"><div><span class="eyebrow"><i class="ti ti-sitemap"></i> AUTOMATIZACIÓN</span><h2>Workflows en producción</h2><p>Controla el estado de tus automatizaciones y abre el editor completo cuando necesites construir.</p></div><div class="n8n-hero-actions"><a id="n8n-open-url" class="btn btn-primary" href="${esc(openUrl)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir n8n</a>
