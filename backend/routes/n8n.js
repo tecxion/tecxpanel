@@ -19,7 +19,7 @@ const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const { queries, audit } = require('../database');
 const {
   buildN8nContainerConfig, buildPullPath, buildLocalApiBase,
-  n8nApi, computeN8nStatus, accumulatePullProgress,
+  n8nApi, computeN8nStatus, accumulatePullProgress, validateN8nInstallOptions,
   N8N_CONTAINER, N8N_IMAGE, N8N_TAG, N8N_PORT,
 } = require('../lib/n8n');
 
@@ -153,6 +153,7 @@ router.get('/status', wrap(async (req, res) => {
 router.post('/config', wrap(async (req, res) => {
   const apiKey = String((req.body && req.body.api_key) || '').trim();
   if (!apiKey) return fail(res, 400, 'Falta la API key de n8n. Genérala en n8n → Settings → API.');
+  if (apiKey.length > 512 || /[\u0000-\u001f\u007f]/.test(apiKey)) return fail(res, 400, 'API key inválida.');
 
   const prev = queries.getN8nConfig.get() || {};
   const hostPort = prev.host_port || N8N_PORT;
@@ -181,9 +182,11 @@ router.post('/config', wrap(async (req, res) => {
 // POST /install — descarga la imagen y crea el contenedor, transmitiendo el
 // progreso en vivo. Opcionalmente crea un vhost Nginx si se indica dominio.
 router.post('/install', wrap(async (req, res) => {
-  const hostPort = parseInt((req.body && req.body.host_port) || N8N_PORT, 10) || N8N_PORT;
+  const hostPort = Number((req.body && req.body.host_port) || N8N_PORT);
   const domainRaw = String((req.body && req.body.domain) || '').trim();
   const timezone = String((req.body && req.body.timezone) || 'UTC').trim() || 'UTC';
+  const installOptions = validateN8nInstallOptions({ hostPort, timezone });
+  if (!installOptions.ok) return fail(res, 400, installOptions.error);
   let domain = null;
   if (domainRaw) {
     if (!isValidDomain(domainRaw)) return fail(res, 400, 'Dominio inválido.');

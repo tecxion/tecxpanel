@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const n8n = require('../lib/n8n');
 
 test('n8n exporta los helpers y constantes esperados', () => {
-  for (const fn of ['buildN8nContainerConfig', 'buildPullPath', 'n8nApi', 'computeN8nStatus']) {
+  for (const fn of ['buildN8nContainerConfig', 'buildPullPath', 'n8nApi', 'computeN8nStatus', 'validateN8nInstallOptions']) {
     assert.strictEqual(typeof n8n[fn], 'function', `falta ${fn}`);
   }
   assert.strictEqual(n8n.N8N_CONTAINER, 'txpl-n8n');
@@ -11,6 +11,14 @@ test('n8n exporta los helpers y constantes esperados', () => {
   assert.strictEqual(n8n.N8N_IMAGE, 'n8nio/n8n');
   assert.strictEqual(n8n.N8N_TAG, 'latest');
   assert.strictEqual(n8n.N8N_PORT, 5678);
+});
+
+test('validateN8nInstallOptions limita puerto y zona horaria', () => {
+  assert.strictEqual(n8n.validateN8nInstallOptions({ hostPort: 1023, timezone: 'UTC' }).ok, false);
+  assert.strictEqual(n8n.validateN8nInstallOptions({ hostPort: 65536, timezone: 'UTC' }).ok, false);
+  assert.strictEqual(n8n.validateN8nInstallOptions({ hostPort: '5678abc', timezone: 'UTC' }).ok, false);
+  assert.strictEqual(n8n.validateN8nInstallOptions({ hostPort: 5678, timezone: 'Europe/Madrid' }).ok, true);
+  assert.strictEqual(n8n.validateN8nInstallOptions({ hostPort: 5678, timezone: 'No/Such_Zone' }).ok, false);
 });
 
 test('buildPullPath: incluye SIEMPRE el tag (no descarga todas las etiquetas)', () => {

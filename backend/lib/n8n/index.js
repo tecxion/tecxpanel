@@ -16,6 +16,8 @@ const N8N_IMAGE = 'n8nio/n8n';
 // una etiqueta concreta para bajar una sola imagen.
 const N8N_TAG = 'latest';
 const N8N_PORT = 5678;
+const N8N_MIN_HOST_PORT = 1024;
+const N8N_MAX_HOST_PORT = 65535;
 
 // Construye la ruta del pull para la Docker API `/images/create`, SIEMPRE con
 // `tag` para no disparar la descarga de todas las etiquetas. Testeable en aislado.
@@ -28,6 +30,20 @@ function buildPullPath(image, tag) {
 // pública ni del dominio, así que no falla por hairpin NAT ni por DNS/SSL.
 function buildLocalApiBase(hostPort) {
   return `http://127.0.0.1:${hostPort || N8N_PORT}`;
+}
+
+function validateN8nInstallOptions({ hostPort, timezone = 'UTC' } = {}) {
+  const port = Number(hostPort);
+  if (!Number.isInteger(port) || port < N8N_MIN_HOST_PORT || port > N8N_MAX_HOST_PORT) {
+    return { ok: false, error: `El puerto debe estar entre ${N8N_MIN_HOST_PORT} y ${N8N_MAX_HOST_PORT}.` };
+  }
+  if (typeof timezone !== 'string' || timezone.length > 64 || /[\u0000-\u001f\u007f]/.test(timezone)) {
+    return { ok: false, error: 'Zona horaria inválida.' };
+  }
+  try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(); } catch (_) {
+    return { ok: false, error: 'Zona horaria inválida.' };
+  }
+  return { ok: true, hostPort: port, timezone };
 }
 
 // Construye la config que se envía a la Docker API para crear el contenedor n8n.
@@ -68,8 +84,21 @@ async function n8nApi(baseUrl, apiKey, method, apiPath, body = null, fetchImpl =
   const headers = { 'X-N8N-API-KEY': apiKey, 'Accept': 'application/json' };
   const opts = { method, headers };
   if (body) { headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetchImpl(url, opts);
-  const text = await res.text();
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 15_000) : null;
+  if (controller) opts.signal = controller.signal;
+  let res;
+  let text;
+  try { res = await fetchImpl(url, opts); text = await res.text(); } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error('Tiempo de espera agotado al contactar con n8n.');
+      timeoutError.code = 'N8N_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
   if (!res.ok) {
@@ -117,7 +146,7 @@ function accumulatePullProgress(state, event) {
 }
 
 module.exports = {
-  N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_TAG, N8N_PORT,
-  buildN8nContainerConfig, buildPullPath, buildLocalApiBase,
+  N8N_CONTAINER, N8N_VOLUME, N8N_IMAGE, N8N_TAG, N8N_PORT, N8N_MIN_HOST_PORT, N8N_MAX_HOST_PORT,
+  buildN8nContainerConfig, buildPullPath, buildLocalApiBase, validateN8nInstallOptions,
   n8nApi, computeN8nStatus, accumulatePullProgress,
 };

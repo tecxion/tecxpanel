@@ -6,11 +6,19 @@ function n8nOpenBase(st) {
   return st.domain ? st.base_url : `http://${location.hostname}:${st.host_port}`;
 }
 
+let n8nWorkflowsCache = [];
+
+function n8nWorkflowArg(id) { return esc(JSON.stringify(String(id))); }
+
+function n8nFilterWorkflows() {
+  renderN8nWorkflows(document.getElementById('n8n-open-url')?.href || '', document.getElementById('n8n-workflow-search')?.value || '');
+}
+
 async function loadN8n() {
   const body = document.getElementById('n8n-body');
   body.innerHTML = '<div class="card"><p>Cargando estado de n8n...</p></div>';
   const st = await req('GET', '/n8n/status');
-  if (!st) return;
+  if (!st) { body.innerHTML = '<div class="n8n-empty card"><i class="ti ti-alert-triangle"></i><strong>No se pudo consultar n8n</strong><span>Comprueba Docker y vuelve a intentarlo.</span><button class="btn btn-primary" onclick="loadN8n()">Reintentar</button></div>'; return; }
 
   if (!st.docker) {
     body.innerHTML = `<div class="card">
@@ -60,16 +68,15 @@ async function loadN8n() {
 
   // state === 'ready' → dashboard
   const openUrl = n8nOpenBase(st);
-  body.innerHTML = `<div class="card">
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <a class="btn" href="${esc(openUrl)}" target="_blank" rel="noopener">Abrir en n8n</a>
+  body.innerHTML = `<div class="n8n-dashboard">
+  <div class="n8n-hero"><div><span class="eyebrow"><i class="ti ti-sitemap"></i> AUTOMATIZACIÓN</span><h2>Workflows en producción</h2><p>Controla el estado de tus automatizaciones y abre el editor completo cuando necesites construir.</p></div><div class="n8n-hero-actions"><a id="n8n-open-url" class="btn btn-primary" href="${esc(openUrl)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> Abrir n8n</a>
       <button class="btn" onclick="n8nAction('restart')">Reiniciar</button>
       <button class="btn" onclick="n8nAction('stop')">Detener</button>
       <button class="btn btn-danger" onclick="n8nUninstall()">Desinstalar</button>
-    </div>
-  </div>
-  <div class="card"><h3>Workflows</h3><div id="n8n-workflows">Cargando...</div></div>
-  <div class="card"><h3>Ejecuciones recientes</h3><div id="n8n-executions">Cargando...</div></div>`;
+    </div></div>
+  <div class="n8n-metrics"><div class="n8n-metric"><span class="n8n-metric-icon"><i class="ti ti-sitemap"></i></span><div><small>Total</small><strong id="n8n-total">—</strong></div></div><div class="n8n-metric is-green"><span class="n8n-metric-icon"><i class="ti ti-player-play"></i></span><div><small>Activos</small><strong id="n8n-active">—</strong></div></div><div class="n8n-metric is-blue"><span class="n8n-metric-icon"><i class="ti ti-player-pause"></i></span><div><small>Pausados</small><strong id="n8n-paused">—</strong></div></div><div class="n8n-metric"><span class="n8n-metric-icon"><i class="ti ti-history"></i></span><div><small>Ejecuciones</small><strong id="n8n-execution-count">—</strong></div></div></div>
+  <div class="n8n-grid"><div class="card n8n-card"><div class="n8n-card-heading"><div><span class="eyebrow">CATÁLOGO</span><h3>Workflows</h3></div><button class="btn btn-sm" onclick="loadN8n()"><i class="ti ti-refresh"></i> Actualizar</button></div><div class="n8n-search"><i class="ti ti-search"></i><input id="n8n-workflow-search" type="search" placeholder="Buscar por nombre o tag..." oninput="n8nFilterWorkflows()"></div><div id="n8n-workflows">Cargando...</div></div>
+  <div class="card n8n-card"><div class="n8n-card-heading"><div><span class="eyebrow">OBSERVABILIDAD</span><h3>Actividad reciente</h3></div><button class="btn btn-sm" onclick="loadN8nExecutions()"><i class="ti ti-refresh"></i></button></div><div id="n8n-executions">Cargando...</div></div></div></div>`;
 
   loadN8nWorkflows(openUrl);
   loadN8nExecutions();
@@ -79,37 +86,43 @@ async function loadN8nWorkflows(baseUrl) {
   const el = document.getElementById('n8n-workflows');
   const r = await req('GET', '/n8n/workflows');
   if (!r || !r.workflows) { el.textContent = 'No pude cargar los workflows.'; return; }
-  if (r.workflows.length === 0) { el.textContent = 'Aún no hay workflows. Créalos en n8n.'; return; }
-  const safeBase = esc(baseUrl);
-  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Tags</th><th>Estado</th><th></th></tr></thead><tbody>'
-    + r.workflows.map((w) => {
+  if (r.workflows.length === 0) { n8nWorkflowsCache = []; renderN8nWorkflows(baseUrl); return; }
+  n8nWorkflowsCache = r.workflows;
+  renderN8nWorkflows(baseUrl);
+}
+
+function renderN8nWorkflows(baseUrl, query = '') {
+  const el = document.getElementById('n8n-workflows');
+  if (!el) return;
+  const safeBase = esc(String(baseUrl).replace(/\/+$/, '')); // sin barra final: evita // en las URLs
+  const normalized = query.trim().toLowerCase();
+  const workflows = n8nWorkflowsCache.filter((w) => !normalized || [w.name, ...(w.tags || [])].join(' ').toLowerCase().includes(normalized));
+  const active = n8nWorkflowsCache.filter((w) => w.active).length;
+  document.getElementById('n8n-total')?.replaceChildren(document.createTextNode(String(n8nWorkflowsCache.length)));
+  document.getElementById('n8n-active')?.replaceChildren(document.createTextNode(String(active)));
+  document.getElementById('n8n-paused')?.replaceChildren(document.createTextNode(String(n8nWorkflowsCache.length - active)));
+  if (!workflows.length) { el.innerHTML = '<div class="n8n-empty"><i class="ti ti-search-off"></i><strong>No hay resultados</strong><span>Prueba con otro nombre o tag.</span></div>'; return; }
+  el.innerHTML = '<div class="n8n-workflow-list">'
+    + workflows.map((w) => {
       const toggle = w.active
-        ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow('${esc(w.id)}', true)">Desactivar</button>`
-        : `<button class="btn btn-sm btn-primary" onclick="n8nToggleWorkflow('${esc(w.id)}', false)">Activar</button>`;
+        ? `<button class="btn btn-sm" onclick="n8nToggleWorkflow(${n8nWorkflowArg(w.id)}, true)"><i class="ti ti-player-pause"></i> Pausar</button>`
+        : `<button class="btn btn-sm btn-primary" onclick="n8nToggleWorkflow(${n8nWorkflowArg(w.id)}, false)"><i class="ti ti-player-play"></i> Activar</button>`;
       const editUrl = `${safeBase}/workflow/${esc(w.id)}`;
       const webhook = w.webhookPath
-        ? `<br><small>webhook: <code>${safeBase}/webhook/${esc(w.webhookPath)}</code></small>` : '';
-      return `<tr>
-        <td>${esc(w.name)}${webhook}</td>
-        <td>${w.tags.map(t => esc(t)).join(', ') || '—'}</td>
-        <td>${w.active ? '<span class="badge badge-green">activo</span>' : '<span class="badge">inactivo</span>'}</td>
-        <td>${toggle} <a class="btn btn-sm" href="${editUrl}" target="_blank" rel="noopener">Abrir en n8n</a></td>
-      </tr>`;
-    }).join('') + '</tbody></table></div>';
+        ? `<div class="n8n-webhook"><i class="ti ti-webhook"></i> ${esc(w.webhookPath)}</div>` : '';
+      return `<article class="n8n-workflow-item"><div class="n8n-workflow-main"><div class="n8n-workflow-title"><span class="n8n-status-dot ${w.active ? 'is-active' : ''}"></span><strong>${esc(w.name)}</strong><span class="n8n-status-label">${w.active ? 'Activo' : 'Pausado'}</span></div><div class="n8n-tags">${(w.tags || []).map(t => '<span>' + esc(t) + '</span>').join('') || '<span class="is-muted">Sin tags</span>'}</div>${webhook}</div><div class="n8n-workflow-actions">${toggle}<a class="btn btn-sm" href="${editUrl}" target="_blank" rel="noopener"><i class="ti ti-edit"></i> Editar</a></div></article>`;
+    }).join('') + '</div>';
 }
 
 async function loadN8nExecutions() {
   const el = document.getElementById('n8n-executions');
   const r = await req('GET', '/n8n/executions');
   if (!r || !r.executions) { el.textContent = 'No pude cargar las ejecuciones.'; return; }
+  document.getElementById('n8n-execution-count')?.replaceChildren(document.createTextNode(String(r.executions.length)));
   if (r.executions.length === 0) { el.textContent = 'Sin ejecuciones todavía.'; return; }
-  const icon = (s) => s === 'success' ? '✓' : (s === 'error' ? '✗' : '⏳');
-  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Workflow</th><th>Estado</th><th>Inicio</th></tr></thead><tbody>'
-    + r.executions.map((e) => `<tr>
-        <td>${esc(e.workflowName)}</td>
-        <td>${icon(e.status)} ${esc(e.status)}</td>
-        <td>${e.startedAt ? new Date(e.startedAt).toLocaleString() : '—'}</td>
-      </tr>`).join('') + '</tbody></table></div>';
+  const icon = (s) => s === 'success' ? 'ti-check' : (s === 'error' ? 'ti-x' : 'ti-loader-2');
+  el.innerHTML = '<div class="n8n-execution-list">'
+    + r.executions.map((e) => { const status = String(e.status || 'running').toLowerCase(); return `<article class="n8n-execution-item is-${esc(status)}"><span class="n8n-execution-icon"><i class="ti ${icon(status)}"></i></span><div class="n8n-execution-copy"><strong>${esc(e.workflowName)}</strong><span>${esc(status)} · ${e.startedAt ? new Date(e.startedAt).toLocaleString('es-ES') : 'sin fecha'}</span></div></article>`; }).join('') + '</div>';
 }
 
 // Instalación por streaming (reutiliza el patrón de streamPlugin).
@@ -117,6 +130,12 @@ async function n8nInstall() {
   const host_port = document.getElementById('n8n-port').value;
   const domain = document.getElementById('n8n-domain').value.trim();
   const timezone = document.getElementById('n8n-tz').value.trim();
+  if (!/^\d+$/.test(host_port) || Number(host_port) < 1024 || Number(host_port) > 65535) {
+    toast('El puerto debe estar entre 1024 y 65535', 'error'); return;
+  }
+  if (!timezone || timezone.length > 64 || /[\u0000-\u001f\u007f]/.test(timezone)) {
+    toast('Introduce una zona horaria válida', 'error'); return;
+  }
   const wrap = document.getElementById('n8n-console');
   const out = document.getElementById('n8n-console-output');
   const spinner = document.getElementById('n8n-console-spinner');
@@ -136,6 +155,15 @@ async function n8nInstall() {
       body: JSON.stringify({ host_port, domain, timezone }),
     });
     if (r.status === 401) { doLogout(); return; }
+    if (!r.ok) {
+      const errorBody = await r.text();
+      let message = 'No se pudo iniciar la instalación';
+      try { message = JSON.parse(errorBody).error || message; } catch (_) {}
+      out.textContent = '✖ ' + message;
+      toast(message, 'error');
+      spinner.style.display = 'none';
+      return;
+    }
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buffer = '';
@@ -208,5 +236,5 @@ async function n8nUninstall() {
 }
 
 Object.assign(window, {
-  loadN8n, loadN8nExecutions, loadN8nWorkflows, n8nAction, n8nInstall, n8nOpenBase, n8nSaveConfig, n8nToggleWorkflow, n8nUninstall,
+  loadN8n, loadN8nExecutions, loadN8nWorkflows, n8nAction, n8nFilterWorkflows, n8nInstall, n8nOpenBase, n8nSaveConfig, n8nToggleWorkflow, n8nUninstall,
 });

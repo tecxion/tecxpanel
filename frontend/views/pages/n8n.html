@@ -1,13 +1,13 @@
-<div class="page-header">
+<div class="page-header n8n-page-header">
   <h1><i class="ti ti-sitemap"></i> Workflows (n8n)</h1>
-  <p class="page-desc">Automatiza flujos con n8n integrado en tu VPS. Edita en n8n; controla y monitoriza desde aquí.</p>
+  <p class="page-desc">Automatiza tu VPS con n8n. Gestiona el estado, activa workflows y revisa la actividad sin perder el contexto.</p>
 </div>
 
 <!-- Estado dinámico: lo rellena loadN8n() según GET /api/n8n/status -->
 <div id="n8n-body"><div class="card"><p>Cargando estado de n8n...</p></div></div>
 
 <!-- Consola de streaming reutilizable para la instalación -->
-<div id="n8n-console" style="display:none;margin-top:1.25rem">
+<div id="n8n-console" class="n8n-console-card" style="display:none;margin-top:1.25rem">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
     <span id="n8n-console-title" style="font-weight:600;font-size:13px">Instalando n8n</span>
     <span id="n8n-console-spinner" style="color:var(--accent);font-size:12px;margin-left:auto"><i class="ti ti-loader-2"></i> en ejecución...</span>
