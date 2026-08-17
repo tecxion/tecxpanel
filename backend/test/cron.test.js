@@ -20,6 +20,27 @@ test('isValidCronField rechaza basura', () => {
   }
 });
 
+test('isValidCronField aplica rangos específicos por campo', () => {
+  const valid = {
+    minute: '59', hour: '23', dom: '31', month: '12', dow: '7',
+  };
+  const invalid = {
+    minute: '60', hour: '24', dom: '0', month: '13', dow: '8',
+  };
+  for (const [field, value] of Object.entries(valid)) {
+    assert.strictEqual(c.isValidCronField(value, field), true, `${field}=${value} debería aceptarse`);
+  }
+  for (const [field, value] of Object.entries(invalid)) {
+    assert.strictEqual(c.isValidCronField(value, field), false, `${field}=${value} debería rechazarse`);
+  }
+});
+
+test('isValidCronField rechaza rangos invertidos y pasos inválidos', () => {
+  for (const [value, field] of [['10-1', 'minute'], ['*/0', 'hour'], ['*/25', 'hour'], ['*/1001', 'generic']]) {
+    assert.strictEqual(c.isValidCronField(value, field), false, `debería rechazar ${field}=${value}`);
+  }
+});
+
 test('isValidCommand rechaza vacío y saltos de línea', () => {
   assert.strictEqual(c.isValidCommand('rsync -a /a /b'), true);
   assert.strictEqual(c.isValidCommand(''), false);
@@ -27,11 +48,19 @@ test('isValidCommand rechaza vacío y saltos de línea', () => {
   assert.strictEqual(c.isValidCommand('echo hola\nrm -rf /'), false);
   assert.strictEqual(c.isValidCommand('echo hola\r* * * * * evil'), false);
   assert.strictEqual(c.isValidCommand(42), false);
+  assert.strictEqual(c.isValidCommand('x'.repeat(4096)), true);
+  assert.strictEqual(c.isValidCommand('x'.repeat(4097)), false);
 });
 
-test('buildCronJobLines arma marcador + línea con redirección', () => {
+test('buildCronJobLines arma marcador + línea con flock y redirección', () => {
   const out = c.buildCronJobLines({ id: 3, minute: '0', hour: '2', dom: '*', month: '*', dow: '*', command: 'backup.sh' });
-  assert.strictEqual(out, '# txpl-cron:3\n0 2 * * * backup.sh >> /var/log/txpl/cron/3.log 2>&1');
+  assert.strictEqual(out, "# txpl-cron:3\n0 2 * * * flock -n -E 75 /var/log/txpl/cron/3.lock /bin/sh -c 'backup.sh' >> /var/log/txpl/cron/3.log 2>&1");
+});
+
+test('buildCronJobLines escapa comillas simples del comando', () => {
+  const out = c.buildCronJobLines({ id: 5, minute: '*', hour: '*', dom: '*', month: '*', dow: '*', command: "echo it's ok" });
+  // La comilla simple se escapa como '\'' para no romper el sh -c '...'
+  assert.match(out, /\/bin\/sh -c 'echo it'\\''s ok'/);
 });
 
 test('rebuildCrontab conserva líneas ajenas y regenera el bloque', () => {
@@ -50,7 +79,7 @@ test('rebuildCrontab conserva líneas ajenas y regenera el bloque', () => {
   assert.match(out, /@reboot algo-del-usuario/);
   assert.ok(!out.includes('# txpl-cron:1'), 'debe eliminar el bloque previo');
   assert.ok(!out.includes('viejo.sh'), 'debe eliminar el comando previo');
-  assert.match(out, /# txpl-cron:2\n0 4 \* \* 1 nuevo\.sh >> \/var\/log\/txpl\/cron\/2\.log 2>&1/);
+  assert.match(out, /# txpl-cron:2\n0 4 \* \* 1 flock -n -E 75 \/var\/log\/txpl\/cron\/2\.lock \/bin\/sh -c 'nuevo\.sh' >> \/var\/log\/txpl\/cron\/2\.log 2>&1/);
   assert.ok(out.endsWith('\n'), 'debe terminar en salto de línea');
 });
 

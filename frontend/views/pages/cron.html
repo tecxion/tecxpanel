@@ -1,55 +1,48 @@
-<div class="page-header">
-  <h1><i class="ti ti-clock-play"></i> Tareas programadas</h1>
-</div>
+<div class="cron-page">
+  <section class="cron-hero">
+    <div class="cron-hero-copy">
+      <div class="eyebrow"><i class="ti ti-clock-play"></i> Automatización del servidor</div>
+      <h1>Tareas programadas</h1>
+      <p>Automatiza mantenimiento, sincronizaciones y procesos recurrentes sin editar el crontab a mano.</p>
+      <div class="cron-hero-actions"><button class="btn btn-primary" onclick="cronStartNew()"><i class="ti ti-plus"></i> Nueva tarea</button><button class="btn cron-secondary-btn" onclick="loadCron()"><i class="ti ti-refresh"></i> Actualizar</button></div>
+    </div>
+    <div class="cron-hero-mark" aria-hidden="true"><i class="ti ti-clock-bolt"></i><span></span></div>
+  </section>
 
-<div class="card">
-  <h3 id="cron-form-title"><i class="ti ti-plus"></i> Nueva tarea</h3>
-  <input type="hidden" id="cron-id" value="">
-  <div class="form-row">
-    <input type="text" id="cron-name" placeholder="Nombre (ej. Limpiar temporales)">
-  </div>
-  <div class="form-row">
-    <input type="text" id="cron-command" placeholder="Comando (ej. rm -rf /tmp/cache/*)" style="width:100%">
-  </div>
-  <div class="form-row">
-    <label>Frecuencia:
-      <select id="cron-preset" onchange="cronPresetChange()">
-        <option value="minute">Cada minuto</option>
-        <option value="hour">Cada hora</option>
-        <option value="day" selected>Cada día</option>
-        <option value="week">Cada semana</option>
-        <option value="month">Cada mes</option>
-        <option value="custom">Personalizado</option>
-      </select>
-    </label>
-    <label id="cron-time-wrap">Hora: <input type="time" id="cron-time" value="03:00"></label>
-    <label id="cron-dow-wrap" style="display:none">Día:
-      <select id="cron-dow-sel">
-        <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option>
-        <option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
-      </select>
-    </label>
-    <label id="cron-dom-wrap" style="display:none">Día del mes: <input type="number" id="cron-dom-num" min="1" max="31" value="1" style="width:70px"></label>
-  </div>
-  <div class="form-row" id="cron-custom-wrap" style="display:none">
-    <input type="text" id="cron-f-min" placeholder="min" value="*" style="width:60px">
-    <input type="text" id="cron-f-hour" placeholder="hora" value="*" style="width:60px">
-    <input type="text" id="cron-f-dom" placeholder="día mes" value="*" style="width:70px">
-    <input type="text" id="cron-f-month" placeholder="mes" value="*" style="width:60px">
-    <input type="text" id="cron-f-dow" placeholder="día sem" value="*" style="width:70px">
-  </div>
-  <div class="form-row">
-    <button class="btn btn-primary" onclick="cronSave()"><i class="ti ti-device-floppy"></i> Guardar</button>
-    <button class="btn" onclick="cronResetForm()">Limpiar</button>
-  </div>
-</div>
+  <section class="cron-metrics" aria-label="Resumen de tareas">
+    <article class="cron-metric"><div class="cron-metric-icon metric-gold"><i class="ti ti-list-check"></i></div><div><span>Tareas totales</span><strong id="cron-stat-total">0</strong></div></article>
+    <article class="cron-metric"><div class="cron-metric-icon metric-green"><i class="ti ti-player-play"></i></div><div><span>Activas</span><strong id="cron-stat-active">0</strong></div></article>
+    <article class="cron-metric"><div class="cron-metric-icon metric-blue"><i class="ti ti-player-pause"></i></div><div><span>Inactivas</span><strong id="cron-stat-inactive">0</strong></div></article>
+    <article class="cron-metric"><div class="cron-metric-icon metric-purple"><i class="ti ti-file-text"></i></div><div><span>Con salida registrada</span><strong id="cron-stat-logs">0</strong></div></article>
+  </section>
 
-<div class="card">
-  <h3><i class="ti ti-list"></i> Tareas</h3>
-  <div id="cron-list">Cargando…</div>
-</div>
+  <section class="cron-layout">
+    <div class="cron-main-column">
+      <article class="card cron-card">
+        <div class="cron-card-heading"><div><span class="eyebrow">Control operativo</span><h2>Tus tareas</h2></div><span class="cron-managed-pill"><i class="ti ti-shield-check"></i> Solo tareas TecXPaneL</span></div>
+        <div class="cron-toolbar"><label class="cron-search"><i class="ti ti-search"></i><input id="cron-search" type="search" placeholder="Buscar por nombre o comando" oninput="cronFilterJobs()"></label><select id="cron-status-filter" onchange="cronFilterJobs()" aria-label="Filtrar por estado"><option value="all">Todas</option><option value="active">Activas</option><option value="inactive">Inactivas</option></select></div>
+        <div id="cron-list"><div class="cron-loading"><i class="ti ti-loader-2 ti-spin"></i> Cargando tareas…</div></div>
+      </article>
+      <article class="card cron-card cron-log-card" id="cron-log-card" style="display:none">
+        <div class="cron-card-heading"><div><span class="eyebrow">Observabilidad</span><h2>Salida de tarea</h2></div><button class="btn btn-sm" onclick="cronCloseLog()" title="Cerrar log"><i class="ti ti-x"></i></button></div>
+        <div id="cron-log-meta" class="cron-log-meta"></div><pre class="console" id="cron-log-output"></pre>
+      </article>
+      <article class="card cron-card cron-run-card" id="cron-run-card" style="display:none">
+        <div class="cron-card-heading"><div><span class="eyebrow">Ejecución manual</span><h2>Consola en vivo</h2></div><button class="btn btn-sm" onclick="cronCloseRun()" title="Cerrar consola"><i class="ti ti-x"></i></button></div>
+        <div id="cron-run-console" class="console"></div>
+      </article>
+    </div>
 
-<div class="card" id="cron-log-card" style="display:none">
-  <h3><i class="ti ti-file-text"></i> Log de la tarea</h3>
-  <pre class="console" id="cron-log-output"></pre>
+    <aside class="cron-side-column">
+      <article class="card cron-card cron-editor-card" id="cron-editor">
+        <div class="cron-card-heading"><div><span class="eyebrow">Constructor</span><h2 id="cron-form-title"><i class="ti ti-plus"></i> Nueva tarea</h2></div><span class="cron-editor-indicator"><i class="ti ti-sparkles"></i></span></div>
+        <input type="hidden" id="cron-id" value="">
+        <div class="cron-form-stack"><label>Nombre de la tarea<input type="text" id="cron-name" maxlength="100" placeholder="Limpiar temporales"></label><label>Comando a ejecutar<textarea id="cron-command" maxlength="4096" placeholder="/usr/local/bin/mi-script.sh"></textarea><small class="cron-field-help">Se ejecuta con permisos del sistema. No incluyas saltos de línea.</small></label><label>Frecuencia<select id="cron-preset" onchange="cronPresetChange()"><option value="minute">Cada minuto</option><option value="hour">Cada hora</option><option value="day" selected>Cada día</option><option value="week">Cada semana</option><option value="month">Cada mes</option><option value="custom">Avanzado (Cron)</option></select></label></div>
+        <div class="cron-schedule-panel"><label id="cron-time-wrap">Hora<input type="time" id="cron-time" value="03:00"></label><label id="cron-dow-wrap" style="display:none">Día de la semana<select id="cron-dow-sel"><option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option></select></label><label id="cron-dom-wrap" style="display:none">Día del mes<input type="number" id="cron-dom-num" min="1" max="31" value="1"></label></div>
+        <div class="cron-custom-panel" id="cron-custom-wrap" style="display:none"><span>Expresión Cron avanzada</span><div><input type="text" id="cron-f-min" placeholder="min" value="*" aria-label="Minuto"><input type="text" id="cron-f-hour" placeholder="hora" value="*" aria-label="Hora"><input type="text" id="cron-f-dom" placeholder="día mes" value="*" aria-label="Día del mes"><input type="text" id="cron-f-month" placeholder="mes" value="*" aria-label="Mes"><input type="text" id="cron-f-dow" placeholder="día sem" value="*" aria-label="Día de la semana"></div></div>
+        <div class="cron-editor-actions"><button class="btn btn-primary" onclick="cronSave()"><i class="ti ti-device-floppy"></i> Guardar tarea</button><button class="btn" onclick="cronResetForm()">Limpiar</button></div>
+      </article>
+      <article class="card cron-card cron-info-card"><div class="cron-info-icon"><i class="ti ti-info-circle"></i></div><div><strong>Seguro por diseño</strong><p>TecXPaneL solo reescribe sus propios bloques y conserva las tareas que hayas creado fuera del panel.</p></div></article>
+    </aside>
+  </section>
 </div>

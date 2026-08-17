@@ -450,8 +450,15 @@ Gestiona el `cron` del servidor desde el panel, sin editar el crontab a mano.
   hora", "cada día a las HH:MM", "cada semana", "cada mes", o modo avanzado con
   los cinco campos cron).
 - **Activar/desactivar** una tarea sin borrarla, **editarla** y **borrarla**.
+- **Ejecutar ahora** una tarea con confirmación y ver su salida en una consola en
+  tiempo real.
 - Consultar el **log de salida** de cada tarea (se guarda en
   `/var/log/txpl/cron/<id>.log`).
+
+Los cinco campos cron se validan con sus rangos reales (minuto `0-59`, hora
+`0-23`, día del mes `1-31`, mes `1-12` y día de la semana `0-7`). La ejecución
+manual usa el mismo comando guardado, con un límite de 10 minutos y 64 KiB de
+salida; las tareas cron se ejecutan con los permisos del crontab administrado.
 
 > [!NOTE]
 > El panel gestiona **solo las tareas creadas desde aquí** (marcadas internamente

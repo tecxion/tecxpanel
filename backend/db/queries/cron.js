@@ -9,6 +9,9 @@ module.exports = {
   insertCronJob:      db.prepare(`
     INSERT INTO cron_jobs (name, command, minute, hour, dom, month, dow, enabled)
     VALUES (@name, @command, @minute, @hour, @dom, @month, @dow, @enabled)`),
+  insertCronJobWithId: db.prepare(`
+    INSERT INTO cron_jobs (id, name, command, minute, hour, dom, month, dow, enabled, created_at)
+    VALUES (@id, @name, @command, @minute, @hour, @dom, @month, @dow, @enabled, @created_at)`),
   updateCronJob:      db.prepare(`
     UPDATE cron_jobs SET name=@name, command=@command, minute=@minute, hour=@hour,
       dom=@dom, month=@month, dow=@dow, enabled=@enabled WHERE id=@id`),
