@@ -1,18 +1,10 @@
-<div class="flex items-center gap-3" style="margin-bottom:1.25rem">
-  <button class="btn btn-primary" onclick="openModal('modal-new-rule')">
-    <i class="ti ti-plus"></i> Nueva regla
-  </button>
-  <button class="btn btn-sm" onclick="loadFirewall()"><i class="ti ti-refresh"></i></button>
-</div>
-<div class="card">
-  <div class="card-header">
-    <div class="card-title"><i class="ti ti-shield-lock"></i> Reglas del Firewall UFW</div>
-    <div id="ufw-status" class="badge badge-green">Activo</div>
+<section class="firewall-page">
+  <div class="firewall-hero">
+    <div><span class="eyebrow"><i class="ti ti-shield-lock"></i> SEGURIDAD DE RED</span><h1>Firewall UFW</h1><p>Controla el tráfico entrante del servidor con reglas persistentes y auditadas.</p></div>
+    <div class="firewall-hero-actions"><button class="btn btn-primary" onclick="openModal('modal-new-rule')"><i class="ti ti-shield-plus"></i> Nueva regla</button><button class="btn" onclick="firewallReload()"><i class="ti ti-refresh"></i> Recargar</button></div>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>#</th><th>Destino</th><th>Acción</th><th>Desde</th><th>Acciones</th></tr></thead>
-      <tbody id="firewall-table"><tr><td colspan="5" class="empty-state">Cargando reglas...</td></tr></tbody>
-    </table>
-  </div>
-</div>
+  <div id="firewall-feedback" class="firewall-feedback" hidden></div>
+  <div class="firewall-metrics"><div class="firewall-metric"><span class="firewall-metric-icon"><i class="ti ti-shield-check"></i></span><div><small>Estado</small><strong id="ufw-status">Comprobando…</strong></div></div><div class="firewall-metric is-green"><span class="firewall-metric-icon"><i class="ti ti-list-check"></i></span><div><small>Reglas activas</small><strong id="ufw-rule-count">—</strong></div></div><div class="firewall-metric is-blue"><span class="firewall-metric-icon"><i class="ti ti-arrow-down"></i></span><div><small>Entrada</small><strong id="ufw-default-incoming">—</strong></div></div><div class="firewall-metric is-cyan"><span class="firewall-metric-icon"><i class="ti ti-arrow-up"></i></span><div><small>Salida</small><strong id="ufw-default-outgoing">—</strong></div></div></div>
+  <div class="firewall-layout"><div class="card firewall-card"><div class="firewall-card-heading"><div><span class="eyebrow">POLÍTICAS Y REGLAS</span><h2>Reglas del servidor</h2></div><div id="ufw-status-badge" class="badge">—</div></div><div class="firewall-rule-note"><i class="ti ti-info-circle"></i><span>Las reglas UFW sobreviven a reinicios. Evita bloquear SSH (`22/tcp`) si no tienes acceso alternativo.</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Destino</th><th>Acción</th><th>Dirección</th><th>Origen</th><th></th></tr></thead><tbody id="firewall-table"><tr><td colspan="6" class="firewall-empty"><i class="ti ti-loader-2"></i> Cargando reglas…</td></tr></tbody></table></div></div>
+  <aside class="firewall-side"><div class="card firewall-card"><div class="firewall-card-heading"><div><span class="eyebrow">OPERACIONES</span><h2>Estado UFW</h2></div></div><p class="firewall-side-copy">Activa o desactiva el cortafuegos y aplica la configuración sin abrir una terminal.</p><div class="firewall-side-actions"><button class="btn btn-primary" onclick="firewallSetState('enable')"><i class="ti ti-shield-check"></i> Activar</button><button class="btn btn-danger" onclick="firewallSetState('disable')"><i class="ti ti-shield-off"></i> Desactivar</button></div><div class="firewall-detail-row"><span>Logging</span><strong id="ufw-logging">—</strong></div></div><div class="card firewall-card firewall-tips"><i class="ti ti-bulb"></i><div><strong>Consejo operativo</strong><p>Usa <b>LIMIT</b> para SSH: permite acceso normal y reduce intentos repetidos.</p></div></div></aside></div>
+</section>

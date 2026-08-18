@@ -10,9 +10,8 @@
 
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
-const { isPort } = require('../lib/validators');
-const { RE_IP_CIDR } = require('../lib/validators');
 const { audit } = require('../database');
+const { buildRuleArgs, parseUfwStatus, formatUfwError } = require('../lib/firewall');
 
 const router = express.Router();
 
@@ -21,46 +20,56 @@ const router = express.Router();
 // extraer: número de regla, destino, acción (ALLOW/DENY...) y origen.
 router.get('/', wrap(async (req, res) => {
   const r = await runSafe('ufw', ['status', 'numbered']);
-  const enabled = /Status:\s*active/i.test(r.stdout);
-  const rules = [];
-  for (const line of r.stdout.split('\n')) {
-    const m = line.match(/^\[\s*(\d+)\]\s+(.+?)\s{2,}(ALLOW|DENY|REJECT|LIMIT)\s+(?:IN\s+)?(.*)$/i);
-    if (m) rules.push({ num: +m[1], to: m[2].trim(), action: m[3].toUpperCase(), from: m[4].trim() });
-  }
-  ok(res, { enabled, rules });
+  if (!r.ok) return fail(res, 503, formatUfwError(r.stderr));
+  const verbose = await runSafe('ufw', ['status', 'verbose']);
+  const status = parseUfwStatus(r.stdout, verbose.ok ? verbose.stdout : '');
+  ok(res, { ...status, available: true });
+}));
+
+router.post('/state', wrap(async (req, res) => {
+  const action = String(req.body?.action || '').toLowerCase();
+  if (!['enable', 'disable'].includes(action)) return fail(res, 400, 'Acción de estado inválida');
+  const r = await runSafe('ufw', action === 'enable' ? ['--force', 'enable'] : ['disable']);
+  if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
+  audit(req.user.username, clientIp(req), `firewall.${action}`, null);
+  ok(res, { output: r.stdout.trim() });
+}));
+
+router.post('/reload', wrap(async (req, res) => {
+  const r = await runSafe('ufw', ['reload']);
+  if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
+  audit(req.user.username, clientIp(req), 'firewall.reload', null);
+  ok(res, { output: r.stdout.trim() });
+}));
+
+router.post('/preview', wrap(async (req, res) => {
+  const built = buildRuleArgs(req.body || {});
+  if (!built.ok) return fail(res, 400, built.error);
+  const r = await runSafe('ufw', ['--dry-run', ...built.args]);
+  if (!r.ok) return fail(res, 422, formatUfwError(r.stderr));
+  ok(res, { args: built.args, output: (r.stdout || r.stderr).trim() });
 }));
 
 // POST /api/firewall/rule — Añade una regla (permitir/denegar un puerto).
 // Valida todo antes de tocar UFW: acción, puerto, protocolo y origen opcional.
 router.post('/rule', wrap(async (req, res) => {
-  const { action = 'allow', port, protocol = 'tcp', from } = req.body || {};
-  if (!['allow', 'deny'].includes(action)) return fail(res, 400, 'Acción inválida');
-  const portNum = parseInt(port, 10);
-  if (!isPort(portNum)) return fail(res, 400, 'Puerto inválido');
-  if (protocol && !['tcp', 'udp', ''].includes(protocol)) return fail(res, 400, 'Protocolo inválido');
-  if (from && !RE_IP_CIDR.test(from)) return fail(res, 400, 'IP/CIDR de origen inválida');
-
-  // Montamos los argumentos de UFW. Si hay "from", la regla limita el origen.
-  let args;
-  const portSpec = protocol ? `${portNum}/${protocol}` : String(portNum);
-  if (from) args = [action, 'from', from, 'to', 'any', 'port', String(portNum), ...(protocol ? ['proto', protocol] : [])];
-  else args = [action, portSpec];
-
-  const r = await runSafe('ufw', args);
-  if (!r.ok) return fail(res, 500, r.stderr.split('\n')[0] || 'Error de UFW');
-  audit(req.user.username, clientIp(req), 'firewall.add', args.join(' '));
-  ok(res);
+  const built = buildRuleArgs(req.body || {});
+  if (!built.ok) return fail(res, 400, built.error);
+  const r = await runSafe('ufw', built.args);
+  if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
+  audit(req.user.username, clientIp(req), 'firewall.add', built.args.join(' '));
+  ok(res, { output: (r.stdout || r.stderr).trim() });
 }));
 
 // DELETE /api/firewall/rule/:num — Borra la regla número :num.
 // UFW numera las reglas; aquí pasamos ese número para eliminarla.
 router.delete('/rule/:num', wrap(async (req, res) => {
-  const num = parseInt(req.params.num, 10);
+  const num = Number(req.params.num);
   if (!Number.isInteger(num) || num < 1) return fail(res, 400, 'Número de regla inválido');
   const r = await runSafe('ufw', ['--force', 'delete', String(num)]);
-  if (!r.ok) return fail(res, 500, r.stderr.split('\n')[0] || 'Error de UFW');
+  if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
   audit(req.user.username, clientIp(req), 'firewall.delete', String(num));
-  ok(res);
+  ok(res, { output: (r.stdout || r.stderr).trim() });
 }));
 
 module.exports = router;

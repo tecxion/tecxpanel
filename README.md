@@ -51,7 +51,7 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 🎁 **Catálogo de aplicaciones**: Instala WordPress, Ghost, Nextcloud, Vaultwarden y Uptime Kuma con un clic, en Docker, nativo (PHP-FPM) o PM2 según prefieras, con dominio + SSL opcionales y base de datos gestionada.
 - 🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
 - 🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
-- 🛡️ **Firewall & Seguridad**: Gestión de reglas de firewall **UFW** desde el panel. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
+- 🛡️ **Firewall & Seguridad**: Gestión de **UFW** sin terminal: políticas de entrada/salida, activación, desactivación, recarga, vista previa y reglas `ALLOW`, `DENY`, `REJECT` o `LIMIT` para puertos y rangos, con auditoría de cambios. Autenticación **JWT** con expiración corta, bloqueo temporal de IPs por fuerza bruta e integración nativa de **2FA (TOTP)**.
 - 📟 **Terminal SSH Integrada**: Consola interactiva en tiempo real directamente en el navegador utilizando WebSockets y `node-pty`.
 - 📂 **Gestor de Archivos**: Explorador web para navegar, editar, renombrar, comprimir, extraer, eliminar y subir archivos (con drag-and-drop, barra de progreso, editor con guardado atómico, detección de binarios y vista previa HTML aislada).
 - 📊 **Monitorización en Tiempo Real**: Dashboard con gráficas de **CPU, RAM y red** actualizadas cada 2 segundos vía WebSocket, lista de procesos del servidor y control de servicios (`systemctl`).
