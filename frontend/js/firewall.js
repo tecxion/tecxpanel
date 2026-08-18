@@ -18,18 +18,26 @@ function firewallShowFeedback(message, type = 'info') {
 }
 
 function firewallSetStatus(enabled) {
-  const label = enabled ? 'Activo' : 'Inactivo';
+  const known = typeof enabled === 'boolean';
+  const label = !known ? 'Desconocido' : (enabled ? 'Activo' : 'Inactivo');
   const status = document.getElementById('ufw-status');
   const badge = document.getElementById('ufw-status-badge');
-  if (status) status.textContent = label;
-  if (badge) { badge.textContent = label; badge.className = 'badge ' + (enabled ? 'badge-green' : 'badge-red'); }
+  const stateClass = !known ? 'is-unknown' : (enabled ? 'is-active' : 'is-inactive');
+  if (status) status.innerHTML = '<span class="ufw-status-dot ' + stateClass + '" aria-hidden="true"></span>' + label;
+  if (badge) { badge.textContent = label; badge.className = 'badge ' + (!known ? '' : (enabled ? 'badge-green' : 'badge-red')); }
+  const operationDot = document.getElementById('ufw-operation-dot');
+  if (operationDot) operationDot.className = 'ufw-status-dot ' + stateClass;
+  const enableButton = document.getElementById('ufw-enable-button');
+  const disableButton = document.getElementById('ufw-disable-button');
+  if (enableButton) { enableButton.disabled = !known || enabled; enableButton.title = enabled ? 'UFW ya está activo' : 'Activar UFW'; }
+  if (disableButton) { disableButton.disabled = !known || !enabled; disableButton.title = !known ? 'Estado de UFW no disponible' : (!enabled ? 'UFW ya está desactivado' : 'Desactivar UFW'); }
 }
 
 async function loadFirewall() {
   const data = await req('GET', '/firewall');
   if (!data || data.error) {
     firewallShowFeedback(data?.error || 'No se pudo consultar UFW. Comprueba que está instalado.', 'error');
-    firewallSetStatus(false);
+    firewallSetStatus(null);
     return;
   }
   firewallSetStatus(!!data.enabled);
