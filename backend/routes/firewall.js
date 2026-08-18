@@ -32,14 +32,14 @@ router.post('/state', wrap(async (req, res) => {
   const r = await runSafe('ufw', action === 'enable' ? ['--force', 'enable'] : ['disable']);
   if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
   audit(req.user.username, clientIp(req), `firewall.${action}`, null);
-  ok(res, { output: r.stdout.trim() });
+  ok(res, { success: true, output: r.stdout.trim() });
 }));
 
 router.post('/reload', wrap(async (req, res) => {
   const r = await runSafe('ufw', ['reload']);
   if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
   audit(req.user.username, clientIp(req), 'firewall.reload', null);
-  ok(res, { output: r.stdout.trim() });
+  ok(res, { success: true, output: r.stdout.trim() });
 }));
 
 router.post('/preview', wrap(async (req, res) => {
@@ -47,7 +47,7 @@ router.post('/preview', wrap(async (req, res) => {
   if (!built.ok) return fail(res, 400, built.error);
   const r = await runSafe('ufw', ['--dry-run', ...built.args]);
   if (!r.ok) return fail(res, 422, formatUfwError(r.stderr));
-  ok(res, { args: built.args, output: (r.stdout || r.stderr).trim() });
+  ok(res, { success: true, args: built.args, output: (r.stdout || r.stderr).trim() });
 }));
 
 // POST /api/firewall/rule — Añade una regla (permitir/denegar un puerto).
@@ -58,7 +58,7 @@ router.post('/rule', wrap(async (req, res) => {
   const r = await runSafe('ufw', built.args);
   if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
   audit(req.user.username, clientIp(req), 'firewall.add', built.args.join(' '));
-  ok(res, { output: (r.stdout || r.stderr).trim() });
+  ok(res, { success: true, output: (r.stdout || r.stderr).trim() });
 }));
 
 // DELETE /api/firewall/rule/:num — Borra la regla número :num.
@@ -69,7 +69,7 @@ router.delete('/rule/:num', wrap(async (req, res) => {
   const r = await runSafe('ufw', ['--force', 'delete', String(num)]);
   if (!r.ok) return fail(res, 502, formatUfwError(r.stderr));
   audit(req.user.username, clientIp(req), 'firewall.delete', String(num));
-  ok(res, { output: (r.stdout || r.stderr).trim() });
+  ok(res, { success: true, output: (r.stdout || r.stderr).trim() });
 }));
 
 module.exports = router;
