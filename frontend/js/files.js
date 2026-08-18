@@ -351,19 +351,22 @@ function updateEditorState() {
   document.getElementById('file-editor-status').className = dirty ? 'file-editor-status is-dirty' : 'file-editor-status';
   document.getElementById('file-editor-save').disabled = !dirty;
   document.getElementById('file-editor-stats').textContent = editor.value.length.toLocaleString('es-ES') + ' caracteres · ' + editor.value.split('\n').length + ' líneas';
-  const preview = document.getElementById('file-editor-preview');
-  if (preview && !preview.hidden) preview.srcdoc = editor.value;
 }
 
-function toggleFilePreview() {
-  const preview = document.getElementById('file-editor-preview');
+// openFileInTab: abre el contenido actual del editor en una pestaña nueva del
+// navegador para visualizarlo (HTML/SVG se renderizan, el resto se ve como texto).
+// Usa un Blob local en vez de la URL del API porque /files/read exige el header
+// Authorization (Bearer) que una pestaña nueva no puede enviar.
+function openFileInTab() {
   const editor = document.getElementById('file-editor');
-  const button = document.getElementById('file-editor-preview-toggle');
-  if (!preview || !editor) return;
-  const visible = preview.hidden;
-  preview.hidden = !visible;
-  button.classList.toggle('active', visible);
-  if (visible) preview.srcdoc = editor.value;
+  if (!editor) return;
+  const ext = (fileEditorState?.path || '').split('.').pop().toLowerCase();
+  const mime = (ext === 'html' || ext === 'htm') ? 'text/html'
+             : ext === 'svg' ? 'image/svg+xml'
+             : 'text/plain;charset=utf-8';
+  const url = URL.createObjectURL(new Blob([editor.value], { type: mime }));
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function closeFileEditor(force = false) {
@@ -386,10 +389,9 @@ async function editFile(path) {
     + '<div class="modal-header file-editor-header"><div><div class="modal-title"><i class="ti ti-edit"></i> ' + esc(name) + '</div><div class="file-editor-path">' + esc(path) + '</div></div>'
     + '<div class="file-editor-header-actions"><span class="file-editor-language">' + esc(fileEditorState.language) + '</span><button class="btn btn-sm" id="file-editor-close" aria-label="Cerrar editor"><i class="ti ti-x"></i></button></div></div>'
     + '<div class="file-editor-toolbar"><span id="file-editor-status" class="file-editor-status">Sin cambios</span><span id="file-editor-stats" class="file-editor-stats"></span><div class="file-editor-toolbar-actions">'
-    + (fileEditorState.language === 'html' ? '<button class="btn btn-sm" id="file-editor-preview-toggle"><i class="ti ti-eye"></i> Vista previa</button>' : '')
+    + '<button class="btn btn-sm" id="file-editor-open-tab" title="Abrir en una pestaña nueva del navegador"><i class="ti ti-external-link"></i> Abrir</button>'
     + '<button class="btn btn-sm btn-primary" id="file-editor-save" disabled><i class="ti ti-device-floppy"></i> Guardar <kbd>⌘/Ctrl S</kbd></button></div></div>'
-    + '<div class="file-editor-workspace"><textarea id="file-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Contenido del archivo">' + esc(r.content) + '</textarea>'
-    + (fileEditorState.language === 'html' ? '<iframe id="file-editor-preview" class="file-editor-preview" title="Vista previa HTML" sandbox hidden></iframe>' : '') + '</div>'
+    + '<div class="file-editor-workspace"><textarea id="file-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Contenido del archivo">' + esc(r.content) + '</textarea></div>'
     + '<div class="modal-footer"><span class="file-editor-hint">Tab inserta dos espacios · Los archivos binarios no se abren como texto</span><button class="btn" id="file-editor-cancel">Cerrar</button></div></div>';
   document.body.appendChild(modal);
   const editor = document.getElementById('file-editor');
@@ -401,7 +403,7 @@ async function editFile(path) {
   document.getElementById('file-editor-save').addEventListener('click', () => saveFile(path));
   document.getElementById('file-editor-close').addEventListener('click', () => closeFileEditor());
   document.getElementById('file-editor-cancel').addEventListener('click', () => closeFileEditor());
-  document.getElementById('file-editor-preview-toggle')?.addEventListener('click', toggleFilePreview);
+  document.getElementById('file-editor-open-tab').addEventListener('click', openFileInTab);
   modal.addEventListener('click', (event) => { if (event.target === modal) closeFileEditor(); });
   editor.focus();
   updateEditorState();
@@ -427,5 +429,5 @@ async function renameFile(path) {
 }
 
 Object.assign(window, {
-  browseDir, closeFileEditor, createFile, createFolder, deleteFile, editFile, extractFile, flattenEntry, getFileIcon, handleDrop, handleFileUpload, hideProgress, loadFiles, processEntries, readDirEntries, readEntryAsFile, renameFile, saveFile, setupDragDrop, showProgress, toggleFilePreview, updateBreadcrumb, uploadBinary, uploadFlatFiles,
+  browseDir, closeFileEditor, createFile, createFolder, deleteFile, editFile, extractFile, flattenEntry, getFileIcon, handleDrop, handleFileUpload, hideProgress, loadFiles, openFileInTab, processEntries, readDirEntries, readEntryAsFile, renameFile, saveFile, setupDragDrop, showProgress, updateBreadcrumb, uploadBinary, uploadFlatFiles,
 });
