@@ -27,7 +27,11 @@ function firewallSetStatus(enabled) {
 
 async function loadFirewall() {
   const data = await req('GET', '/firewall');
-  if (!data) { firewallShowFeedback('No se pudo consultar UFW. Comprueba que está instalado.', 'error'); return; }
+  if (!data || data.error) {
+    firewallShowFeedback(data?.error || 'No se pudo consultar UFW. Comprueba que está instalado.', 'error');
+    firewallSetStatus(false);
+    return;
+  }
   firewallSetStatus(!!data.enabled);
   document.getElementById('ufw-rule-count').textContent = String((data.rules || []).length);
   document.getElementById('ufw-default-incoming').textContent = data.defaults?.incoming || '—';

@@ -61,7 +61,7 @@ async function checkAuth() {
 // invalide la caché del navegador/nginx (que sirve JS con `immutable`); sin
 // esto quedaban módulos viejos servidos (p. ej. terminal.js sin la carga lazy
 // de xterm → "no se pudo cargar xterm.js"). SUBIR al cambiar cualquier página.
-const ASSET_V = '20260817';
+const ASSET_V = '20260818';
 const imp = (name) => import(`./${name}.js?v=${ASSET_V}`);
 const PAGE_IMPORTS = {
   auth:        () => imp('auth'),
