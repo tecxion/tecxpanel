@@ -19,7 +19,10 @@ const MAIL_VOLUMES = [
 // certificado del hostname YA exista en /etc/letsencrypt). Con ssl=false arranca
 // sin TLS (útil mientras el hostname aún no está configurado o el cert no se ha
 // emitido), evitando un fallo de arranque por certificado ausente.
-function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt', ssl = false } = {}) {
+// relay = { host, port, username, password } o null. Si se pasa, el correo sale
+// a través de ese smarthost (RELAY_* de docker-mailserver) — para VPS con el
+// puerto 25 bloqueado. USER/PASSWORD solo si hay usuario (algunos relays van por IP).
+function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt', ssl = false, relay = null } = {}) {
   const exposed = {};
   const bindings = {};
   for (const p of MAIL_PORTS) {
@@ -36,6 +39,10 @@ function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt
     'ONE_DIR=1',
   ];
   if (ssl) env.unshift('SSL_TYPE=letsencrypt');
+  if (relay && relay.host) {
+    env.push(`RELAY_HOST=${relay.host}`, `RELAY_PORT=${relay.port || 587}`);
+    if (relay.username) env.push(`RELAY_USER=${relay.username}`, `RELAY_PASSWORD=${relay.password || ''}`);
+  }
   return {
     Image: `${MAIL_IMAGE}:${MAIL_TAG}`,
     Hostname: hostname,

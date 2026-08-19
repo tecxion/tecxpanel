@@ -3,6 +3,7 @@
     <div><span class="eyebrow"><i class="ti ti-mail"></i> SERVICIO DE CORREO</span><h1>Correo</h1><p>Gestiona docker-mailserver, buzones, alias, DKIM y webmail desde un único panel.</p></div>
     <div class="mail-hero-badge"><span id="mail-status-dot" class="mail-status-dot is-unknown"></span><strong id="mail-status-label">Comprobando…</strong></div>
   </div>
+  <div id="mail-stepper" class="mail-stepper"></div>
   <details class="guide">
     <summary>📖 Guía: configurar el correo paso a paso</summary>
     <div class="guide-body">
@@ -29,6 +30,28 @@
   </details>
   <div id="mail-feedback" class="mail-feedback" hidden></div>
   <div id="mail-body">Cargando…</div>
+  <div class="card mail-diagnose">
+    <div class="mail-diagnose-head">
+      <div><h3 style="margin:0">Salud del correo</h3><p class="muted" style="margin:2px 0 0">Comprueba puerto 25, DNS, PTR, SPF/DKIM/DMARC y listas negras, con qué arreglar en cada caso.</p></div>
+      <button class="btn" id="mail-diagnose-btn" onclick="mailDiagnose()">🔍 Comprobar</button>
+    </div>
+    <div id="mail-diagnose-results"></div>
+  </div>
+  <div class="card mail-relay" hidden>
+    <h3 style="margin:0 0 4px">Envío por relay SMTP</h3>
+    <p class="muted" style="margin:0 0 10px">¿Tu proveedor bloquea el puerto 25? Envía el correo a través de otro servicio. Déjalo desactivado si tu envío directo ya funciona.</p>
+    <div class="mail-relay-presets">
+      <button class="btn btn-sm" onclick="mailRelayPreset('brevo')">Brevo</button>
+      <button class="btn btn-sm" onclick="mailRelayPreset('sendgrid')">SendGrid</button>
+      <button class="btn btn-sm" onclick="mailRelayPreset('mailgun')">Mailgun</button>
+      <button class="btn btn-sm" onclick="mailRelayPreset('ses')">Amazon SES</button>
+      <button class="btn btn-sm" onclick="mailRelayPreset('gmail')">Gmail</button>
+    </div>
+    <div class="form-row"><input type="text" id="relay-host" placeholder="smtp-relay.proveedor.com" style="width:260px"><input type="number" id="relay-port" placeholder="587" value="587" style="width:90px"></div>
+    <div class="form-row"><input type="text" id="relay-user" placeholder="usuario / login SMTP" style="width:260px"><input type="password" id="relay-pass" placeholder="contraseña / API key" style="width:260px"></div>
+    <label class="mail-relay-toggle"><input type="checkbox" id="relay-enabled"> Activar envío por relay</label>
+    <button class="btn btn-primary" onclick="mailSaveRelay()"><i class="ti ti-device-floppy"></i> Guardar relay</button>
+  </div>
   <div id="mail-progress" class="mail-progress" hidden>
     <div class="mail-progress-track"><div id="mail-progress-fill" class="mail-progress-fill"></div></div>
     <span id="mail-progress-label" class="mail-progress-label">0%</span>

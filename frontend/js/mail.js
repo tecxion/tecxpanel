@@ -98,6 +98,10 @@ async function loadMail() {
     return;
   }
   mailSetStatus(st.state);
+  mailRenderStepper(st.docker ? st.state : null);
+  // La tarjeta de relay solo tiene sentido con el hostname ya configurado.
+  const relayCard = document.querySelector('.mail-relay');
+  if (relayCard) { const showRelay = !!(st.docker && st.configured); relayCard.hidden = !showRelay; if (showRelay) loadMailRelay(); }
   const body = document.getElementById('mail-body');
   if (!st.docker) {
     body.innerHTML = '<div class="card mail-state-card"><i class="ti ti-brand-docker mail-state-icon"></i><h2>Docker no está disponible</h2><p>El correo necesita Docker para funcionar. Instálalo desde Plugins y vuelve a intentarlo.</p><button class="btn btn-primary" onclick="navigate(document.querySelector(\'[data-page=plugins]\'));return false"><i class="ti ti-puzzle"></i> Ir a Plugins</button></div>';
@@ -391,6 +395,97 @@ async function mailDnsPublish() {
   else toast(r?.error || 'Error al publicar', 'error');
 }
 
+// mailRenderStepper: roadmap de 3 pasos (Instalar → Hostname/TLS → Buzones) que
+// refleja en qué fase está el correo según el estado que devuelve /status.
+function mailRenderStepper(state) {
+  const el = document.getElementById('mail-stepper');
+  if (!el) return;
+  if (!state) { el.innerHTML = ''; return; }
+  const installed = ['stopped', 'needs_config', 'needs_tls', 'ready'].includes(state);
+  const configured = state === 'ready';
+  const steps = [
+    { n: 1, label: 'Instalar', done: installed, current: state === 'not_installed' },
+    { n: 2, label: 'Hostname y TLS', done: configured, current: state === 'needs_config' || state === 'needs_tls' },
+    { n: 3, label: 'Buzones y prueba', done: false, current: state === 'ready' },
+  ];
+  el.innerHTML = steps.map((s, i) => `
+    <div class="mail-step ${s.done ? 'is-done' : ''} ${s.current ? 'is-current' : ''}">
+      <span class="mail-step-num">${s.done ? '✓' : s.n}</span>
+      <span class="mail-step-label">${esc(s.label)}</span>
+    </div>${i < steps.length - 1 ? '<span class="mail-step-sep"></span>' : ''}`).join('');
+}
+
+// mailDiagnose: pide /mail/diagnose y pinta la checklist de salud con semáforos.
+async function mailDiagnose() {
+  const box = document.getElementById('mail-diagnose-results');
+  const btn = document.getElementById('mail-diagnose-btn');
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  box.innerHTML = '<p class="muted">Comprobando… (puede tardar unos segundos)</p>';
+  const d = await req('GET', '/mail/diagnose');
+  if (btn) btn.disabled = false;
+  if (!d || d.error) { box.innerHTML = '<p class="muted">' + esc(d?.error || 'No se pudo diagnosticar.') + '</p>'; return; }
+  if (!d.checks || !d.checks.length) { box.innerHTML = '<p class="muted">Sin comprobaciones disponibles.</p>'; return; }
+  const icon = { ok: '✅', warn: '⚠️', error: '❌' };
+  box.innerHTML = d.checks.map((c) => `
+    <div class="mail-check is-${esc(c.level)}">
+      <span class="mail-check-icon">${icon[c.level] || '•'}</span>
+      <div class="mail-check-body">
+        <strong>${esc(c.title)}</strong>
+        <p>${esc(c.detail)}</p>
+        ${c.fix ? `<p class="mail-check-fix"><b>Cómo arreglarlo:</b> ${esc(c.fix)}</p>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+// ── Relay SMTP (envío por smarthost cuando el puerto 25 está bloqueado) ──
+const RELAY_PRESETS = {
+  brevo: { host: 'smtp-relay.brevo.com', port: 587 },
+  sendgrid: { host: 'smtp.sendgrid.net', port: 587 },
+  mailgun: { host: 'smtp.mailgun.org', port: 587 },
+  ses: { host: 'email-smtp.eu-west-1.amazonaws.com', port: 587 },
+  gmail: { host: 'smtp.gmail.com', port: 587 },
+};
+function mailRelayPreset(name) {
+  const p = RELAY_PRESETS[name];
+  if (!p) return;
+  document.getElementById('relay-host').value = p.host;
+  document.getElementById('relay-port').value = p.port;
+  document.getElementById('relay-enabled').checked = true;
+}
+async function loadMailRelay() {
+  const host = document.getElementById('relay-host');
+  if (!host) return;
+  const r = await req('GET', '/mail/relay');
+  if (!r || r.error) return;
+  host.value = r.host || '';
+  document.getElementById('relay-port').value = r.port || 587;
+  document.getElementById('relay-user').value = r.username || '';
+  document.getElementById('relay-enabled').checked = !!r.enabled;
+  document.getElementById('relay-pass').placeholder = r.hasPassword ? 'contraseña guardada (vacío = mantener)' : 'contraseña / API key';
+}
+let relaySaving = false;
+async function mailSaveRelay() {
+  if (relaySaving) return;
+  relaySaving = true;
+  try {
+    const body = {
+      enabled: document.getElementById('relay-enabled').checked,
+      host: document.getElementById('relay-host').value.trim(),
+      port: +document.getElementById('relay-port').value || 587,
+      username: document.getElementById('relay-user').value.trim(),
+      password: document.getElementById('relay-pass').value,
+    };
+    mailSetBusy(true);
+    const r = await req('POST', '/mail/relay', body);
+    mailSetBusy(false);
+    if (r?.error) { mailFeedback(r.error, 'error'); return; }
+    document.getElementById('relay-pass').value = '';
+    mailFeedback(body.enabled ? 'Relay activado. El contenedor se recreó para aplicarlo.' : 'Relay desactivado.', 'success');
+    loadMail();
+  } finally { relaySaving = false; }
+}
+
 Object.assign(window, {
-  loadAliases, loadMail, loadMailboxes, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailDeleteAlias, mailDeleteMailbox, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailSaveConfig, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
+  loadAliases, loadMail, loadMailboxes, loadMailRelay, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailDeleteAlias, mailDeleteMailbox, mailDiagnose, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailRelayPreset, mailSaveConfig, mailSaveRelay, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
 });

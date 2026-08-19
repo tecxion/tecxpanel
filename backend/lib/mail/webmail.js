@@ -5,7 +5,7 @@
 
 const WEBMAIL_CONTAINER = 'txpl-webmail';
 const WEBMAIL_IMAGE = 'roundcube/roundcubemail';
-const WEBMAIL_TAG = '1.6-apache';
+const WEBMAIL_TAG = process.env.TXPL_WEBMAIL_TAG || '1.6.x-apache'; // rolling última 1.6.x (el tag '1.6-apache' NO existe en Docker Hub)
 const WEBMAIL_VOLUME = 'txpl_webmail_data';
 
 function buildWebmailContainerConfig({ hostPort, mailHostname, domain = null } = {}) {

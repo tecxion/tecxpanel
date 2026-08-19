@@ -32,6 +32,13 @@ test('buildMailContainerConfig: imagen, hostname, puertos, volúmenes y SSL', ()
   assert.ok(c.Env.includes('SSL_TYPE=letsencrypt'));
   // Sin ssl (por defecto) arranca sin TLS: no debe forzar SSL_TYPE=letsencrypt.
   assert.ok(!m.buildMailContainerConfig({ hostname: 'mail.dominio.com' }).Env.includes('SSL_TYPE=letsencrypt'));
+  // Relay: RELAY_* solo cuando se pasa un relay con host.
+  const rel = m.buildMailContainerConfig({ hostname: 'mail.dominio.com', relay: { host: 'smtp-relay.brevo.com', port: 587, username: 'u', password: 'p' } });
+  assert.ok(rel.Env.includes('RELAY_HOST=smtp-relay.brevo.com'));
+  assert.ok(rel.Env.includes('RELAY_PORT=587'));
+  assert.ok(rel.Env.includes('RELAY_USER=u'));
+  assert.ok(rel.Env.includes('RELAY_PASSWORD=p'));
+  assert.ok(!m.buildMailContainerConfig({ hostname: 'mail.dominio.com' }).Env.some((e) => e.startsWith('RELAY_')));
   assert.deepStrictEqual(c.HostConfig.RestartPolicy, { Name: 'unless-stopped' });
   for (const p of ['25/tcp', '465/tcp', '587/tcp', '143/tcp', '993/tcp']) {
     assert.ok(c.ExposedPorts[p], `expuesto ${p}`);
@@ -132,13 +139,13 @@ const { buildWebmailContainerConfig, WEBMAIL_CONTAINER, WEBMAIL_IMAGE, WEBMAIL_T
 test('webmail: constantes', () => {
   assert.strictEqual(WEBMAIL_CONTAINER, 'txpl-webmail');
   assert.strictEqual(WEBMAIL_IMAGE, 'roundcube/roundcubemail');
-  assert.strictEqual(WEBMAIL_TAG, '1.6-apache');
+  assert.strictEqual(WEBMAIL_TAG, '1.6.x-apache');
   assert.strictEqual(WEBMAIL_VOLUME, 'txpl_webmail_data');
 });
 
 test('buildWebmailContainerConfig: imagen fijada, IMAP/SMTP por hostname, loopback', () => {
   const c = buildWebmailContainerConfig({ hostPort: 8110, mailHostname: 'mail.ejemplo.com', domain: 'webmail.ejemplo.com' });
-  assert.strictEqual(c.Image, 'roundcube/roundcubemail:1.6-apache');
+  assert.strictEqual(c.Image, 'roundcube/roundcubemail:1.6.x-apache');
   assert.ok(c.Env.includes('ROUNDCUBEMAIL_DEFAULT_HOST=ssl://mail.ejemplo.com'));
   assert.ok(c.Env.includes('ROUNDCUBEMAIL_DEFAULT_PORT=993'));
   assert.ok(c.Env.includes('ROUNDCUBEMAIL_SMTP_SERVER=tls://mail.ejemplo.com'));

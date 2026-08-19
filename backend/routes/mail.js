@@ -9,6 +9,8 @@
 
 const http = require('http');
 const fs = require('fs');
+const net = require('net');
+const dnsp = require('dns').promises;
 const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { queries, audit } = require('../database');
@@ -23,6 +25,8 @@ const {
   parseEmailList, parseAliasList, buildDnsRecords, mailRecordsToRrsets,
   buildWebmailContainerConfig, WEBMAIL_CONTAINER, WEBMAIL_TAG, WEBMAIL_IMAGE, WEBMAIL_VOLUME,
 } = require('../lib/mail');
+const diag = require('../lib/mail/diagnose');
+const { encryptSecret, decryptSecret } = require('../lib/crypto');
 
 const router = express.Router();
 const DOCKER_SOCKET = '/var/run/docker.sock';
@@ -177,6 +181,70 @@ router.get('/status', wrap(async (req, res) => {
   });
 }));
 
+// ── Diagnóstico (sondas DNS/TCP → clasificadores puros de lib/mail/diagnose) ──
+const DNSBL_LISTS = ['zen.spamhaus.org', 'bl.spamcop.net'];
+
+// TCP connect saliente: ¿deja el proveedor salir por el puerto? true/false.
+function probePort25(host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; try { sock.destroy(); } catch (_) {} resolve(v); } };
+    const sock = net.connect({ host, port });
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => finish(true));
+    sock.once('timeout', () => finish(false));
+    sock.once('error', () => finish(false));
+  });
+}
+async function resolve4Safe(name) { try { return await dnsp.resolve4(name); } catch (_) { return []; } }
+async function reverseSafe(ip) { try { return await dnsp.reverse(ip); } catch (_) { return []; } }
+async function resolveMxSafe(domain) { try { return await dnsp.resolveMx(domain); } catch (_) { return []; } }
+async function resolveTxtSafe(name) { try { return await dnsp.resolveTxt(name); } catch (_) { return []; } }
+// Cada lista DNSBL: resolver la IP invertida → si resuelve, está listada.
+async function probeDnsbl(ip, lists) {
+  return Promise.all(lists.map(async (list) => {
+    try { await dnsp.resolve4(diag.dnsblQuery(ip, list)); return { list, listed: true }; }
+    catch (_) { return { list, listed: false }; }
+  }));
+}
+// IP pública del VPS (best-effort): ipify por IPv4, si no `hostname -I`.
+async function getServerIp() {
+  const r = await runSafe('bash', ['-c', "curl -4 -s --max-time 3 https://api.ipify.org || hostname -I | awk '{print $1}'"]);
+  return r.ok ? String(r.stdout || '').trim() : '';
+}
+
+// GET /diagnose — "salud del correo" en lenguaje llano (semáforo + cómo arreglar).
+router.get('/diagnose', wrap(async (req, res) => {
+  const cfg = queries.getMailConfig.get() || {};
+  const hostname = cfg.hostname || null;
+  const domain = cfg.domain || (hostname ? hostname.split('.').slice(-2).join('.') : null);
+  const selector = cfg.dkim_selector || 'mail';
+  const serverIp = await getServerIp();
+
+  const [port25, dnsbl, aRec, ptr, mx, spf, dkim, dmarc] = await Promise.all([
+    probePort25('gmail-smtp-in.l.google.com', 25, 5000),
+    serverIp ? probeDnsbl(serverIp, DNSBL_LISTS) : Promise.resolve([]),
+    hostname ? resolve4Safe(hostname) : Promise.resolve([]),
+    (hostname && serverIp) ? reverseSafe(serverIp) : Promise.resolve([]),
+    domain ? resolveMxSafe(domain) : Promise.resolve([]),
+    domain ? resolveTxtSafe(domain) : Promise.resolve([]),
+    domain ? resolveTxtSafe(`${selector}._domainkey.${domain}`) : Promise.resolve([]),
+    domain ? resolveTxtSafe(`_dmarc.${domain}`) : Promise.resolve([]),
+  ]);
+
+  const checks = [diag.classifyPort25(port25)];
+  if (serverIp) checks.push(diag.classifyDnsbl(dnsbl));
+  if (hostname) {
+    checks.push(diag.classifyDnsA(aRec, serverIp));
+    if (serverIp) checks.push(diag.classifyPtr(ptr, hostname));
+  }
+  if (domain) {
+    checks.push(diag.classifyMx(mx.map((m) => m.exchange), hostname));
+    checks.push(diag.classifySpf(spf), diag.classifyDkim(dkim), diag.classifyDmarc(dmarc));
+  }
+  ok(res, { configured: !!hostname, hostname, serverIp: serverIp || null, overall: diag.overallLevel(checks), checks });
+}));
+
 // ── Instalar (streaming) ─────────────────────────────────────
 router.post('/install', wrap(async (req, res) => {
   const insp = await inspectContainer();
@@ -218,6 +286,28 @@ router.post('/install', wrap(async (req, res) => {
   }
 }));
 
+// Relay efectivo (descifrado) o null si no está activo. Para recrear el contenedor.
+function currentRelay() {
+  const r = queries.getMailRelay.get();
+  if (!r || !r.enabled || !r.host) return null;
+  let password = '';
+  if (r.password_enc) { const p = decryptSecret(r.password_enc); password = p === '(no descifrable)' ? '' : p; }
+  return { host: r.host, port: r.port || 587, username: r.username || '', password };
+}
+
+// Recrea el contenedor de correo con la config dada, conservando los volúmenes de
+// datos (v=0). Devuelve el nuevo id. En Docker el hostname/envs no se pueden
+// cambiar sin recrear el contenedor.
+async function recreateMailContainer(oldId, opts) {
+  if (oldId) await dockerRequest('DELETE', `/containers/${oldId}?force=1&v=0`).catch(() => {});
+  const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(MAIL_CONTAINER)}`, buildMailContainerConfig(opts));
+  if (create.statusCode >= 400) { const e = new Error('No se pudo recrear el contenedor de correo: ' + create.body.toString()); e.http = 502; throw e; }
+  const newId = JSON.parse(create.body.toString()).Id;
+  const start = await dockerRequest('POST', `/containers/${newId}/start`);
+  if (start.statusCode >= 400) { const e = new Error('El contenedor de correo no arrancó: ' + start.body.toString()); e.http = 502; throw e; }
+  return newId;
+}
+
 // ── Configurar hostname + TLS ────────────────────────────────
 router.post('/config', wrap(async (req, res) => {
   const hostname = String((req.body && req.body.hostname) || '').trim().toLowerCase();
@@ -238,23 +328,59 @@ router.post('/config', wrap(async (req, res) => {
   }
 
   const cfg = queries.getMailConfig.get() || {};
-  // Recrear el contenedor con el FQDN real: docker-mailserver toma el hostname del
-  // propio contenedor y NO se puede cambiar sin recrearlo (un simple restart deja
-  // el hostname provisional y se cae). Los volúmenes de datos se conservan (v=0).
-  // SSL_TYPE=letsencrypt solo si el certificado ya se emitió (tls === 'ok').
-  await dockerRequest('DELETE', `/containers/${insp.id}?force=1&v=0`).catch(() => {});
-  const config = buildMailContainerConfig({ hostname, ssl: tls === 'ok' });
-  const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(MAIL_CONTAINER)}`, config);
-  if (create.statusCode >= 400) { const e = new Error('No se pudo recrear el contenedor de correo: ' + create.body.toString()); e.http = 502; throw e; }
-  const newId = JSON.parse(create.body.toString()).Id;
-  const start = await dockerRequest('POST', `/containers/${newId}/start`);
-  if (start.statusCode >= 400) { const e = new Error('El contenedor de correo no arrancó: ' + start.body.toString()); e.http = 502; throw e; }
+  // Recrear el contenedor con el FQDN real (el hostname no se puede cambiar sin
+  // recrear; un simple restart deja el hostname provisional y se cae). Conserva
+  // volúmenes y el relay ya configurado. SSL solo si el certificado ya se emitió.
+  const newId = await recreateMailContainer(insp.id, { hostname, ssl: tls === 'ok', relay: currentRelay() });
   queries.saveMailConfig.run({
     hostname, domain, container_id: newId, status: tls === 'ok' ? 'ready' : 'tls_pending',
     dkim_selector: cfg.dkim_selector || 'mail', dkim_public: cfg.dkim_public || null,
   });
   audit(req.user?.username || 'system', clientIp(req), 'mail.config', hostname);
   ok(res, { hostname, domain, tls });
+}));
+
+// ── Relay SMTP saliente (smarthost) ──────────────────────────
+// GET /relay — config actual SIN exponer la contraseña.
+router.get('/relay', wrap(async (req, res) => {
+  const r = queries.getMailRelay.get() || {};
+  ok(res, { enabled: !!r.enabled, host: r.host || null, port: r.port || 587, username: r.username || null, hasPassword: !!r.password_enc });
+}));
+
+// POST /relay — guarda el relay (contraseña cifrada) y recrea el contenedor.
+router.post('/relay', wrap(async (req, res) => {
+  const b = req.body || {};
+  const enabled = !!b.enabled;
+  const host = String(b.host || '').trim();
+  const port = Number(b.port) || 587;
+  const username = String(b.username || '').trim();
+  const password = typeof b.password === 'string' ? b.password : '';
+
+  if (enabled) {
+    if (!host || host.length > 255 || /\s/.test(host)) return fail(res, 400, 'Host del relay inválido (ej. smtp-relay.brevo.com).');
+    if (!(port >= 1 && port <= 65535)) return fail(res, 400, 'Puerto del relay inválido (1-65535).');
+    if (username.length > 255) return fail(res, 400, 'Usuario del relay demasiado largo.');
+    if (password.length > 1024) return fail(res, 400, 'Contraseña del relay demasiado larga.');
+  }
+
+  const insp = await inspectContainer();
+  if (!insp.exists) return fail(res, 400, 'Instala el correo primero.');
+  const cfg = queries.getMailConfig.get() || {};
+  if (!cfg.hostname) return fail(res, 400, 'Configura primero el hostname del correo.');
+
+  // Si el usuario deja la contraseña vacía, conserva la anterior (no la borra).
+  const prev = queries.getMailRelay.get() || {};
+  const password_enc = password ? encryptSecret(password) : (prev.password_enc || null);
+  queries.saveMailRelay.run({ host: host || null, port, username: username || null, password_enc, enabled: enabled ? 1 : 0 });
+
+  // Recrear el contenedor con (o sin) el relay ya guardado. SSL según estado actual.
+  const newId = await recreateMailContainer(insp.id, { hostname: cfg.hostname, ssl: cfg.status === 'ready', relay: currentRelay() });
+  queries.saveMailConfig.run({
+    hostname: cfg.hostname, domain: cfg.domain, container_id: newId, status: cfg.status,
+    dkim_selector: cfg.dkim_selector || 'mail', dkim_public: cfg.dkim_public || null,
+  });
+  audit(req.user?.username || 'system', clientIp(req), 'mail.relay', enabled ? `on ${host}:${port}` : 'off');
+  ok(res, { enabled, host: host || null, port });
 }));
 
 // ── Acciones start/stop/restart ──────────────────────────────
