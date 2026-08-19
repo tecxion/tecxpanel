@@ -8,7 +8,7 @@ const titles = {
   files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
   plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker',
   n8n: 'Workflows', backups: 'Copias de seguridad', cron: 'Tareas programadas',
-  mail: 'Correo Electrónico', dns: 'DNS', catalog: 'Catálogo de aplicaciones',
+  mail: 'Correo Electrónico', catalog: 'Catálogo de aplicaciones', // dns: 'DNS' desactivado (sección no depurada)
 };
 
 // Lazy page loaders — una vez importada la página, se cachea.
@@ -33,7 +33,7 @@ const PAGE_TABLE = {
   backups:   () => Promise.resolve(window.loadBackups?.()),
   cron:      () => Promise.resolve(window.loadCron?.()),
   mail:      () => Promise.resolve(window.loadMail?.()),
-  dns:       () => Promise.resolve(window.loadDns?.()),
+  // dns:       () => Promise.resolve(window.loadDns?.()), // DNS desactivado (sección no depurada)
 };
 
 let current = 'dashboard';

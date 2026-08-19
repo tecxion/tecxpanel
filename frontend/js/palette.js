@@ -14,7 +14,7 @@ const PALETTE_SECTIONS = [
   { page: 'backups',   label: 'Copias de seguridad', alias: 'backups restaurar', icon: 'archive' },
   { page: 'cron',      label: 'Tareas programadas', alias: 'cron crontab', icon: 'clock' },
   { page: 'mail',      label: 'Correo', alias: 'email buzones mail', icon: 'mail' },
-  { page: 'dns',       label: 'DNS', alias: 'zonas registros powerdns', icon: 'world-search' },
+  // DNS desactivado (sección no depurada): { page: 'dns', label: 'DNS', alias: 'zonas registros powerdns', icon: 'world-search' },
   { page: 'files',     label: 'Gestor de Archivos', alias: 'ficheros archivos explorador', icon: 'folder' },
   { page: 'firewall',  label: 'Firewall UFW', alias: 'cortafuegos puertos reglas', icon: 'shield' },
   { page: 'ssl',       label: 'Certificados SSL', alias: 'https certbot letsencrypt', icon: 'certificate' },

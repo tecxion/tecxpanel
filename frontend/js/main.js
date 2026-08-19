@@ -39,7 +39,7 @@ window.initApp = initApp;
 
 async function loadTemplates() {
   const pages = ['dashboard','terminal','websites','apps','databases','docker','n8n','catalog',
-    'backups','cron','mail','dns','files','firewall','ssl','logs','plugins','help','settings'];
+    'backups','cron','mail','files','firewall','ssl','logs','plugins','help','settings']; // 'dns' desactivado (sección no depurada)
   const tasks = [
     fetch('views/sidebar.html').then(r=>r.text()).then(h=>{const m=document.getElementById('sidebar-mount');if(m)m.innerHTML=h}),
     fetch('views/modals.html').then(r=>r.text()).then(h=>{const m=document.getElementById('modals-mount');if(m)m.innerHTML=h}),
@@ -81,7 +81,7 @@ const PAGE_IMPORTS = {
   catalog:     () => imp('catalog'),
   backups:     () => imp('backups'),
   mail:        () => imp('mail'),
-  dns:         () => imp('dns'),
+  // dns:         () => imp('dns'), // DNS desactivado (sección no depurada)
   cron:        () => imp('cron'),
   docker:      () => imp('docker'),
 };
