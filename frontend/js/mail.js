@@ -337,21 +337,36 @@ async function mailGenDkim() {
   mailLoadDns();
 }
 
+let _mailDnsRecords = [];
 async function mailLoadDns() {
   const r = await req('GET', '/mail/dns');
   const el = document.getElementById('mail-dns'); if (!el) return;
   if (!r || r.error) { el.innerHTML = `<p class="muted">${esc((r && r.error) || 'No disponible')}</p>`; return; }
-  el.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Tipo</th><th>Nombre</th><th>Valor</th></tr></thead><tbody>' +
-    r.records.map((rec) => `<tr>
+  _mailDnsRecords = r.records || [];
+  el.innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>Tipo</th><th>Nombre</th><th>Valor</th><th></th></tr></thead><tbody>' +
+    _mailDnsRecords.map((rec, i) => `<tr>
       <td>${esc(rec.type)}${rec.priority ? ' (' + rec.priority + ')' : ''}</td>
       <td><code>${esc(rec.name)}</code></td>
       <td><code>${esc(rec.value || '—')}</code>${rec.note ? `<br><span class="muted">${esc(rec.note)}</span>` : ''}</td>
+      <td style="text-align:right">${rec.value ? `<button class="btn btn-sm" title="Copiar valor" onclick="mailCopyDnsRow(${i})">📋</button>` : ''}</td>
     </tr>`).join('') + '</tbody></table></div>';
   el.innerHTML += `
-    <div style="margin-top:10px">
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-sm" onclick="mailCopyAllDns()">📋 Copiar todo</button>
       <button class="btn btn-sm btn-primary" onclick="mailDnsPreview()"><i class="ti ti-world-upload"></i> Publicar en DNS del panel</button>
-      <span class="muted" style="font-size:12px;margin-left:8px">Requiere el DNS del panel instalado y la zona creada.</span>
+      <span class="muted" style="font-size:12px">Publicar requiere el DNS del panel instalado y la zona creada.</span>
     </div>`;
+}
+// Copia el valor de un registro, o todos (formato Tipo⇥Nombre⇥Valor para pegar).
+function mailCopyDnsRow(i) {
+  const rec = _mailDnsRecords[i];
+  if (rec && rec.value) copyText(rec.value);
+}
+function mailCopyAllDns() {
+  const rows = _mailDnsRecords.filter((r) => r.value)
+    .map((r) => `${r.type}${r.priority ? ' (prioridad ' + r.priority + ')' : ''}\t${r.name}\t${r.value}`);
+  if (!rows.length) return;
+  copyText('Tipo\tNombre\tValor\n' + rows.join('\n'));
 }
 
 // mailDnsPreview: pide el resumen y muestra la modal de confirmación.
@@ -487,5 +502,5 @@ async function mailSaveRelay() {
 }
 
 Object.assign(window, {
-  loadAliases, loadMail, loadMailboxes, loadMailRelay, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailDeleteAlias, mailDeleteMailbox, mailDiagnose, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailRelayPreset, mailSaveConfig, mailSaveRelay, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
+  loadAliases, loadMail, loadMailboxes, loadMailRelay, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailCopyAllDns, mailCopyDnsRow, mailDeleteAlias, mailDeleteMailbox, mailDiagnose, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailRelayPreset, mailSaveConfig, mailSaveRelay, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
 });
