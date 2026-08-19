@@ -486,6 +486,11 @@ Rspamd, DKIM) gestionado desde el panel — sin editar ficheros de configuració
     muestra: **MX**, **SPF**, **DKIM**, **DMARC** (y el **PTR/rDNS** en tu proveedor
     de VPS).
 
+Si el certificado no puede emitirse porque el DNS todavía no apunta al VPS, el
+panel conserva el hostname como **TLS pendiente** y permite reintentar la
+configuración después de corregir el DNS. Para despliegues reproducibles fija
+la versión de la imagen con `TXPL_MAIL_TAG` en `.env` en lugar de usar `latest`.
+
 > [!WARNING]
 > El correo autohospedado **no funciona hasta que el DNS esté correcto** (sobre
 > todo MX y el PTR/rDNS). Además, enviar a Gmail/Outlook desde una IP de VPS nueva

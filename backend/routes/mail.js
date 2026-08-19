@@ -28,7 +28,7 @@ const router = express.Router();
 const DOCKER_SOCKET = '/var/run/docker.sock';
 
 // Petición nativa al socket de Docker (mismo patrón que routes/n8n.js).
-function dockerRequest(method, path, body = null) {
+function dockerRequest(method, path, body = null, timeout = 30_000) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(DOCKER_SOCKET)) return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
     const options = { socketPath: DOCKER_SOCKET, path, method, headers: { Host: 'localhost' } };
@@ -39,6 +39,7 @@ function dockerRequest(method, path, body = null) {
       res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
     });
     rq.on('error', reject);
+    rq.setTimeout(timeout, () => rq.destroy(new Error('Tiempo de espera agotado al contactar con Docker.')));
     if (body) rq.write(JSON.stringify(body));
     rq.end();
   });
@@ -101,17 +102,22 @@ async function dockerExec(containerId, cmd) {
   if (created.statusCode >= 400) throw new Error(created.body.toString() || 'Error creando exec');
   const execId = JSON.parse(created.body.toString()).Id;
   const started = await dockerRequest('POST', `/exec/${execId}/start`, { Detach: false, Tty: true });
+  if (started.statusCode >= 400) throw new Error(started.body.toString() || 'Error ejecutando el comando en el contenedor.');
   const output = started.body.toString();
   const info = await dockerRequest('GET', `/exec/${execId}/json`);
+  if (info.statusCode >= 400) throw new Error(info.body.toString() || 'No se pudo consultar el resultado del comando.');
   const exitCode = JSON.parse(info.body.toString()).ExitCode;
   return { exitCode, output };
 }
 
 // Abre los puertos de correo en UFW (best-effort; no aborta si UFW no está).
 async function openMailPorts() {
+  const failed = [];
   for (const p of MAIL_PORTS) {
-    await runSafe('ufw', ['allow', `${p}/tcp`]);
+    const r = await runSafe('ufw', ['allow', `${p}/tcp`]);
+    if (!r.ok) failed.push({ port: p, error: (r.stderr || 'UFW no disponible').split(/\r?\n/)[0] });
   }
+  return failed;
 }
 
 // Cabeceras de streaming (patrón de plugins.js/n8n.js).
@@ -123,10 +129,11 @@ function startStream(res) {
 }
 
 // Deriva el estado de alto nivel para el frontend.
-function computeState({ exists, running, hostname }) {
+function computeState({ exists, running, hostname, status }) {
   if (!exists) return 'not_installed';
   if (!running) return 'stopped';
   if (!hostname) return 'needs_config';
+  if (status === 'tls_pending') return 'needs_tls';
   return 'ready';
 }
 
@@ -134,13 +141,14 @@ function computeState({ exists, running, hostname }) {
 router.get('/status', wrap(async (req, res) => {
   const insp = await inspectContainer();
   const cfg = queries.getMailConfig.get() || {};
-  const state = computeState({ exists: insp.exists, running: insp.running, hostname: cfg.hostname });
+  const state = computeState({ exists: insp.exists, running: insp.running, hostname: cfg.hostname, status: cfg.status });
   ok(res, {
     docker: insp.docker,
     state,
     installed: insp.exists,
     running: insp.running,
     configured: !!cfg.hostname,
+    configStatus: cfg.status || null,
     hostname: cfg.hostname || null,
     domain: cfg.domain || null,
   });
@@ -154,6 +162,7 @@ router.post('/install', wrap(async (req, res) => {
   audit(req.user?.username || 'system', clientIp(req), 'mail.install', MAIL_CONTAINER);
   startStream(res);
   const done = (code) => res.end(`\n__TXPL_DONE__${code}`);
+  let createdId = null;
   try {
     res.write('📥 Descargando imagen de docker-mailserver...\n');
     await pullImage(MAIL_IMAGE, MAIL_TAG, (t) => res.write(t));
@@ -161,17 +170,24 @@ router.post('/install', wrap(async (req, res) => {
     // Hostname provisional hasta configurar: el propio nombre del contenedor.
     const config = buildMailContainerConfig({ hostname: MAIL_CONTAINER });
     const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(MAIL_CONTAINER)}`, config);
-    if (create.statusCode >= 400) { res.write('[error] ' + create.body.toString() + '\n'); return done(1); }
+    if (create.statusCode >= 400) throw new Error('No se pudo crear el contenedor: ' + create.body.toString());
     const id = JSON.parse(create.body.toString()).Id;
+    createdId = id;
     res.write('🔥 Abriendo puertos en el firewall (UFW)...\n');
-    await openMailPorts();
+    const firewallErrors = await openMailPorts();
+    if (firewallErrors.length) {
+      res.write('⚠ No se pudieron abrir todos los puertos en UFW: ' + firewallErrors.map((item) => item.port).join(', ') + '.\n');
+    }
     res.write('▶️  Arrancando el contenedor...\n');
     const start = await dockerRequest('POST', `/containers/${id}/start`);
-    if (start.statusCode >= 400) { res.write('[error] ' + start.body.toString() + '\n'); return done(1); }
+    if (start.statusCode >= 400) throw new Error('El contenedor no arrancó: ' + start.body.toString());
     queries.saveMailConfig.run({ hostname: null, domain: null, container_id: id, status: 'needs_config', dkim_selector: 'mail', dkim_public: null });
     res.write('✅ Correo instalado. Configura el hostname para emitir el certificado TLS.\n');
     done(0);
   } catch (e) {
+    if (createdId) {
+      await dockerRequest('DELETE', `/containers/${createdId}?force=1`).catch(() => {});
+    }
     res.write('[error] ' + e.message + '\n');
     done(1);
   }
@@ -198,7 +214,7 @@ router.post('/config', wrap(async (req, res) => {
 
   const cfg = queries.getMailConfig.get() || {};
   queries.saveMailConfig.run({
-    hostname, domain, container_id: insp.id, status: 'ready',
+    hostname, domain, container_id: insp.id, status: tls === 'ok' ? 'ready' : 'tls_pending',
     dkim_selector: cfg.dkim_selector || 'mail', dkim_public: cfg.dkim_public || null,
   });
   // Reiniciar para que docker-mailserver recoja el certificado montado.
@@ -439,6 +455,8 @@ router.post('/webmail/install', wrap(async (req, res) => {
     domain = domainRaw;
   }
   if (ssl && !domain) return fail(res, 400, 'SSL requiere un dominio.');
+  const existing = await inspectWebmail();
+  if (existing.exists) return fail(res, 409, 'Roundcube ya está instalado.');
 
   audit(req.user.username, clientIp(req), 'mail.webmail.install', domain || 'sin dominio');
   startStream(res);
@@ -450,7 +468,6 @@ router.post('/webmail/install', wrap(async (req, res) => {
     write(`⏳ Descargando imagen ${WEBMAIL_IMAGE}:${WEBMAIL_TAG}...\n`);
     await pullImage(WEBMAIL_IMAGE, WEBMAIL_TAG, write);
     write('✓ Imagen lista.\n');
-    await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1`).catch(() => {});
     const config = buildWebmailContainerConfig({ hostPort, mailHostname: cfg.hostname, domain });
     write(`⏳ Creando contenedor ${WEBMAIL_CONTAINER}...\n`);
     const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(WEBMAIL_CONTAINER)}`, config);
@@ -502,7 +519,12 @@ router.delete('/webmail', wrap(async (req, res) => {
     await dockerRequest('DELETE', `/containers/${WEBMAIL_CONTAINER}?force=1&v=0`).catch(() => {});
     if (removeVolume) {
       write(`⏳ Borrando volumen ${WEBMAIL_VOLUME}...\n`);
-      await dockerRequest('DELETE', `/volumes/${WEBMAIL_VOLUME}`).catch(() => {});
+      const volume = await dockerRequest('DELETE', `/volumes/${WEBMAIL_VOLUME}`);
+      // El contenedor ya se borró: si el volumen no se puede quitar (raro),
+      // avisamos pero NO abortamos, para no dejar el vhost y la BD a medias.
+      if (volume.statusCode >= 400 && volume.statusCode !== 404) {
+        write('⚠ No se pudo borrar el volumen de Roundcube; bórralo a mano si hace falta.\n');
+      }
     }
     try { await nginx.removeSite(WEBMAIL_CONF); } catch (_) {}
     queries.clearMailWebmail.run();

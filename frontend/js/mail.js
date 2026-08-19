@@ -4,12 +4,25 @@
 // Streaming reutilizable (mismo patrón que streamConsole de backups).
 async function mailStream(path, body, el, method = 'POST') {
   const DONE = '__TXPL_DONE__';
-  const r = await fetch(API + '/api' + path, {
-    method,
-    headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
-  });
+  let r;
+  try {
+    r = await fetch(API + '/api' + path, {
+      method,
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+  } catch (error) {
+    mailFeedback(error.message || 'No se pudo conectar con el servidor.', 'error');
+    return 1;
+  }
   if (r.status === 401) { doLogout(); return 1; }
+  if (!r.ok) {
+    let message = 'Error HTTP ' + r.status;
+    try { message = (await r.json()).error || message; } catch (_) {}
+    mailFeedback(message, 'error');
+    return 1;
+  }
+  if (!r.body) { mailFeedback('El servidor no devolvió una respuesta de progreso.', 'error'); return 1; }
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = '', code = 0;
@@ -25,12 +38,43 @@ async function mailStream(path, body, el, method = 'POST') {
   return code;
 }
 
+function mailFeedback(message, type = 'info') {
+  const el = document.getElementById('mail-feedback');
+  if (!el) return;
+  el.hidden = false;
+  el.className = 'mail-feedback ' + type;
+  el.textContent = message;
+}
+
+function mailSetBusy(busy) {
+  document.querySelectorAll('#mail-body button, #mail-body input, #mail-body select').forEach((el) => {
+    el.disabled = busy;
+  });
+}
+
+function mailSetStatus(state) {
+  const labels = { ready: 'Operativo', stopped: 'Parado', needs_config: 'Configurar', needs_tls: 'TLS pendiente', not_installed: 'No instalado', error: 'Error' };
+  const dot = document.getElementById('mail-status-dot');
+  const label = document.getElementById('mail-status-label');
+  let dotClass = 'is-unknown';
+  if (state === 'ready') dotClass = 'is-ready';
+  else if (state === 'stopped' || state === 'not_installed') dotClass = 'is-warning';
+  else if (state === 'needs_tls' || state === 'error') dotClass = 'is-error';
+  if (dot) dot.className = 'mail-status-dot ' + dotClass;
+  if (label) label.textContent = labels[state] || 'Desconocido';
+}
+
 async function loadMail() {
   const st = await req('GET', '/mail/status');
-  if (!st) return;
+  if (!st || st.error) {
+    mailSetStatus('error');
+    mailFeedback(st?.error || 'No se pudo consultar el servicio de correo.', 'error');
+    return;
+  }
+  mailSetStatus(st.state);
   const body = document.getElementById('mail-body');
   if (!st.docker) {
-    body.innerHTML = '<div class="card"><p>El correo necesita <b>Docker</b>. Instálalo desde <a href="#" onclick="navigate(document.querySelector(\'[data-page=plugins]\'));return false">Plugins</a>.</p></div>';
+    body.innerHTML = '<div class="card mail-state-card"><i class="ti ti-brand-docker mail-state-icon"></i><h2>Docker no está disponible</h2><p>El correo necesita Docker para funcionar. Instálalo desde Plugins y vuelve a intentarlo.</p><button class="btn btn-primary" onclick="navigate(document.querySelector(\'[data-page=plugins]\'));return false"><i class="ti ti-puzzle"></i> Ir a Plugins</button></div>';
     return;
   }
   if (st.state === 'not_installed') {
@@ -42,18 +86,19 @@ async function loadMail() {
     return;
   }
   if (st.state === 'stopped') {
-    body.innerHTML = `<div class="card"><p>El correo está instalado pero parado.</p>
+    body.innerHTML = `<div class="card mail-state-card"><p>El correo está instalado pero parado.</p>
       <button class="btn btn-success" onclick="mailAction('start')"><i class="ti ti-player-play"></i> Arrancar</button>
       <button class="btn btn-danger" onclick="mailUninstall()"><i class="ti ti-trash"></i> Desinstalar</button></div>`;
     return;
   }
-  if (st.state === 'needs_config') {
+  if (st.state === 'needs_config' || st.state === 'needs_tls') {
     body.innerHTML = `<div class="card">
       <h3>Configurar el correo</h3>
-      <p class="muted">Indica el hostname del correo (ej. <code>mail.tudominio.com</code>). El panel emitirá el certificado TLS con Certbot.</p>
+      <p class="muted">Indica el hostname del correo (ej. <code>mail.tudominio.com</code>). El panel emitirá el certificado TLS con Certbot. Si aparece como pendiente, revisa el DNS y vuelve a guardar.</p>
       <div class="form-row"><input type="text" id="mail-hostname" placeholder="mail.tudominio.com" style="width:320px"></div>
       <button class="btn btn-primary" onclick="mailSaveConfig()"><i class="ti ti-device-floppy"></i> Guardar y emitir TLS</button>
     </div>`;
+    document.getElementById('mail-hostname').value = st.hostname || '';
     return;
   }
   // ready
@@ -96,14 +141,28 @@ async function loadMail() {
 async function mailInstall() {
   const con = document.getElementById('mail-console');
   con.style.display = 'block'; con.textContent = '';
-  await mailStream('/mail/install', {}, con);
+  mailSetBusy(true);
+  const code = await mailStream('/mail/install', {}, con);
+  mailSetBusy(false);
+  mailFeedback(code === 0 ? 'Correo instalado. Continúa con la configuración del hostname.' : 'La instalación no terminó correctamente. Revisa la consola.', code === 0 ? 'success' : 'error');
   loadMail();
 }
 
-async function mailAction(a) { await req('POST', `/mail/${a}`); loadMail(); }
+async function mailAction(a) {
+  mailSetBusy(true);
+  const r = await req('POST', `/mail/${a}`);
+  mailSetBusy(false);
+  if (r?.error) { mailFeedback(r.error, 'error'); return; }
+  const action = a === 'start' ? 'arrancado' : a === 'stop' ? 'detenido' : 'reiniciado';
+  mailFeedback('Correo ' + action + ' correctamente.', 'success');
+  loadMail();
+}
 async function mailUninstall() {
   if (!confirm('¿Desinstalar el correo? Se elimina el contenedor (los datos de correo se conservan en su volumen).')) return;
-  await req('DELETE', '/mail'); loadMail();
+  const r = await req('DELETE', '/mail');
+  if (r?.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('Correo desinstalado. Los volúmenes se han conservado.', 'success');
+  loadMail();
 }
 
 // loadWebmail: pinta la tarjeta según el estado del contenedor Roundcube.
@@ -111,7 +170,7 @@ async function loadWebmail() {
   const el = document.getElementById('mail-webmail');
   if (!el) return;
   const st = await req('GET', '/mail/webmail/status');
-  if (!st) return;
+  if (!st || st.error) { el.innerHTML = '<p class="muted">' + esc(st?.error || 'No se pudo consultar Roundcube.') + '</p>'; return; }
   if (!st.installed) {
     el.innerHTML = `
       <p class="muted" style="font-size:13px">Interfaz web para leer y enviar correo con los buzones de este servidor.</p>
@@ -138,13 +197,19 @@ async function webmailInstall() {
   const ssl = document.getElementById('webmail-ssl').checked;
   const con = document.getElementById('mail-console');
   con.style.display = 'block'; con.textContent = '';
-  await mailStream('/mail/webmail/install', { domain, ssl }, con);
+  mailSetBusy(true);
+  const code = await mailStream('/mail/webmail/install', { domain, ssl }, con);
+  mailSetBusy(false);
+  mailFeedback(code === 0 ? 'Roundcube instalado correctamente.' : 'La instalación de Roundcube ha fallado. Revisa la consola.', code === 0 ? 'success' : 'error');
   loadWebmail();
 }
 
 async function webmailAction(a) {
+  mailSetBusy(true);
   const r = await req('POST', `/mail/webmail/${a}`);
-  if (r?.error) toast(r.error, 'error');
+  mailSetBusy(false);
+  if (r?.error) mailFeedback(r.error, 'error');
+  else mailFeedback('Roundcube ' + (a === 'start' ? 'iniciado' : a === 'stop' ? 'detenido' : 'reiniciado') + '.', 'success');
   loadWebmail();
 }
 
@@ -153,15 +218,18 @@ async function webmailUninstall() {
   if (!confirm('¿Desinstalar el webmail?')) return;
   const con = document.getElementById('mail-console');
   con.style.display = 'block'; con.textContent = '';
-  await mailStream(`/mail/webmail?volume=${purge}`, null, con, 'DELETE');
+  const code = await mailStream(`/mail/webmail?volume=${purge}`, null, con, 'DELETE');
+  mailFeedback(code === 0 ? 'Roundcube desinstalado.' : 'No se pudo completar la desinstalación de Roundcube.', code === 0 ? 'success' : 'error');
   loadWebmail();
 }
 
 async function mailSaveConfig() {
   const hostname = document.getElementById('mail-hostname').value.trim();
+  mailSetBusy(true);
   const r = await req('POST', '/mail/config', { hostname });
-  if (r && r.error) { alert(r.error); return; }
-  if (r && r.tls && r.tls !== 'ok') alert('Guardado. TLS ' + r.tls);
+  mailSetBusy(false);
+  if (r && r.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback(r?.tls === 'ok' ? 'Configuración guardada y TLS operativo.' : 'Configuración guardada, pero TLS sigue pendiente.', r?.tls === 'ok' ? 'success' : 'error');
   loadMail();
 }
 
@@ -182,7 +250,8 @@ async function mailAddMailbox() {
   const address = document.getElementById('mb-addr').value.trim();
   const password = document.getElementById('mb-pass').value;
   const r = await req('POST', '/mail/mailboxes', { address, password });
-  if (r && r.error) { alert(r.error); return; }
+  if (r && r.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('Buzón creado correctamente.', 'success');
   document.getElementById('mb-addr').value = ''; document.getElementById('mb-pass').value = '';
   loadMailboxes();
 }
@@ -191,12 +260,14 @@ async function mailPassword(addr) {
   const password = prompt(`Nueva contraseña para ${addr} (mínimo 6, sin espacios):`);
   if (!password) return;
   const r = await req('PUT', '/mail/mailboxes', { address: addr, password });
-  if (r && r.error) alert(r.error); else alert('Contraseña actualizada.');
+  if (r && r.error) mailFeedback(r.error, 'error'); else mailFeedback('Contraseña actualizada.', 'success');
 }
 
 async function mailDeleteMailbox(addr) {
   if (!confirm(`¿Borrar el buzón ${addr}?`)) return;
-  await req('DELETE', '/mail/mailboxes', { address: addr });
+  const r = await req('DELETE', '/mail/mailboxes', { address: addr });
+  if (r?.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('Buzón eliminado.', 'success');
   loadMailboxes();
 }
 
@@ -215,21 +286,24 @@ async function mailAddAlias() {
   const source = document.getElementById('al-src').value.trim();
   const destination = document.getElementById('al-dst').value.trim();
   const r = await req('POST', '/mail/aliases', { source, destination });
-  if (r && r.error) { alert(r.error); return; }
+  if (r && r.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('Alias creado correctamente.', 'success');
   document.getElementById('al-src').value = ''; document.getElementById('al-dst').value = '';
   loadAliases();
 }
 
 async function mailDeleteAlias(source, destination) {
   if (!confirm(`¿Borrar el alias ${source} → ${destination}?`)) return;
-  await req('DELETE', '/mail/aliases', { source, destination });
+  const r = await req('DELETE', '/mail/aliases', { source, destination });
+  if (r?.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('Alias eliminado.', 'success');
   loadAliases();
 }
 
 async function mailGenDkim() {
   const r = await req('POST', '/mail/dkim');
-  if (r && r.error) { alert(r.error); return; }
-  alert('DKIM generado. Pulsa "Ver registros DNS" para copiar el valor.');
+  if (r && r.error) { mailFeedback(r.error, 'error'); return; }
+  mailFeedback('DKIM generado. Consulta ahora los registros DNS.', 'success');
   mailLoadDns();
 }
 

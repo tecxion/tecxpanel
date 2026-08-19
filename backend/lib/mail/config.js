@@ -4,8 +4,8 @@
 // ============================================================
 
 const MAIL_CONTAINER = 'txpl-mail';
-const MAIL_IMAGE = 'ghcr.io/docker-mailserver/docker-mailserver';
-const MAIL_TAG = 'latest';
+const MAIL_IMAGE = process.env.TXPL_MAIL_IMAGE || 'ghcr.io/docker-mailserver/docker-mailserver';
+const MAIL_TAG = process.env.TXPL_MAIL_TAG || 'latest';
 const MAIL_PORTS = [25, 465, 587, 143, 993];
 
 const MAIL_VOLUMES = [
