@@ -33,9 +33,35 @@ async function mailStream(path, body, el, method = 'POST') {
     let show = buf;
     const idx = buf.indexOf(DONE);
     if (idx >= 0) { code = parseInt(buf.slice(idx + DONE.length).trim(), 10) || 0; show = buf.slice(0, idx); }
+    // Los marcadores __TXPL_PULL__<n> (progreso de descarga de imagen) no van a la
+    // consola: alimentan la barra de %. Se quitan del texto visible.
+    let lastPct = null;
+    show = show.replace(/__TXPL_PULL__(\d+)\n?/g, (_, n) => { lastPct = parseInt(n, 10); return ''; });
+    if (lastPct !== null) mailSetProgress(lastPct);
     el.textContent = show; el.scrollTop = el.scrollHeight;
   }
+  mailHideProgress();
   return code;
+}
+
+// Barra de % de descarga de imagen (alimentada por los marcadores __TXPL_PULL__).
+function mailSetProgress(pct) {
+  const wrap = document.getElementById('mail-progress');
+  if (!wrap) return;
+  wrap.hidden = false;
+  const v = Math.max(0, Math.min(100, pct));
+  const fill = document.getElementById('mail-progress-fill');
+  const label = document.getElementById('mail-progress-label');
+  if (fill) fill.style.width = v + '%';
+  if (label) label.textContent = v + '%';
+}
+
+function mailHideProgress() {
+  const wrap = document.getElementById('mail-progress');
+  if (!wrap) return;
+  wrap.hidden = true;
+  const fill = document.getElementById('mail-progress-fill');
+  if (fill) fill.style.width = '0%';
 }
 
 function mailFeedback(message, type = 'info') {

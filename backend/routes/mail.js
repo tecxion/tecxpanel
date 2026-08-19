@@ -45,7 +45,22 @@ function dockerRequest(method, path, body = null, timeout = 30_000) {
   });
 }
 
-// Descarga una imagen por el socket transmitiendo el `status` de cada evento.
+// Fracción 0..1 de una capa (descarga = primera mitad, extracción = segunda),
+// para agregar el progreso global de la descarga en una barra de %.
+function layerFraction(status, detail, prev) {
+  const p = (detail && detail.total > 0) ? detail.current / detail.total : 0;
+  switch (status) {
+    case 'Downloading':        return Math.max(prev, p * 0.5);
+    case 'Verifying Checksum':
+    case 'Download complete':  return Math.max(prev, 0.5);
+    case 'Extracting':         return Math.max(prev, 0.5 + p * 0.5);
+    case 'Pull complete':
+    case 'Already exists':     return 1;
+    default:                   return prev; // 'Pulling fs layer', 'Waiting'…
+  }
+}
+
+// Descarga una imagen por el socket emitiendo el % global (marcador __TXPL_PULL__).
 function pullImage(image, tag, write) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(DOCKER_SOCKET)) return reject(new Error('El socket de Docker no existe o Docker no está instalado.'));
@@ -58,7 +73,8 @@ function pullImage(image, tag, write) {
         res.on('end', () => reject(new Error(Buffer.concat(chunks).toString() || `HTTP ${res.statusCode}`)));
         return;
       }
-      let buf = '', failed = null, lastStatus = '';
+      let buf = '', failed = null, lastPct = -1;
+      const layers = new Map(); // id de capa -> fracción 0..1 (descarga + extracción)
       res.setEncoding('utf8');
       res.on('data', (chunk) => {
         buf += chunk;
@@ -68,10 +84,17 @@ function pullImage(image, tag, write) {
           if (!line) continue;
           let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
           if (ev.error) { failed = ev.error; continue; }
-          if (ev.status && ev.status !== lastStatus) { lastStatus = ev.status; write(`  ${ev.status}\n`); }
+          if (!ev.id || !ev.status) continue; // 'Pulling from…', 'Digest:', 'Status:' → sin capa
+          layers.set(ev.id, layerFraction(ev.status, ev.progressDetail, layers.get(ev.id) || 0));
+          let sum = 0; for (const f of layers.values()) sum += f;
+          const pct = Math.round((sum / layers.size) * 100);
+          if (pct !== lastPct) { lastPct = pct; write(`__TXPL_PULL__${pct}\n`); }
         }
       });
-      res.on('end', () => (failed ? reject(new Error(failed)) : resolve()));
+      res.on('end', () => {
+        if (!failed && lastPct < 100) write('__TXPL_PULL__100\n');
+        return failed ? reject(new Error(failed)) : resolve();
+      });
       res.on('error', reject);
     });
     rq.on('error', reject);
@@ -167,8 +190,10 @@ router.post('/install', wrap(async (req, res) => {
     res.write('📥 Descargando imagen de docker-mailserver...\n');
     await pullImage(MAIL_IMAGE, MAIL_TAG, (t) => res.write(t));
     res.write('🔧 Creando el contenedor...\n');
-    // Hostname provisional hasta configurar: el propio nombre del contenedor.
-    const config = buildMailContainerConfig({ hostname: MAIL_CONTAINER });
+    // Hostname provisional VÁLIDO (con dominio) y SIN TLS: docker-mailserver exige
+    // un FQDN o se cae con "Setting hostname/domainname is required". Se recrea con
+    // el hostname real al configurar (/config).
+    const config = buildMailContainerConfig({ hostname: 'mail.local', ssl: false });
     const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(MAIL_CONTAINER)}`, config);
     if (create.statusCode >= 400) throw new Error('No se pudo crear el contenedor: ' + create.body.toString());
     const id = JSON.parse(create.body.toString()).Id;
@@ -213,12 +238,21 @@ router.post('/config', wrap(async (req, res) => {
   }
 
   const cfg = queries.getMailConfig.get() || {};
+  // Recrear el contenedor con el FQDN real: docker-mailserver toma el hostname del
+  // propio contenedor y NO se puede cambiar sin recrearlo (un simple restart deja
+  // el hostname provisional y se cae). Los volúmenes de datos se conservan (v=0).
+  // SSL_TYPE=letsencrypt solo si el certificado ya se emitió (tls === 'ok').
+  await dockerRequest('DELETE', `/containers/${insp.id}?force=1&v=0`).catch(() => {});
+  const config = buildMailContainerConfig({ hostname, ssl: tls === 'ok' });
+  const create = await dockerRequest('POST', `/containers/create?name=${encodeURIComponent(MAIL_CONTAINER)}`, config);
+  if (create.statusCode >= 400) { const e = new Error('No se pudo recrear el contenedor de correo: ' + create.body.toString()); e.http = 502; throw e; }
+  const newId = JSON.parse(create.body.toString()).Id;
+  const start = await dockerRequest('POST', `/containers/${newId}/start`);
+  if (start.statusCode >= 400) { const e = new Error('El contenedor de correo no arrancó: ' + start.body.toString()); e.http = 502; throw e; }
   queries.saveMailConfig.run({
-    hostname, domain, container_id: insp.id, status: tls === 'ok' ? 'ready' : 'tls_pending',
+    hostname, domain, container_id: newId, status: tls === 'ok' ? 'ready' : 'tls_pending',
     dkim_selector: cfg.dkim_selector || 'mail', dkim_public: cfg.dkim_public || null,
   });
-  // Reiniciar para que docker-mailserver recoja el certificado montado.
-  await dockerRequest('POST', `/containers/${insp.id}/restart`);
   audit(req.user?.username || 'system', clientIp(req), 'mail.config', hostname);
   ok(res, { hostname, domain, tls });
 }));

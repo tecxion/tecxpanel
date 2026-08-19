@@ -3,7 +3,35 @@
     <div><span class="eyebrow"><i class="ti ti-mail"></i> SERVICIO DE CORREO</span><h1>Correo</h1><p>Gestiona docker-mailserver, buzones, alias, DKIM y webmail desde un único panel.</p></div>
     <div class="mail-hero-badge"><span id="mail-status-dot" class="mail-status-dot is-unknown"></span><strong id="mail-status-label">Comprobando…</strong></div>
   </div>
+  <details class="guide">
+    <summary>📖 Guía: configurar el correo paso a paso</summary>
+    <div class="guide-body">
+      <h4>1. Antes de empezar — DNS (imprescindible)</h4>
+      <ul>
+        <li>Registro <code>A</code>: <code>mail.tudominio.com</code> → IP del VPS.</li>
+        <li>Registro <code>MX</code>: <code>tudominio.com</code> → <code>mail.tudominio.com</code> (prioridad 10).</li>
+        <li><strong>Puerto 25 saliente</strong> abierto: muchos proveedores lo bloquean por defecto — ábrelo desde el panel del proveedor o soporte. Sin él no se puede <em>enviar</em>.</li>
+        <li><strong>PTR (DNS inverso)</strong> de la IP → <code>mail.tudominio.com</code>: pídelo a tu proveedor de VPS. Sin PTR casi todo tu correo cae en spam.</li>
+      </ul>
+      <h4>2. Instalar</h4>
+      <p>Pulsa <strong>Instalar correo</strong> (descarga docker-mailserver, ~1 GB; abre los puertos 25/465/587/143/993).</p>
+      <h4>3. Configurar el hostname</h4>
+      <p>Escribe <code>mail.tudominio.com</code> y pulsa <strong>Guardar y emitir TLS</strong>. El panel recrea el contenedor con ese hostname y pide el certificado con Certbot.</p>
+      <div class="tip">Si el DNS aún no resuelve verás <strong>«TLS pendiente»</strong>: el correo arranca igual (sin cifrado). Cuando el registro <code>A</code> esté propagado, vuelve a pulsar <strong>Guardar</strong> para emitir el certificado.</div>
+      <h4>4. Crear buzones</h4>
+      <p>Añade <code>usuario@tudominio.com</code> con su contraseña (mínimo 6 caracteres, sin espacios).</p>
+      <h4>5. DKIM · SPF · DMARC</h4>
+      <p>Pulsa <strong>Generar DKIM</strong> y luego <strong>Ver registros DNS</strong>. Copia los registros <code>TXT</code> de <strong>SPF</strong>, <strong>DKIM</strong> y <strong>DMARC</strong> a tu DNS: mejoran mucho la entrega.</p>
+      <h4>6. Probar</h4>
+      <p>Usa el <strong>webmail (Roundcube)</strong> de abajo o tu cliente: IMAP <code>993</code> (SSL) y SMTP <code>587</code> (STARTTLS).</p>
+      <div class="tip">Que no caiga en spam = <strong>SPF + DKIM + DMARC + PTR</strong> correctos y la IP fuera de listas negras (compruébala en <code>mxtoolbox.com</code>).</div>
+    </div>
+  </details>
   <div id="mail-feedback" class="mail-feedback" hidden></div>
   <div id="mail-body">Cargando…</div>
+  <div id="mail-progress" class="mail-progress" hidden>
+    <div class="mail-progress-track"><div id="mail-progress-fill" class="mail-progress-fill"></div></div>
+    <span id="mail-progress-label" class="mail-progress-label">0%</span>
+  </div>
   <div class="console mail-console" id="mail-console" style="display:none"></div>
 </section>

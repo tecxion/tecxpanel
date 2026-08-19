@@ -15,7 +15,11 @@ const MAIL_VOLUMES = [
   'txpl_mail_config:/tmp/docker-mailserver',
 ];
 
-function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt' } = {}) {
+// ssl=true monta docker-mailserver con SSL_TYPE=letsencrypt (requiere que el
+// certificado del hostname YA exista en /etc/letsencrypt). Con ssl=false arranca
+// sin TLS (útil mientras el hostname aún no está configurado o el cert no se ha
+// emitido), evitando un fallo de arranque por certificado ausente.
+function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt', ssl = false } = {}) {
   const exposed = {};
   const bindings = {};
   for (const p of MAIL_PORTS) {
@@ -23,18 +27,19 @@ function buildMailContainerConfig({ hostname, letsencryptDir = '/etc/letsencrypt
     exposed[key] = {};
     bindings[key] = [{ HostPort: String(p) }];
   }
+  const env = [
+    'PERMIT_DOCKER=none',
+    'ENABLE_RSPAMD=1',
+    'ENABLE_OPENDKIM=0',
+    'ENABLE_CLAMAV=0',
+    'ENABLE_FAIL2BAN=0',
+    'ONE_DIR=1',
+  ];
+  if (ssl) env.unshift('SSL_TYPE=letsencrypt');
   return {
     Image: `${MAIL_IMAGE}:${MAIL_TAG}`,
     Hostname: hostname,
-    Env: [
-      'SSL_TYPE=letsencrypt',
-      'PERMIT_DOCKER=none',
-      'ENABLE_RSPAMD=1',
-      'ENABLE_OPENDKIM=0',
-      'ENABLE_CLAMAV=0',
-      'ENABLE_FAIL2BAN=0',
-      'ONE_DIR=1',
-    ],
+    Env: env,
     ExposedPorts: exposed,
     HostConfig: {
       RestartPolicy: { Name: 'unless-stopped' },

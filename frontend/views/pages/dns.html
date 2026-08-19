@@ -1,5 +1,26 @@
 <div class="page-header">
   <h1><i class="ti ti-world"></i> DNS</h1>
 </div>
+<details class="guide">
+  <summary>📖 Guía: montar el DNS autoritativo (PowerDNS)</summary>
+  <div class="guide-body">
+    <p>Este módulo convierte el VPS en servidor DNS <strong>autoritativo</strong> de tus dominios. Solo sirve de algo si <strong>delegas</strong> el dominio a este servidor desde tu registrador.</p>
+    <h4>1. Instalar PowerDNS</h4>
+    <p>Abre el puerto <code>53</code> (TCP y UDP).</p>
+    <h4>2. Configurar nameservers</h4>
+    <p>Define <code>ns1.tudominio.com</code> y <code>ns2.tudominio.com</code>, ambos apuntando a la IP del VPS.</p>
+    <h4>3. Añadir el dominio (zona)</h4>
+    <p>Escribe <code>tudominio.com</code>. Se crean el <code>SOA</code> y los <code>NS</code> automáticamente.</p>
+    <h4>4. Delegar en el registrador (imprescindible)</h4>
+    <ul>
+      <li>Crea los <strong>glue records</strong> que muestra el panel en <em>Registros → Delegación</em> (asocian <code>ns1/ns2</code> a la IP del VPS).</li>
+      <li>Cambia los <strong>nameservers</strong> del dominio a <code>ns1.tudominio.com</code> y <code>ns2.tudominio.com</code>.</li>
+      <li>La propagación tarda de minutos a 48 h. El panel marcará <strong>«✅ Delegación activa»</strong> cuando lo detecte.</li>
+    </ul>
+    <h4>5. Añadir registros</h4>
+    <p><code>A</code> (subdominio → IP), <code>CNAME</code> (alias), <code>MX</code> (correo), <code>TXT</code> (SPF/DKIM/DMARC y verificaciones).</p>
+    <div class="tip">¿Correo? Si delegas el dominio aquí, crea en esta sección el registro <code>A</code> de <code>mail</code>, el <code>MX</code> y los <code>TXT</code> de SPF/DKIM/DMARC. Si tu DNS sigue en el registrador, créalos allí.</div>
+  </div>
+</details>
 <div id="dns-body">Cargando…</div>
 <div class="console" id="dns-console" style="display:none"></div>

@@ -26,10 +26,12 @@ test('isValidMailPassword', () => {
 });
 
 test('buildMailContainerConfig: imagen, hostname, puertos, volúmenes y SSL', () => {
-  const c = m.buildMailContainerConfig({ hostname: 'mail.dominio.com', letsencryptDir: '/etc/letsencrypt' });
+  const c = m.buildMailContainerConfig({ hostname: 'mail.dominio.com', letsencryptDir: '/etc/letsencrypt', ssl: true });
   assert.strictEqual(c.Image, 'ghcr.io/docker-mailserver/docker-mailserver:latest');
   assert.strictEqual(c.Hostname, 'mail.dominio.com');
   assert.ok(c.Env.includes('SSL_TYPE=letsencrypt'));
+  // Sin ssl (por defecto) arranca sin TLS: no debe forzar SSL_TYPE=letsencrypt.
+  assert.ok(!m.buildMailContainerConfig({ hostname: 'mail.dominio.com' }).Env.includes('SSL_TYPE=letsencrypt'));
   assert.deepStrictEqual(c.HostConfig.RestartPolicy, { Name: 'unless-stopped' });
   for (const p of ['25/tcp', '465/tcp', '587/tcp', '143/tcp', '993/tcp']) {
     assert.ok(c.ExposedPorts[p], `expuesto ${p}`);
