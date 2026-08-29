@@ -107,11 +107,17 @@ function openNewSiteModal() {
 // createWebsite: envía el formulario para crear un sitio web nuevo.
 // Bloquea el botón mientras la petición viaja para evitar dobles envíos.
 async function createWebsite(evt) {
-  const btn = evt?.currentTarget;
-  const domain = document.getElementById('site-domain').value.trim();
-  if (!domain) { toast('Introduce un dominio o nombre', 'error'); return; }
-  const usePort = document.getElementById('site-mode').value === 'port';
   const type = document.getElementById('site-type').value;
+  const domain = document.getElementById('site-domain').value.trim();
+  const usePort = document.getElementById('site-mode').value === 'port';
+  // Node/React/Python → asistente de despliegue (subir ZIP/Git → instalar → arrancar).
+  if (['nodejs', 'react', 'python'].includes(type)) {
+    closeModal('modal-new-site');
+    openDeployWizard(type, { presetName: usePort ? domain : '', domain: usePort ? '' : domain });
+    return;
+  }
+  const btn = evt?.currentTarget;
+  if (!domain) { toast('Introduce un dominio o nombre', 'error'); return; }
   const phpVersion = type === 'php' ? document.getElementById('site-php-version').value : '';
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
   toast('Creando sitio web...', 'info');
@@ -209,8 +215,124 @@ async function deleteWebsite(id) {
   else toast(r?.error || 'Error', 'error');
 }
 
+// ── Asistente de despliegue de apps (Node/React/Python) ──────
+// Crea la app, sube el ZIP (o clona Git) y llama al endpoint único /deploy que
+// hace todo de una pasada (detectar → instalar → build → arrancar → proxy) con
+// streaming. Sustituye al antiguo flujo manual por pasos.
+const DEPLOY_TYPE_LABELS = { nodejs: 'Node.js', react: 'React', python: 'Python' };
+
+function openDeployWizard(type, opts = {}) {
+  const label = DEPLOY_TYPE_LABELS[type] || type;
+  document.getElementById('modal-deploy-app')?.remove();
+  const mod = document.createElement('div');
+  mod.className = 'modal-overlay open';
+  mod.id = 'modal-deploy-app';
+  mod.innerHTML = `
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <div class="modal-title">🚀 Desplegar app ${esc(label)}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('modal-deploy-app').remove()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group"><label>Nombre de la app</label><input id="dep-name" placeholder="mi-app" value="${esc(opts.presetName || '')}"></div>
+        <div class="form-group"><label>Dominio (opcional)</label><input id="dep-domain" placeholder="app.midominio.com" value="${esc(opts.domain || '')}"><small class="muted">Sin dominio se sirve por IP:puerto.</small></div>
+        <div class="form-group"><label>Origen del código</label>
+          <div style="display:flex;gap:14px;margin:4px 0 8px">
+            <label style="font-weight:400"><input type="radio" name="dep-src" value="zip" checked onchange="toggleDeploySrc()"> Subir ZIP</label>
+            <label style="font-weight:400"><input type="radio" name="dep-src" value="git" onchange="toggleDeploySrc()"> Repositorio Git</label>
+          </div>
+          <input type="file" id="dep-zip" accept=".zip,.tar,.tar.gz,.tgz">
+          <div id="dep-git-fields" style="display:none">
+            <input id="dep-git" placeholder="https://github.com/usuario/repo.git" style="width:100%;margin-bottom:6px">
+            <input id="dep-branch" placeholder="main" value="main">
+          </div>
+        </div>
+        <input type="hidden" id="dep-type" value="${esc(type)}">
+        <div class="console" id="dep-console" style="display:none;white-space:pre-wrap;max-height:340px;overflow:auto;margin-top:10px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="document.getElementById('modal-deploy-app').remove()">Cerrar</button>
+        <button class="btn btn-primary" id="dep-go" onclick="submitDeploy()">🚀 Desplegar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mod);
+  setTimeout(() => document.getElementById('dep-name')?.focus(), 100);
+}
+
+function toggleDeploySrc() {
+  const git = document.querySelector('input[name="dep-src"]:checked')?.value === 'git';
+  document.getElementById('dep-zip').style.display = git ? 'none' : '';
+  document.getElementById('dep-git-fields').style.display = git ? '' : 'none';
+}
+
+async function submitDeploy() {
+  const name = document.getElementById('dep-name').value.trim();
+  const domain = document.getElementById('dep-domain').value.trim();
+  const src = document.querySelector('input[name="dep-src"]:checked')?.value;
+  const zipFile = document.getElementById('dep-zip').files[0];
+  const gitRepo = document.getElementById('dep-git').value.trim();
+  const gitBranch = document.getElementById('dep-branch').value.trim() || 'main';
+  if (!name) { toast('Indica un nombre para la app', 'error'); return; }
+  if (src === 'zip' && !zipFile) { toast('Selecciona un archivo ZIP', 'error'); return; }
+  if (src === 'git' && !gitRepo) { toast('Indica la URL del repositorio', 'error'); return; }
+
+  const con = document.getElementById('dep-console');
+  const go = document.getElementById('dep-go');
+  con.style.display = 'block'; con.textContent = '';
+  if (go) go.disabled = true;
+  try {
+    con.textContent += '⏳ Creando la app...\n';
+    const createData = { name };
+    if (domain) createData.domain = domain;
+    if (src === 'git') { createData.git_repo = gitRepo; createData.git_branch = gitBranch; }
+    const created = await req('POST', '/apps', createData);
+    if (!created?.id) { con.textContent += '✖ ' + (created?.error || 'No se pudo crear la app') + '\n'; return; }
+    if (src === 'zip') {
+      con.textContent += '📤 Subiendo ' + zipFile.name + '...\n';
+      const up = await uploadBinary(zipFile, created.path + '/' + zipFile.name);
+      if (!up?.success) { con.textContent += '✖ No se pudo subir el archivo.\n'; return; }
+    }
+    await streamDeploy(created.id, con);
+    loadWebsites();
+  } finally { if (go) go.disabled = false; }
+}
+
+// streamDeploy: llama a POST /apps/:id/deploy y vuelca el streaming en la consola.
+async function streamDeploy(id, el) {
+  const DONE = '__TXPL_DONE__';
+  let r;
+  try {
+    r = await fetch(API + '/api/apps/' + id + '/deploy', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+  } catch (e) { el.textContent += '✖ ' + (e.message || 'Error de conexión') + '\n'; return 1; }
+  if (r.status === 401) { doLogout(); return 1; }
+  if (!r.ok || !r.body) {
+    let m = 'Error HTTP ' + r.status;
+    try { m = (await r.json()).error || m; } catch (_) {}
+    el.textContent += '✖ ' + m + '\n'; return 1;
+  }
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', code = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let show = buf;
+    const i = buf.indexOf(DONE);
+    if (i >= 0) { code = parseInt(buf.slice(i + DONE.length).trim(), 10) || 0; show = buf.slice(0, i); }
+    el.textContent = show; el.scrollTop = el.scrollHeight;
+  }
+  toast(code === 0 ? 'Despliegue completado' : 'El despliegue falló (revisa la consola)', code === 0 ? 'success' : 'error');
+  return code;
+}
+
 Object.assign(window, {
   createWebsite, deleteWebsite, installSiteSsl, loadWebsites,
   togglePhpVersion, toggleSiteMode, openNewSiteModal,
   rebuildVhost, viewVhost, openSiteFiles,
+  openDeployWizard, toggleDeploySrc, submitDeploy, streamDeploy,
 });

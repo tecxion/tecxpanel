@@ -16,6 +16,9 @@ const {
   removeAppDir, buildPm2Launch, checkBuildRequirements,
   detectProject, flattenSingleSubdir,
 } = require('../lib/appdeploy');
+const { findFreePort } = require('../lib/catalogEngine');
+const { detect } = require('../lib/apps/detect');
+const { preflight, preflightOk } = require('../lib/apps/preflight');
 
 const router = express.Router();
 
@@ -54,6 +57,36 @@ router.get('/', wrap(async (req, res) => {
 }));
 
 const APP_TIMEOUT = { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 };
+// Sin timeout práctico para install/build (npm/pip son lentos); buffer amplio.
+const DEPLOY_STEP = { timeout: 900_000, maxBuffer: 32 * 1024 * 1024 };
+
+// Lee del disco lo justo (package.json, ficheros de la raíz, requirements.txt) y
+// delega en el detector PURO lib/apps/detect. Wrapper de I/O de esa función.
+function readDetect(cwd) {
+  let pkg = null;
+  const pkgPath = path.join(cwd, 'package.json');
+  if (fs.existsSync(pkgPath)) { try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')); } catch (_) { pkg = {}; } }
+  const files = fs.existsSync(cwd) ? fs.readdirSync(cwd) : [];
+  const reqPath = path.join(cwd, 'requirements.txt');
+  const reqText = fs.existsSync(reqPath) ? fs.readFileSync(reqPath, 'utf8') : null;
+  return detect({ pkg, files, reqText });
+}
+
+// Sonda de runtimes para el preflight puro (¿está node/npm/python/pip?).
+async function probeRuntimes(runtime) {
+  const o = { timeout: 10_000 };
+  if (runtime === 'node') {
+    const n = await runSafe('node', ['--version'], o);
+    const m = await runSafe('npm', ['--version'], o);
+    return { runtime, nodeVersion: n.ok ? n.stdout.trim() : null, npmVersion: m.ok ? m.stdout.trim() : null };
+  }
+  if (runtime === 'python') {
+    const p = await runSafe('python3', ['--version'], o);
+    const v = await runSafe('bash', ['-lc', 'python3 -m venv --help >/dev/null 2>&1 && python3 -m pip --version'], o);
+    return { runtime, pythonVersion: p.ok ? (p.stdout.trim() || p.stderr.trim()) : null, pipOk: v.ok };
+  }
+  return { runtime };
+}
 
 // Crear app: solo registra y crea la carpeta o clona (NO arranca). El deploy va por pasos.
 router.post('/', wrap(async (req, res) => {
@@ -358,6 +391,133 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
   audit(req.user.username, clientIp(req), 'app.git-pull', appRow.name);
 
   ok(res, { success: true, output: lines.join('\n') });
+}));
+
+// POST /api/apps/:id/deploy — DESPLIEGUE DE UNA PASADA (streaming).
+// Orquesta extraer → detectar → preflight → instalar → build → arrancar → proxy,
+// parando al primer fallo con mensaje claro y rollback. Sustituye al flujo manual
+// por pasos (que sigue existiendo como fallback). Debe ir ANTES de '/:id/:action'.
+router.post('/:id/deploy', wrap(async (req, res) => {
+  const appRow = queries.getApp.get(+req.params.id);
+  if (!appRow) return fail(res, 404, 'App no encontrada');
+  const cwd = appRow.path;
+  if (!fs.existsSync(cwd)) return fail(res, 400, 'La carpeta de la app ya no existe');
+
+  audit(req.user.username, clientIp(req), 'app.deploy', appRow.name);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const w = (s) => res.write(s);
+  const done = (code) => res.end(`\n__TXPL_DONE__${code}`);
+  let startedPm2 = false, madeVhost = false;
+
+  try {
+    // 1. Extraer si hay un archivo subido en la carpeta.
+    const archive = fs.readdirSync(cwd).find((f) => /\.(zip|tar\.gz|tgz|tar)$/i.test(f));
+    if (archive) {
+      w(`📦 Extrayendo ${archive}...\n`);
+      const ap = path.join(cwd, archive);
+      const low = archive.toLowerCase();
+      let r;
+      if (low.endsWith('.zip')) {
+        if (!(await runSafe('unzip', ['-v'])).ok) await runSafe('apt-get', ['install', '-y', 'unzip'], { timeout: 120_000 });
+        r = await runSafe('unzip', ['-o', ap, '-d', cwd], APP_TIMEOUT);
+      } else if (low.endsWith('.tar.gz') || low.endsWith('.tgz')) {
+        r = await runSafe('tar', ['-xzf', ap, '-C', cwd], APP_TIMEOUT);
+      } else {
+        r = await runSafe('tar', ['-xf', ap, '-C', cwd], APP_TIMEOUT);
+      }
+      if (!r.ok) throw new Error('No se pudo extraer el archivo: ' + (r.stderr.split('\n').filter(Boolean).slice(-1)[0] || ''));
+      try { fs.unlinkSync(ap); } catch (_) {}
+      flattenSingleSubdir(cwd);
+    }
+
+    // 2. Detectar el plan (detector puro).
+    const det = readDetect(cwd);
+    w(`🔎 Detectado: ${det.type}${det.servesStatic ? ' (SPA estática)' : det.mode === 'worker' ? ' (worker)' : ''}\n`);
+    for (const warn of det.warnings) w(`   ⚠ ${warn}\n`);
+    if (det.runtime === 'unknown') throw new Error('No se reconoció el proyecto (falta package.json o requirements.txt).');
+
+    // Modos: worker (solo proceso), estático (Nginx sirve el build) o web (proceso+red).
+    const isStatic = det.servesStatic;
+    const isWorker = det.mode === 'worker';
+    // Puerto: servidor web siempre; estático solo si NO hay dominio (acceso IP:puerto).
+    const needsPort = !isWorker && (!isStatic || !appRow.domain);
+    let port = appRow.port;
+    if (needsPort && !port) port = await findFreePort();
+
+    // 3. Preflight (¿runtimes disponibles?).
+    const probe = await probeRuntimes(det.runtime);
+    const checks = preflight({ ...probe, portFree: needsPort ? (port != null) : null });
+    for (const c of checks) w(`   ${c.ok ? '✓' : '✗'} ${c.message}${!c.ok && c.fix ? ' → ' + c.fix : ''}\n`);
+    if (!preflightOk(checks)) throw new Error('Faltan requisitos en el servidor (ver arriba).');
+
+    // Guardar la config detectada y recargar la fila.
+    queries.setAppDeployConfig.run(det.type, det.startCmd || appRow.start_cmd || '', needsPort ? port : null, isWorker ? null : (appRow.domain || null), appRow.id);
+    const app2 = queries.getApp.get(appRow.id);
+
+    // 4. Instalar dependencias.
+    if (det.installCmd) {
+      w(`\n$ ${det.installCmd}\n`);
+      const r = await runSafe('bash', ['-lc', det.installCmd], { cwd, env: { ...process.env, NODE_ENV: 'development' }, ...DEPLOY_STEP });
+      w(((r.stdout || r.stderr || '').trim() || 'Sin salida.') + '\n');
+      if (!r.ok) throw new Error('Fallo al instalar dependencias.');
+    }
+
+    // 5. Build (si el proyecto lo tiene).
+    if (det.buildCmd) {
+      w(`\n$ ${det.buildCmd}\n`);
+      const env = { ...process.env };
+      if (port) env.PORT = String(port);
+      const r = await runSafe('bash', ['-lc', det.buildCmd], { cwd, env, ...DEPLOY_STEP });
+      w(((r.stdout || r.stderr || '').trim() || 'Sin salida.') + '\n');
+      if (!r.ok) throw new Error('Fallo al compilar (build).');
+    }
+
+    // 6. Arranque.
+    if (isStatic) {
+      const staticRoot = path.join(cwd, det.buildDir || 'dist');
+      if (!fs.existsSync(staticRoot)) throw new Error(`El build no generó la carpeta ${det.buildDir}/. Revisa el script de build.`);
+      if (app2.port) await runSafe('ufw', ['allow', `${app2.port}/tcp`]);
+      await nginx.enableSite(app2.pm2_name, nginx.buildStaticApp(app2.name, staticRoot, { domain: app2.domain, listenPort: app2.domain ? null : app2.port }));
+      madeVhost = true;
+      queries.setAppStatus.run('running', appRow.id);
+      w(app2.domain
+        ? `✓ Sitio estático servido en ${app2.domain} (root ${det.buildDir}/).\n`
+        : `✓ Sitio estático servido en IP:${app2.port} (root ${det.buildDir}/).\n`);
+    } else {
+      w(`\n$ pm2 start  (${app2.start_cmd})\n`);
+      const env = { ...process.env };
+      if (port) env.PORT = String(port);
+      await runSafe('pm2', ['delete', app2.pm2_name]).catch(() => {});
+      const r = await runSafe('pm2', buildPm2Launch(app2), { cwd, env });
+      if (!r.ok) throw new Error('PM2 no pudo arrancar la app: ' + (r.stderr.split('\n').filter(Boolean).slice(-1)[0] || ''));
+      startedPm2 = true;
+      await runSafe('pm2', ['save']).catch(() => {});
+      queries.setAppStatus.run('running', appRow.id);
+      w('✓ App arrancada en PM2.\n');
+
+      // 7. Exponer: puerto en UFW + proxy Nginx si hay dominio.
+      if (port) { await runSafe('ufw', ['allow', `${port}/tcp`]); w(`✓ Puerto ${port} abierto en el firewall.\n`); }
+      if (app2.domain && port) {
+        await nginx.enableSite(app2.pm2_name, nginx.buildProxy(app2.domain, port, { www: true }));
+        madeVhost = true;
+        w(`✓ Proxy Nginx: ${app2.domain} → :${port}\n`);
+      }
+    }
+
+    w('\n✅ Despliegue completado.\n');
+    done(0);
+  } catch (e) {
+    w(`\n✖ ${e.message}\n`);
+    // Rollback best-effort: revertir proceso y proxy (los ficheros se conservan).
+    if (startedPm2) await runSafe('pm2', ['delete', appRow.pm2_name]).catch(() => {});
+    if (madeVhost) await nginx.removeSite(appRow.pm2_name).catch(() => {});
+    queries.setAppStatus.run('stopped', appRow.id);
+    w('↩ Rollback: proceso y proxy revertidos.\n');
+    done(1);
+  }
 }));
 
 // GET /api/apps/:id/env — Devuelve el contenido del fichero .env de la app.

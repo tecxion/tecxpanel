@@ -102,6 +102,16 @@ function buildProxy(domain, port, opts = {}) {
   return `server {\n    listen 80;\n    server_name ${serverName};${buildLogLines(domain)}\n    location / {\n        proxy_pass http://127.0.0.1:${port};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
 }
 
+// Vhost ESTÁTICO para una SPA ya compilada (React/Vite): sirve un `root`
+// arbitrario (la carpeta dist/ o build/ de la app) con fallback SPA a index.html.
+// Por dominio (server_name) o por IP:puerto (listenPort), como los sitios web.
+function buildStaticApp(name, root, opts = {}) {
+  const { domain = null, listenPort = null } = opts;
+  const listen = listenPort ? `listen ${listenPort}` : 'listen 80';
+  const serverName = (!listenPort && domain) ? `\n    server_name ${domain} www.${domain};` : '';
+  return `server {\n    ${listen};${serverName}${buildLogLines(domain || name)}\n    root ${root};\n    index index.html index.htm;\n    location / { try_files $uri $uri/ /index.html; }\n}\n`;
+}
+
 // Genera un vhost para una app PHP servida con PHP-FPM en un PUERTO propio
 // (lo usa phpMyAdmin). server_name "_" = "responde a cualquier nombre".
 //  - port: puerto en el que escucha (ej. 8081).
@@ -245,6 +255,6 @@ async function installSsl(domain, opts = {}) {
 
 module.exports = {
   NGINX_AVAILABLE, NGINX_ENABLED, SITES_DIR,
-  buildSite, buildProxy, buildPhpFpmSite, buildPhpFpmDomain,
+  buildSite, buildProxy, buildStaticApp, buildPhpFpmSite, buildPhpFpmDomain,
   reload, enableSite, removeSite, installSsl, isApexDomain,
 };
