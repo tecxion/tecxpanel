@@ -183,6 +183,8 @@ router.get('/status', wrap(async (req, res) => {
 
 // ── Diagnóstico (sondas DNS/TCP → clasificadores puros de lib/mail/diagnose) ──
 const DNSBL_LISTS = ['zen.spamhaus.org', 'bl.spamcop.net'];
+// Varios MX reales: si el proveedor bloquea el 25 saliente, TODOS dan timeout.
+const PORT25_HOSTS = ['gmail-smtp-in.l.google.com', 'aspmx.l.google.com', 'mx1.hotmail.com'];
 
 // TCP connect saliente: ¿deja el proveedor salir por el puerto? true/false.
 function probePort25(host, port, timeoutMs) {
@@ -196,6 +198,12 @@ function probePort25(host, port, timeoutMs) {
     sock.once('error', () => finish(false));
   });
 }
+// Puerto 25 saliente "usable" = se alcanza la MAYORÍA de MX de prueba. Un solo host
+// podía dar un falso positivo; si el proveedor filtra el 25, todos dan timeout.
+async function probePort25Open(hosts, timeoutMs) {
+  const results = await Promise.all(hosts.map((h) => probePort25(h, 25, timeoutMs)));
+  return results.filter(Boolean).length >= Math.ceil(hosts.length / 2);
+}
 async function resolve4Safe(name) { try { return await dnsp.resolve4(name); } catch (_) { return []; } }
 async function reverseSafe(ip) { try { return await dnsp.reverse(ip); } catch (_) { return []; } }
 async function resolveMxSafe(domain) { try { return await dnsp.resolveMx(domain); } catch (_) { return []; } }
@@ -203,8 +211,10 @@ async function resolveTxtSafe(name) { try { return await dnsp.resolveTxt(name); 
 // Cada lista DNSBL: resolver la IP invertida → si resuelve, está listada.
 async function probeDnsbl(ip, lists) {
   return Promise.all(lists.map(async (list) => {
-    try { await dnsp.resolve4(diag.dnsblQuery(ip, list)); return { list, listed: true }; }
-    catch (_) { return { list, listed: false }; }
+    try {
+      const codes = await dnsp.resolve4(diag.dnsblQuery(ip, list));
+      return { list, listed: diag.dnsblListed(codes) };
+    } catch (_) { return { list, listed: false }; }
   }));
 }
 // IP pública del VPS (best-effort): ipify por IPv4, si no `hostname -I`.
@@ -222,7 +232,7 @@ router.get('/diagnose', wrap(async (req, res) => {
   const serverIp = await getServerIp();
 
   const [port25, dnsbl, aRec, ptr, mx, spf, dkim, dmarc] = await Promise.all([
-    probePort25('gmail-smtp-in.l.google.com', 25, 5000),
+    probePort25Open(PORT25_HOSTS, 5000),
     serverIp ? probeDnsbl(serverIp, DNSBL_LISTS) : Promise.resolve([]),
     hostname ? resolve4Safe(hostname) : Promise.resolve([]),
     (hostname && serverIp) ? reverseSafe(serverIp) : Promise.resolve([]),
@@ -381,6 +391,30 @@ router.post('/relay', wrap(async (req, res) => {
   });
   audit(req.user?.username || 'system', clientIp(req), 'mail.relay', enabled ? `on ${host}:${port}` : 'off');
   ok(res, { enabled, host: host || null, port });
+}));
+
+// ── Enviar correo de prueba ──────────────────────────────────
+// POST /test-send { to } — envía un mensaje de prueba con sendmail (Postfix) dentro
+// del contenedor. Consejo al usuario: usar una dirección de mail-tester.com.
+router.post('/test-send', wrap(async (req, res) => {
+  const to = String((req.body && req.body.to) || '').trim();
+  // Estricto: además de validar el email, evita metacaracteres de shell (se
+  // interpola en `sh -c`). isValidEmail podría aceptar comillas en el local-part.
+  if (!isValidEmail(to) || !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(to)) {
+    return fail(res, 400, 'Dirección de destino inválida.');
+  }
+  const cfg = queries.getMailConfig.get() || {};
+  if (!cfg.hostname || !cfg.domain) return fail(res, 400, 'Configura primero el hostname del correo.');
+  const insp = await inspectContainer();
+  if (!insp.exists || !insp.running) return fail(res, 400, 'El correo no está en marcha.');
+
+  const from = `postmaster@${cfg.domain}`;
+  const body = 'Este es un correo de prueba enviado desde tu servidor de correo con TecXPaneL. Si lo recibes, el envio funciona.';
+  const cmd = `printf 'From: %s\\nTo: %s\\nSubject: %s\\nDate: %s\\n\\n%s\\n' '${from}' '${to}' 'Prueba de TecXPaneL' "$(date -R)" '${body}' | sendmail -f '${from}' '${to}'`;
+  const { exitCode, output } = await dockerExec(insp.id, ['sh', '-c', cmd]);
+  if (exitCode !== 0) { const e = new Error('No se pudo enviar: ' + (output || '').slice(0, 400)); e.http = 502; throw e; }
+  audit(req.user?.username || 'system', clientIp(req), 'mail.test_send', to);
+  ok(res, { sent: true, to, from });
 }));
 
 // ── Acciones start/stop/restart ──────────────────────────────

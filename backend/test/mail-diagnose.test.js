@@ -64,6 +64,14 @@ test('dnsblQuery: invierte la IPv4 y añade la lista', () => {
   assert.strictEqual(d.dnsblQuery('1.2.3.4', 'zen.spamhaus.org'), '4.3.2.1.zen.spamhaus.org');
 });
 
+test('dnsblListed: 127.0.0.x = listada; 127.255.255.x = error (no listada)', () => {
+  assert.strictEqual(d.dnsblListed(['127.0.0.2']), true);   // SBL
+  assert.strictEqual(d.dnsblListed(['127.0.0.11']), true);  // PBL
+  assert.strictEqual(d.dnsblListed(['127.255.255.254']), false); // consulta desde resolver público
+  assert.strictEqual(d.dnsblListed(['127.255.255.252']), false);
+  assert.strictEqual(d.dnsblListed([]), false);
+});
+
 test('joinTxt: une registros troceados y respeta los ya completos', () => {
   assert.deepStrictEqual(d.joinTxt([['ab', 'cd'], 'ef']), ['abcd', 'ef']);
   assert.deepStrictEqual(d.joinTxt([]), []);

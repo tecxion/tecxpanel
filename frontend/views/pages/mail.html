@@ -52,6 +52,15 @@
     <label class="mail-relay-toggle"><input type="checkbox" id="relay-enabled"> Activar envío por relay</label>
     <button class="btn btn-primary" onclick="mailSaveRelay()"><i class="ti ti-device-floppy"></i> Guardar relay</button>
   </div>
+  <div class="card mail-test" hidden>
+    <h3 style="margin:0 0 4px">Enviar correo de prueba</h3>
+    <p class="muted" style="margin:0 0 10px">Comprueba que el envío funciona. Consejo: pon como destino una dirección de <b>mail-tester.com</b> y luego abre su web para ver tu puntuación de entrega (sobre 10).</p>
+    <div class="form-row">
+      <input type="email" id="mail-test-to" placeholder="destino@ejemplo.com" style="width:260px">
+      <button class="btn btn-primary" onclick="mailTestSend()">✉️ Enviar prueba</button>
+      <a class="btn" href="https://www.mail-tester.com" target="_blank" rel="noopener">Abrir mail-tester ↗</a>
+    </div>
+  </div>
   <div id="mail-progress" class="mail-progress" hidden>
     <div class="mail-progress-track"><div id="mail-progress-fill" class="mail-progress-fill"></div></div>
     <span id="mail-progress-label" class="mail-progress-label">0%</span>

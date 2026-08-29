@@ -99,9 +99,12 @@ async function loadMail() {
   }
   mailSetStatus(st.state);
   mailRenderStepper(st.docker ? st.state : null);
-  // La tarjeta de relay solo tiene sentido con el hostname ya configurado.
+  // Relay y prueba de envío solo tienen sentido con el hostname ya configurado.
+  const showAdvanced = !!(st.docker && st.configured);
   const relayCard = document.querySelector('.mail-relay');
-  if (relayCard) { const showRelay = !!(st.docker && st.configured); relayCard.hidden = !showRelay; if (showRelay) loadMailRelay(); }
+  if (relayCard) { relayCard.hidden = !showAdvanced; if (showAdvanced) loadMailRelay(); }
+  const testCard = document.querySelector('.mail-test');
+  if (testCard) testCard.hidden = !showAdvanced;
   const body = document.getElementById('mail-body');
   if (!st.docker) {
     body.innerHTML = '<div class="card mail-state-card"><i class="ti ti-brand-docker mail-state-icon"></i><h2>Docker no está disponible</h2><p>El correo necesita Docker para funcionar. Instálalo desde Plugins y vuelve a intentarlo.</p><button class="btn btn-primary" onclick="navigate(document.querySelector(\'[data-page=plugins]\'));return false"><i class="ti ti-puzzle"></i> Ir a Plugins</button></div>';
@@ -501,6 +504,21 @@ async function mailSaveRelay() {
   } finally { relaySaving = false; }
 }
 
+// mailTestSend: envía un correo de prueba al destino indicado (POST /mail/test-send).
+let mailTestSending = false;
+async function mailTestSend() {
+  if (mailTestSending) return;
+  const to = document.getElementById('mail-test-to').value.trim();
+  if (!to) { mailFeedback('Indica una dirección de destino.', 'error'); return; }
+  mailTestSending = true;
+  try {
+    mailFeedback('Enviando correo de prueba…', 'info');
+    const r = await req('POST', '/mail/test-send', { to });
+    if (r?.error) { mailFeedback(r.error, 'error'); return; }
+    mailFeedback('Correo de prueba enviado a ' + to + '. Revisa su bandeja (o abre mail-tester.com para ver la puntuación).', 'success');
+  } finally { mailTestSending = false; }
+}
+
 Object.assign(window, {
-  loadAliases, loadMail, loadMailboxes, loadMailRelay, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailCopyAllDns, mailCopyDnsRow, mailDeleteAlias, mailDeleteMailbox, mailDiagnose, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailRelayPreset, mailSaveConfig, mailSaveRelay, mailStream, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
+  loadAliases, loadMail, loadMailboxes, loadMailRelay, loadWebmail, mailAction, mailAddAlias, mailAddMailbox, mailCopyAllDns, mailCopyDnsRow, mailDeleteAlias, mailDeleteMailbox, mailDiagnose, mailDnsPreview, mailDnsPublish, mailGenDkim, mailInstall, mailLoadDns, mailPassword, mailRelayPreset, mailSaveConfig, mailSaveRelay, mailStream, mailTestSend, mailUninstall, webmailAction, webmailInstall, webmailUninstall,
 });

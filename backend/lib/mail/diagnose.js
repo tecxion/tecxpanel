@@ -34,6 +34,13 @@ function dnsblQuery(ip, list) {
   return `${rev}.${list}`;
 }
 
+// ¿Los códigos A que devuelve una DNSBL son un listado REAL? 127.0.0.x = listada;
+// 127.255.255.x = error/consulta bloqueada (típico al consultar desde un resolver
+// público como 8.8.8.8) → NO es un listado real, evita el falso positivo.
+function dnsblListed(codes) {
+  return (codes || []).some((c) => typeof c === 'string' && c.startsWith('127.') && !c.startsWith('127.255.255.'));
+}
+
 // ── Clasificadores ───────────────────────────────────────────
 
 function classifyPort25(connected) {
@@ -91,7 +98,7 @@ function classifyDnsbl(listings) {
 }
 
 module.exports = {
-  overallLevel, joinTxt, dnsblQuery,
+  overallLevel, joinTxt, dnsblQuery, dnsblListed,
   classifyPort25, classifyDnsA, classifyPtr, classifyMx,
   classifySpf, classifyDkim, classifyDmarc, classifyDnsbl,
 };
