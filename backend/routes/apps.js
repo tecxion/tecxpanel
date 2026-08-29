@@ -439,8 +439,11 @@ router.post('/:id/deploy', wrap(async (req, res) => {
     for (const warn of det.warnings) w(`   ⚠ ${warn}\n`);
     if (det.runtime === 'unknown') throw new Error('No se reconoció el proyecto (falta package.json o requirements.txt).');
 
-    // Puerto solo para servicios web (no estático, no worker).
-    const needsPort = !det.servesStatic && det.mode === 'web';
+    // Modos: worker (solo proceso), estático (Nginx sirve el build) o web (proceso+red).
+    const isStatic = det.servesStatic;
+    const isWorker = det.mode === 'worker';
+    // Puerto: servidor web siempre; estático solo si NO hay dominio (acceso IP:puerto).
+    const needsPort = !isWorker && (!isStatic || !appRow.domain);
     let port = appRow.port;
     if (needsPort && !port) port = await findFreePort();
 
@@ -451,7 +454,7 @@ router.post('/:id/deploy', wrap(async (req, res) => {
     if (!preflightOk(checks)) throw new Error('Faltan requisitos en el servidor (ver arriba).');
 
     // Guardar la config detectada y recargar la fila.
-    queries.setAppDeployConfig.run(det.type, det.startCmd || appRow.start_cmd || '', needsPort ? port : null, needsPort ? appRow.domain : null, appRow.id);
+    queries.setAppDeployConfig.run(det.type, det.startCmd || appRow.start_cmd || '', needsPort ? port : null, isWorker ? null : (appRow.domain || null), appRow.id);
     const app2 = queries.getApp.get(appRow.id);
 
     // 4. Instalar dependencias.
@@ -473,10 +476,16 @@ router.post('/:id/deploy', wrap(async (req, res) => {
     }
 
     // 6. Arranque.
-    if (det.servesStatic) {
-      // El servido estático por Nginx (root = build/) se completa en la Tarea 4.
-      queries.setAppStatus.run('stopped', appRow.id);
-      w(`\n🌐 SPA compilada en ${det.buildDir}/. Servir el estático por Nginx llega en la siguiente iteración.\n`);
+    if (isStatic) {
+      const staticRoot = path.join(cwd, det.buildDir || 'dist');
+      if (!fs.existsSync(staticRoot)) throw new Error(`El build no generó la carpeta ${det.buildDir}/. Revisa el script de build.`);
+      if (app2.port) await runSafe('ufw', ['allow', `${app2.port}/tcp`]);
+      await nginx.enableSite(app2.pm2_name, nginx.buildStaticApp(app2.name, staticRoot, { domain: app2.domain, listenPort: app2.domain ? null : app2.port }));
+      madeVhost = true;
+      queries.setAppStatus.run('running', appRow.id);
+      w(app2.domain
+        ? `✓ Sitio estático servido en ${app2.domain} (root ${det.buildDir}/).\n`
+        : `✓ Sitio estático servido en IP:${app2.port} (root ${det.buildDir}/).\n`);
     } else {
       w(`\n$ pm2 start  (${app2.start_cmd})\n`);
       const env = { ...process.env };
