@@ -471,35 +471,82 @@ salida; las tareas cron se ejecutan con los permisos del crontab administrado.
 
 TecXPaneL integra **docker-mailserver** (un contenedor ligero: Postfix, Dovecot,
 Rspamd, DKIM) gestionado desde el panel — sin editar ficheros de configuración.
+La sección está pensada para **gente que nunca ha gestionado correo**: asistente por
+pasos, un **diagnóstico de "salud"** en lenguaje llano y un **relay** para cuando el
+proveedor bloquea el envío directo.
 
 > [!NOTE]
 > Requiere **Docker** (desde Plugins) y ~1 GB de RAM para el contenedor.
 
-**Flujo de uso:**
+### Flujo de uso (asistente: Instalar → Hostname/TLS → Buzones)
 
-1.  En **Correo** pulsa **Instalar**: el panel descarga docker-mailserver, crea el
+1.  **Instalar**: descarga docker-mailserver (con **barra de progreso**), crea el
     contenedor y abre los puertos SMTP/IMAP (25/465/587/143/993) en el firewall.
-2.  Indica el **hostname** del correo (ej. `mail.tudominio.com`); el panel emite el
-    **certificado TLS** con Certbot y lo monta en el contenedor.
+2.  **Configurar el hostname** (ej. `mail.tudominio.com`) y *Guardar y emitir TLS*. El
+    panel **recrea** el contenedor con ese hostname (en Docker el hostname no se
+    cambia en caliente) y pide el **certificado TLS** con Certbot.
+    - Si el DNS aún no resuelve, queda como **«TLS pendiente»**: el correo **arranca
+      igual sin TLS** (no se cae) y basta re-guardar cuando el registro A propague.
 3.  Crea **buzones** (con contraseña) y **alias** desde la UI.
-4.  Genera el **DKIM** y añade en tu proveedor DNS los registros que el panel te
-    muestra: **MX**, **SPF**, **DKIM**, **DMARC** (y el **PTR/rDNS** en tu proveedor
-    de VPS).
+4.  Genera el **DKIM** y publica los registros DNS (botón **📋 Copiar todo** en *Ver
+    registros DNS*).
 
-Si el certificado no puede emitirse porque el DNS todavía no apunta al VPS, el
-panel conserva el hostname como **TLS pendiente** y permite reintentar la
-configuración después de corregir el DNS. Para despliegues reproducibles fija
-la versión de la imagen con `TXPL_MAIL_TAG` en `.env` en lugar de usar `latest`.
+### Registros DNS del correo
+
+| Tipo | Nombre | Valor | Para qué |
+|------|--------|-------|----------|
+| **A** | `mail.tudominio.com` | IP del VPS | Apunta el correo al servidor (y habilita el TLS). |
+| **MX** | `tudominio.com` | `mail.tudominio.com` (prio 10) | Dónde se recibe. |
+| **TXT** (SPF) | `tudominio.com` | `v=spf1 mx ~all` | Autoriza el envío. |
+| **TXT** (DKIM) | `mail._domainkey.tudominio.com` | *(lo genera el panel)* | Firma. |
+| **TXT** (DMARC) | `_dmarc.tudominio.com` | `v=DMARC1; p=none; rua=mailto:postmaster@tudominio.com` | Política. |
+| **PTR** (rDNS) | *(la IP)* | `mail.tudominio.com` | Se pide al **proveedor del VPS**, no en tu DNS. |
 
 > [!WARNING]
-> El correo autohospedado **no funciona hasta que el DNS esté correcto** (sobre
-> todo MX y el PTR/rDNS). Además, enviar a Gmail/Outlook desde una IP de VPS nueva
-> puede acabar en spam hasta que la IP gane reputación. El cifrado del propio
-> tráfico y la autenticación (SPF/DKIM/DMARC) mitigan esto una vez configurados.
+> **Cloudflare**: el registro **A** del correo debe ir en **«DNS only» (nube gris)** —
+> el proxy naranja solo cubre web (80/443), no el correo, y oculta tu IP real. Y
+> **desactiva Email Routing** si lo tienes: se queda con el MX del dominio.
+
+### Salud del correo (diagnóstico)
+
+El botón **🔍 Comprobar** revisa y explica en llano, con «cómo arreglarlo» en cada
+caso: **puerto 25 saliente**, **registro A**, **PTR**, **MX**, **SPF/DKIM/DMARC** y
+**listas negras** (DNSBL). Es la forma rápida de saber qué falta para que el correo
+salga y no caiga en spam.
+
+### Enviar cuando el proveedor bloquea el puerto 25 (Relay SMTP)
+
+Muchos VPS **bloquean el puerto 25 saliente** (el envío directo caduca con *timeout*;
+lo confirmas con `docker exec txpl-mail postqueue -p`). Solución: **Envío por relay
+SMTP** — el correo sale por el **587** de otro servicio. En la tarjeta *Envío por relay
+SMTP* elige un preset (**Brevo**, SendGrid, Mailgun, SES, Gmail), pon usuario y
+clave/API key y **Activa**. El panel recrea el contenedor con el relay; la contraseña
+se guarda **cifrada** (AES-256-GCM).
+
+### Probar y usar el buzón
+
+- **✉️ Enviar prueba** manda un correo de prueba (usa una dirección de
+  **mail-tester.com** como destino para ver tu **puntuación de entrega** /10).
+- **Webmail (Roundcube)**: instálalo desde Correo. Con **dominio** (ej.
+  `webmail.tudominio.com`, A en gris) se sirve por **HTTPS**; sin dominio queda en
+  `127.0.0.1` (accede por túnel SSH). Entra con el email completo + contraseña.
+- **Cliente** (Thunderbird/Outlook/móvil): **IMAP** `mail.tudominio.com:993` (SSL) y
+  **SMTP** `mail.tudominio.com:587` (STARTTLS), usuario = email completo.
+
+> [!WARNING]
+> El correo autohospedado es **exigente**: sin **PTR + DKIM + DMARC** correctos, con el
+> puerto 25 bloqueado o la IP en listas negras, lo que envíes puede rebotar o caer en
+> spam. El diagnóstico te dice qué corregir. Para reproducibilidad, fija la imagen con
+> `TXPL_MAIL_TAG` (y `TXPL_WEBMAIL_TAG`) en `.env` en vez de `latest`.
 
 ---
 
 ## 🌐 DNS Autoritativo (PowerDNS)
+
+> [!NOTE]
+> Esta sección está **desactivada temporalmente en la interfaz** (aún sin pulir del
+> todo). El código sigue en el repo y se reactiva quitando los comentarios marcados
+> `DNS desactivado`. Mientras tanto, gestiona el DNS del correo en tu registrador.
 
 TecXPaneL puede convertir tu VPS en un **servidor DNS autoritativo** con PowerDNS
 —como hace Hostinger/Plesk— para gestionar el DNS de tus dominios desde el panel.

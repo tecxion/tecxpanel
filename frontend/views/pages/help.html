@@ -72,14 +72,18 @@
     </ul>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-mail" style="color:var(--accent)"></i> Correo</h3>
-    <p>Servidor de correo autohospedado con <strong>docker-mailserver</strong> (Postfix + Dovecot + Rspamd + DKIM) en un contenedor, gestionado desde el panel.</p>
+    <p>Servidor de correo autohospedado con <strong>docker-mailserver</strong> (Postfix + Dovecot + Rspamd + DKIM) en un contenedor. Pensado para novatos: asistente por pasos, diagnóstico de "salud" y relay.</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
-      <li>Pulsa <strong>Instalar</strong>, indica el <strong>hostname</strong> (ej. <code>mail.tudominio.com</code>) y el panel emite el <strong>certificado TLS</strong> con Certbot.</li>
-      <li>Crea <strong>buzones</strong> y <strong>alias</strong>, genera el <strong>DKIM</strong> y consulta los registros DNS a a&ntilde;adir: <strong>MX</strong>, <strong>SPF</strong>, <strong>DKIM</strong>, <strong>DMARC</strong> (y el <strong>PTR/rDNS</strong> en tu proveedor de VPS).</li>
+      <li><strong>Instalar</strong> (con barra de progreso) → indica el <strong>hostname</strong> (ej. <code>mail.tudominio.com</code>) → <strong>Guardar y emitir TLS</strong>. El panel recrea el contenedor y pide el certificado; si el DNS aún no resuelve queda «TLS pendiente» y arranca sin TLS.</li>
+      <li>Crea <strong>buzones</strong> y <strong>alias</strong>, genera el <strong>DKIM</strong> y usa <strong>📋 Copiar todo</strong> en «Ver registros DNS»: <strong>A, MX, SPF, DKIM, DMARC</strong> (y el <strong>PTR/rDNS</strong> en tu proveedor de VPS).</li>
+      <li><strong>🔍 Comprobar</strong> (Salud del correo): revisa puerto 25, A, PTR, MX, SPF/DKIM/DMARC y listas negras, con «cómo arreglarlo» en cada caso.</li>
+      <li><strong>Envío por relay SMTP</strong>: si tu VPS bloquea el puerto 25, envía por el 587 de Brevo/SendGrid/Mailgun/SES/Gmail (presets). <strong>✉️ Enviar prueba</strong> comprueba el envío (usa una dirección de mail-tester.com para la puntuación).</li>
+      <li><strong>Usar el buzón</strong>: <strong>Webmail (Roundcube)</strong> con dominio (HTTPS), o cliente con <strong>IMAP 993 (SSL)</strong> y <strong>SMTP 587 (STARTTLS)</strong>, usuario = email completo.</li>
     </ul>
-    <p><strong>Aviso:</strong> el correo no funciona hasta que el DNS sea correcto (sobre todo MX y PTR). Requiere Docker y ~1&nbsp;GB de RAM para el contenedor.</p>
+    <p><strong>Cloudflare:</strong> el registro <strong>A</strong> del correo debe ir en <strong>«DNS only» (nube gris)</strong>, y desactiva <strong>Email Routing</strong> (se queda con tu MX). Requiere Docker y ~1&nbsp;GB de RAM.</p>
 
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> DNS autoritativo</h3>
+    <p style="background:var(--accent-glow);border-left:3px solid var(--accent);padding:8px 12px;border-radius:0 7px 7px 0"><strong>Nota:</strong> esta sección está <strong>desactivada temporalmente</strong> en la interfaz (aún sin pulir). Mientras tanto, gestiona el DNS del correo en tu registrador (Cloudflare, etc.).</p>
     <p>Convierte tu VPS en un servidor DNS autoritativo con <strong>PowerDNS</strong> para gestionar el DNS de tus dominios desde el panel.</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li>Pulsa <strong>Instalar PowerDNS</strong> (abre el puerto 53) y configura tus <strong>nameservers</strong> (<code>ns1</code>/<code>ns2</code>) apuntando a la IP del VPS.</li>
