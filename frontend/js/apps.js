@@ -51,6 +51,7 @@ async function loadApps() {
             ? `<button class="btn btn-sm btn-danger" onclick="appAction(${a.id},'stop',event)" title="Parar"><i class="ti ti-player-stop"></i></button>
                <button class="btn btn-sm" onclick="appAction(${a.id},'restart',event)" title="Reiniciar"><i class="ti ti-refresh"></i></button>`
             : `<button class="btn btn-sm btn-success" onclick="appAction(${a.id},'start',event)" title="Iniciar"><i class="ti ti-player-play"></i></button>`}
+          <button class="btn btn-sm" onclick="redeployApp(${a.id},'${esc(a.name)}')" title="Redesplegar (reinstalar + recompilar + reiniciar)"><i class="ti ti-rocket"></i></button>
           <button class="btn btn-sm" onclick="installApp(${a.id},'${esc(a.name)}',event)" title="Instalar dependencias"><i class="ti ti-package"></i></button>
           <button class="btn btn-sm" onclick="openAppConsole(${a.id},'${esc(a.name)}')" title="Consola"><i class="ti ti-terminal-2"></i></button>
           <button class="btn btn-sm" onclick='openEditAppModal(${aJson})' title="Editar configuración"><i class="ti ti-settings"></i></button>

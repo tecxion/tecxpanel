@@ -332,9 +332,39 @@ async function streamDeploy(id, el) {
   return code;
 }
 
+// redeployApp: redespliegue en un clic sobre los ficheros ACTUALES de la app
+// (sin subir nada). Reejecuta detectar → instalar → build → arrancar → proxy vía
+// el endpoint idempotente /apps/:id/deploy (se salta la extracción si no hay ZIP).
+// Para traer código nuevo de Git usa el botón Git/Webhook (git-pull) de la fila.
+async function redeployApp(id, name) {
+  if (!confirm(`¿Volver a desplegar "${name}"?\n\nSe reinstalan dependencias, se recompila y se reinicia sobre los archivos que ya hay en el servidor. No sube código nuevo.`)) return;
+  document.getElementById('modal-redeploy')?.remove();
+  const mod = document.createElement('div');
+  mod.className = 'modal-overlay open';
+  mod.id = 'modal-redeploy';
+  mod.innerHTML = `
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <div class="modal-title">🔄 Redesplegar ${esc(name)}</div>
+        <button class="btn btn-sm" onclick="document.getElementById('modal-redeploy').remove()"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="console" id="redeploy-console" style="white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="document.getElementById('modal-redeploy').remove()">Cerrar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mod);
+  const con = document.getElementById('redeploy-console');
+  con.textContent = '🔄 Redesplegando sobre los archivos actuales...\n';
+  await streamDeploy(id, con);
+  loadApps();
+}
+
 Object.assign(window, {
   createWebsite, deleteWebsite, installSiteSsl, loadWebsites,
   togglePhpVersion, toggleSiteMode, openNewSiteModal,
   rebuildVhost, viewVhost, openSiteFiles,
-  openDeployWizard, toggleDeploySrc, submitDeploy, streamDeploy,
+  openDeployWizard, toggleDeploySrc, submitDeploy, streamDeploy, redeployApp,
 });
