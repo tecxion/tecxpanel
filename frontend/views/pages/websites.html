@@ -1,6 +1,6 @@
 <div class="flex items-center gap-3 mb" style="margin-bottom:1.25rem">
   <button class="btn btn-primary" onclick="openNewSiteModal()">
-    <i class="ti ti-plus"></i> Nuevo sitio web
+    <i class="ti ti-plus"></i> Nuevo sitio o app
   </button>
 </div>
 <div class="card">
@@ -13,6 +13,23 @@
       <thead><tr><th>Dominio</th><th>Tipo</th><th>SSL</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
       <tbody id="websites-table">
         <tr><td colspan="6" class="empty-state">Sin sitios web aún</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Aplicaciones desplegadas (Node/React/Python) — antes vivían en su propia sección "Apps".
+     Desde la fusión de Sitios+Apps se gestionan aquí. loadApps() (apps.js) pinta #apps-table. -->
+<div class="card" style="margin-top:1.25rem">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-brand-nodejs"></i> Aplicaciones desplegadas <span style="font-weight:400;font-size:12px;color:var(--text-muted)">Node.js · React · Python</span></div>
+    <button class="btn btn-sm" onclick="loadApps()"><i class="ti ti-refresh"></i></button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Nombre</th><th>Tipo</th><th>Puerto</th><th>Estado</th><th>Dominio</th><th>Acciones</th></tr></thead>
+      <tbody id="apps-table">
+        <tr><td colspan="6" class="empty-state">Sin aplicaciones aún</td></tr>
       </tbody>
     </table>
   </div>

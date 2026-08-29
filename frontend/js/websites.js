@@ -13,6 +13,8 @@ const SITE_TYPE_LABELS = {
 // loadWebsites: pide la lista de sitios web y la pinta en la tabla. Cachea la
 // IP pública del servidor en window.serverIp (para "Abrir" en modo IP:puerto).
 async function loadWebsites() {
+  // La sección Sitios ahora también lista las apps desplegadas (fusión Sitios+Apps).
+  window.loadApps?.();
   if (!window.serverIp) {
     const ipData = await req('GET', '/system/ip').catch(() => null);
     if (ipData?.ip && ipData.ip !== 'desconocida') window.serverIp = ipData.ip;

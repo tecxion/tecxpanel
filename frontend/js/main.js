@@ -38,8 +38,8 @@ function initApp() {
 window.initApp = initApp;
 
 async function loadTemplates() {
-  const pages = ['dashboard','terminal','websites','apps','databases','docker','n8n','catalog',
-    'backups','cron','mail','files','firewall','ssl','logs','plugins','help','settings']; // 'dns' desactivado (sección no depurada)
+  const pages = ['dashboard','terminal','websites','databases','docker','n8n','catalog',
+    'backups','cron','mail','files','firewall','ssl','logs','plugins','help','settings']; // 'apps' fusionado en 'websites'; 'dns' desactivado (sección no depurada)
   const tasks = [
     fetch('views/sidebar.html').then(r=>r.text()).then(h=>{const m=document.getElementById('sidebar-mount');if(m)m.innerHTML=h}),
     fetch('views/modals.html').then(r=>r.text()).then(h=>{const m=document.getElementById('modals-mount');if(m)m.innerHTML=h}),
@@ -61,7 +61,7 @@ async function checkAuth() {
 // invalide la caché del navegador/nginx (que sirve JS con `immutable`); sin
 // esto quedaban módulos viejos servidos (p. ej. terminal.js sin la carga lazy
 // de xterm → "no se pudo cargar xterm.js"). SUBIR al cambiar cualquier página.
-const ASSET_V = '20260819b';
+const ASSET_V = '20260829a';
 const imp = (name) => import(`./${name}.js?v=${ASSET_V}`);
 const PAGE_IMPORTS = {
   auth:        () => imp('auth'),

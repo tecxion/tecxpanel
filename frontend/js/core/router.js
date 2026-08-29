@@ -4,7 +4,7 @@ import { toast } from './toast.js';
 
 const titles = {
   dashboard: 'Dashboard', terminal: 'Terminal SSH', logs: 'Logs del sistema',
-  websites: 'Sitios Web', apps: 'Aplicaciones', databases: 'Bases de Datos',
+  websites: 'Sitios y apps', databases: 'Bases de Datos',
   files: 'Gestor de Archivos', firewall: 'Firewall UFW', ssl: 'Certificados SSL',
   plugins: 'Plugins', help: 'Manual de uso', settings: 'Ajustes', docker: 'Docker',
   n8n: 'Workflows', backups: 'Copias de seguridad', cron: 'Tareas programadas',
@@ -20,7 +20,6 @@ const PAGE_TABLE = {
   terminal:  () => Promise.resolve(window.initTerminal?.()),
   logs:      () => Promise.resolve(window.loadLogsPage?.()),
   websites:  () => Promise.resolve(window.loadWebsites?.()),
-  apps:      () => Promise.resolve(window.loadApps?.()),
   databases: () => Promise.resolve(window.loadDatabases?.()),
   firewall:  () => Promise.resolve(window.loadFirewall?.()),
   files:     () => Promise.resolve(window.loadFiles?.()),

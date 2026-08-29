@@ -6,7 +6,7 @@
 const PALETTE_SECTIONS = [
   { page: 'dashboard', label: 'Dashboard', alias: 'inicio panel', icon: 'layout-dashboard' },
   { page: 'websites',  label: 'Sitios Web', alias: 'webs dominios nginx', icon: 'world' },
-  { page: 'apps',      label: 'Aplicaciones', alias: 'deploy pm2 node', icon: 'brand-nodejs' },
+  { page: 'websites',  label: 'Aplicaciones', alias: 'deploy pm2 node app', icon: 'brand-nodejs' },
   { page: 'databases', label: 'Bases de Datos', alias: 'mysql postgres bbdd', icon: 'database' },
   { page: 'docker',    label: 'Docker', alias: 'contenedores containers', icon: 'brand-docker' },
   { page: 'n8n',       label: 'Workflows', alias: 'n8n automatizaciones', icon: 'sitemap' },
@@ -27,7 +27,7 @@ const PALETTE_SECTIONS = [
 
 const PALETTE_ACTIONS = [
   { label: 'Crear sitio web', page: 'websites', modal: 'modal-new-site', icon: 'world-plus' },
-  { label: 'Desplegar aplicación', page: 'apps', fn: 'resetDeployModal', modal: 'modal-new-app', icon: 'rocket' },
+  { label: 'Desplegar aplicación', page: 'websites', fn: 'openNewSiteModal', icon: 'rocket' },
   { label: 'Nueva base de datos', page: 'databases', modal: 'modal-new-db', icon: 'database-plus' },
   { label: 'Nuevo contenedor Docker', page: 'docker', modal: 'modal-new-container', icon: 'cube-plus' },
   { label: 'Nueva regla de firewall', page: 'firewall', modal: 'modal-new-rule', icon: 'shield-plus' },
@@ -47,7 +47,7 @@ async function paletteLoadResources() {
   if (Date.now() - paletteCache.at < 60000) return paletteCache.items;
   const sources = [
     { path: '/websites', page: 'websites', icon: 'world', pick: (d) => (Array.isArray(d) ? d : []).map((w) => w.domain) },
-    { path: '/apps', page: 'apps', icon: 'brand-nodejs', pick: (d) => (Array.isArray(d) ? d : []).map((a) => a.name) },
+    { path: '/apps', page: 'websites', icon: 'brand-nodejs', pick: (d) => (Array.isArray(d) ? d : []).map((a) => a.name) },
     { path: '/databases', page: 'databases', icon: 'database', pick: (d) => (Array.isArray(d) ? d : []).map((db) => db.name) },
     { path: '/docker/containers', page: 'docker', icon: 'brand-docker', pick: (d) => (d?.containers || (Array.isArray(d) ? d : [])).map((c) => c.name || (c.Names && c.Names[0]) || '').filter(Boolean) },
   ];
