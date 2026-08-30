@@ -13,24 +13,20 @@
     <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-file-text" style="color:var(--accent)"></i> Logs del sistema</h3>
     <p>Consulta en vivo los registros de Nginx y del sistema, y el <strong>registro de auditor&iacute;a</strong> del panel: cada acci&oacute;n relevante (inicios de sesi&oacute;n, creaci&oacute;n o borrado de sitios, apps, bases de datos, cambios de firewall&hellip;) queda anotada con usuario, IP y fecha. &Uacute;til para diagnosticar errores y revisar qui&eacute;n hizo qu&eacute;.</p>
 
-    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios web</h3>
-    <p>Crea y gestiona sitios web alojados en tu VPS. Puedes crear sitios de tipo:</p>
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-world" style="color:var(--accent)"></i> Sitios y apps</h3>
+    <p>Una sola secci&oacute;n para tus sitios web <strong>y</strong> tus aplicaciones. Pulsa <strong>Nuevo sitio o app</strong> y elige el tipo:</p>
     <ul style="margin:0.5rem 0 0.5rem 1.5rem">
       <li><strong>HTML est&aacute;tico</strong> &mdash; p&aacute;ginas simples sin backend.</li>
       <li><strong>PHP</strong> &mdash; WordPress, Laravel y cualquier app PHP. Puedes elegir la versi&oacute;n de PHP.</li>
-      <li><strong>Node.js / React / Python</strong> &mdash; se configura como proxy inverso hacia tu app.</li>
+      <li><strong>Node.js / React / Python</strong> &mdash; abre el <strong>asistente de despliegue</strong> (ver abajo): sube tu c&oacute;digo y el panel lo instala, compila y arranca por ti. Las apps desplegadas se listan en la misma pantalla.</li>
     </ul>
     <p><strong>Sin dominio:</strong> Si no tienes un dominio, marca &laquo;Acceso por IP:Puerto&raquo; y el panel asignar&aacute; un puerto autom&aacute;ticamente. Podr&aacute;s acceder al sitio desde <code>http://tu-ip:puerto</code>.</p>
     <p><strong>Con dominio:</strong> Introduce tu dominio (ej: <code>ejemplo.com</code>). Recuerda crear un registro A apuntando a la IP de tu VPS. Luego puedes instalar SSL desde la secci&oacute;n SSL/HTTPS.</p>
 
-    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Aplicaciones</h3>
-    <p>Despliega aplicaciones Node.js, Python, TypeScript o React gestionadas por PM2. El panel se encarga de mantenerlas vivas y reiniciarlas si se caen.</p>
-    <ul style="margin:0.5rem 0 0.5rem 1.5rem">
-      <li><strong>Ruta del proyecto:</strong> la carpeta donde est&aacute; tu c&oacute;digo (ej: <code>/var/www/mi-api</code>).</li>
-      <li><strong>Comando de inicio:</strong> puede ser un archivo (<code>server.js</code>, <code>app.py</code>) o un comando npm (<code>npm start</code>, <code>npm run dev</code>). Es <strong>editable</strong>: si la app no levanta, corrige el comando y reinicia.</li>
-      <li><strong>Puerto:</strong> en qu&eacute; puerto escucha tu app (informativo, para configurar el proxy).</li>
-    </ul>
+    <h3 style="color:var(--text-primary);margin:1.25rem 0 0.5rem;font-size:16px"><i class="ti ti-brand-nodejs" style="color:var(--accent)"></i> Asistente de despliegue (Node.js · Python · React · TypeScript)</h3>
+    <p>Al elegir <strong>Node.js, React o Python</strong> en <em>Nuevo sitio o app</em> se abre un <strong>asistente de una sola pasada</strong> que hace todo seguido y mostrando el progreso en vivo: sube el c&oacute;digo &rarr; detecta el proyecto &rarr; comprueba requisitos &rarr; instala dependencias &rarr; compila &rarr; arranca &rarr; configura el acceso. Si un paso falla, se detiene con un mensaje claro y <strong>revierte</strong> lo hecho. Las apps quedan gestionadas por <strong>PM2</strong> (el panel las mantiene vivas y las reinicia si se caen) o, si son un <em>build</em> est&aacute;tico como React/Vite, se sirven directamente por <strong>Nginx</strong>.</p>
     <p><strong>Origen del c&oacute;digo:</strong> sube un <code>.zip</code>/<code>.tar.gz</code> o <strong>clona desde Git</strong>. Si usas Git, el panel genera un <strong>webhook de auto-deploy</strong>: cada <code>git push</code> dispara autom&aacute;ticamente <code>pull &rarr; instalar &rarr; build &rarr; reinicio</code>.</p>
+    <p><strong>Redespliegue en un clic:</strong> cada app de la lista tiene un bot&oacute;n <strong>&#128640; Redesplegar</strong> que reinstala dependencias, recompila y reinicia <strong>sobre el c&oacute;digo que ya hay en el servidor</strong> (sin volver a subir nada). El <strong>comando de arranque</strong> es editable: si la app no levanta, corr&iacute;gelo en la consola integrada y reinicia. Gestiona el <code>.env</code> desde el propio panel.</p>
     <p><strong>Python:</strong> cada app se a&iacute;sla en su propio <strong>virtualenv (<code>.venv</code>)</strong>. El panel distingue un <strong>servicio web</strong> (Flask/FastAPI con puerto y proxy Nginx) de un <strong>worker/bot</strong> sin puerto (p.&nbsp;ej. un bot de Telegram), donde eliges el script <code>.py</code> de arranque.</p>
     <p><strong>Variables de entorno:</strong> gestiona el archivo <code>.env</code> de la app desde el propio panel.</p>
 

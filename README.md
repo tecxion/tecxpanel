@@ -46,8 +46,8 @@ Está desarrollado como una **SPA (Single Page Application)** modular en el fron
 - 🎨 **Tema Claro/Oscuro**: Interfaz adaptable al tema del sistema o elegible manualmente en Ajustes. Preferencia guardada y respuesta anti-flash al cargar.
 - 🔍 **Búsqueda Global (Ctrl+K / Cmd+K)**: Palette de comandos integrada con 19 secciones de navegación, acciones de creación rápida y búsqueda de recursos (sitios, apps, bases de datos, contenedores) con caché inteligente.
 - 📱 **Diseño Responsive Móvil**: Interface completa funcional en smartphones y tablets con sidebar off-canvas, navegación adaptada y grids responsivos para gestionar tu VPS desde cualquier dispositivo.
-- 🌐 **Sitios Web**: Despliegue de sitios estáticos HTML, PHP (con selector de versiones PHP-FPM), Node.js, React y Python configurados automáticamente con proxy inverso en Nginx.
-- 📦 **Aplicaciones en un Clic**: Despliegue avanzado de aplicaciones Node.js, Python, React y TypeScript a través de PM2. Soporta carga en `.zip`/`.tar.gz` o **clonado desde Git con auto-deploy por webhook**, y gestión de archivos `.env`. En **Python** aísla cada app en su propio **virtualenv (`.venv`)** y distingue **servicio web** (con puerto y proxy) de **worker/bot** (sin puerto, p. ej. un bot de Telegram), con comando de arranque editable.
+- 🌐 **Sitios y apps** (sección unificada): Sitios estáticos HTML, PHP (con selector de versiones PHP-FPM) y, en la misma pantalla, despliegue y gestión de aplicaciones **Node.js, Python, React y TypeScript**.
+- 📦 **Asistente de despliegue de una pasada**: al elegir Node/React/Python se abre un asistente que hace todo seguido y en streaming (subir → detectar → *preflight* → instalar → compilar → arrancar → proxy) con **rollback** si algo falla, y **redespliegue en un clic** sobre el código actual. Arranca con **PM2** o sirve el build estático por **Nginx** según el proyecto. Soporta carga en `.zip`/`.tar.gz` o **clonado desde Git con auto-deploy por webhook**, y gestión de archivos `.env`. En **Python** aísla cada app en su propio **virtualenv (`.venv`)** y distingue **servicio web** (con puerto y proxy) de **worker/bot** (sin puerto, p. ej. un bot de Telegram), con comando de arranque editable.
 - 🎁 **Catálogo de aplicaciones**: Instala WordPress, Ghost, Nextcloud, Vaultwarden y Uptime Kuma con un clic, en Docker, nativo (PHP-FPM) o PM2 según prefieras, con dominio + SSL opcionales y base de datos gestionada.
 - 🐘 **Bases de Datos**: Creación instantánea de bases de datos MySQL (MariaDB) y PostgreSQL. Autogeneración de contraseñas seguras cifradas en reposo (AES-256-GCM).
 - 🔒 **SSL Automático**: Instalación y renovación automática de certificados SSL gratuitos de **Let's Encrypt** mediante Certbot con redirección HTTPS forzada.
@@ -253,9 +253,9 @@ El panel incluye una herramienta de consola (`txpl`) instalada en `/usr/local/bi
 
 ---
 
-## 🌐 Despliegue de Sitios Web
+## 🌐 Despliegue de Sitios y apps
 
-La sección **Sitios Web** genera y activa el bloque Nginx por ti (crea el vhost, valida con `nginx -t` y recarga). Solo indicas el dominio y el tipo de sitio.
+La sección **Sitios y apps** (antes «Sitios web» + «Aplicaciones», ahora fusionadas en una sola) genera y activa el bloque Nginx por ti (crea el vhost, valida con `nginx -t` y recarga) y, además, lista y gestiona las aplicaciones desplegadas. Solo indicas el dominio y el tipo de sitio.
 
 **Tipos soportados:**
 
@@ -267,18 +267,18 @@ La sección **Sitios Web** genera y activa el bloque Nginx por ti (crea el vhost
 
 **Flujo de uso:**
 
-1.  Entra en **Sitios Web** → **Nuevo sitio**, escribe el dominio (apuntado por DNS a tu VPS) y elige el tipo.
-2.  Sube tus archivos con el **Gestor de Archivos** (o despliégalos con la sección **Aplicaciones** si necesitas build/PM2).
+1.  Entra en **Sitios y apps** → **Nuevo sitio o app**, escribe el dominio (apuntado por DNS a tu VPS) y elige el tipo.
+2.  Para **HTML/PHP**, sube tus archivos con el **Gestor de Archivos**. Para **Node.js/React/Python**, el mismo formulario abre el **asistente de despliegue** que sube el código y lo pone en marcha por ti (ver abajo).
 3.  Emite el certificado **SSL** con un clic desde la sección **SSL** (Certbot) para forzar HTTPS.
 
 > [!TIP]
-> Para apps que necesitan un proceso vivo (Node.js/Python con build, reinicio y logs), usa la sección **Aplicaciones**: crea el sitio como proxy y gestiona el proceso con PM2. Para sitios puramente estáticos o PHP, **Sitios Web** es suficiente.
+> Todo vive en una sola sección. Para sitios estáticos o PHP basta con crear el vhost; para **Node.js/Python/React** con build, reinicio y logs, elige ese tipo y el asistente los despliega y los gestiona con **PM2** (o los sirve por **Nginx** si son un build estático).
 
 ---
 
-## 📦 Despliegue de Aplicaciones (Node.js · Python · React · TypeScript)
+## 📦 Asistente de despliegue (Node.js · Python · React · TypeScript)
 
-La sección **Aplicaciones** es un pipeline de despliegue completo sobre **PM2**: crea el proyecto → sube el código → instala dependencias → compila → arranca → configura el proxy Nginx. Detecta automáticamente el tipo de proyecto y sugiere los comandos de `install`/`build`/`start`.
+Al elegir **Node.js, React o Python** en *Nuevo sitio o app*, se abre un **asistente de una sola pasada** que hace todo el pipeline seguido y **en streaming**: sube el código → detecta el proyecto → *preflight* de requisitos (¿está node/npm/python?) → instala dependencias → compila → arranca (**PM2**, o **Nginx** si es un build estático como React/Vite) → configura el acceso (puerto/UFW y proxy si hay dominio). Si algún paso falla, se detiene con un mensaje claro y **revierte** lo aplicado (rollback: proceso y proxy). Detecta automáticamente el tipo de proyecto y los comandos de `install`/`build`/`start`.
 
 **Cómo subir el código:**
 
@@ -296,13 +296,16 @@ La sección **Aplicaciones** es un pipeline de despliegue completo sobre **PM2**
 
 **Flujo de uso:**
 
-1.  Entra en **Aplicaciones** → **Nueva app**, elige la tecnología y el origen del código (zip o Git).
-2.  Revisa/edita los comandos de instalación, compilación y arranque que el panel detecta. Gestiona las variables de entorno en el archivo **`.env`** desde el propio panel.
-3.  El panel instala, compila, arranca con PM2 y configura el proxy Nginx (si es un servicio web con puerto y dominio).
+1.  En **Sitios y apps** → **Nuevo sitio o app**, elige la tecnología (Node/React/Python) y el origen del código (ZIP o Git).
+2.  El asistente detecta el proyecto y ejecuta todo el pipeline mostrando el progreso en vivo. Gestiona las variables de entorno en el archivo **`.env`** desde el propio panel.
+3.  Al terminar, la app aparece en la lista de **Aplicaciones desplegadas** de la misma sección, con acceso por dominio o `IP:puerto`.
 4.  Emite **SSL** con un clic y, si usas Git, cada push desplegará la nueva versión automáticamente.
 
 > [!NOTE]
 > El comando de arranque es **editable**: si el proceso no levanta, ábrelo en la consola integrada, corrige el comando y reinicia. En apps con Git, tu comando editado se **preserva** entre despliegues automáticos.
+
+> [!TIP]
+> **Redespliegue en un clic:** cada app de la lista tiene un botón **🚀 Redesplegar** que reinstala dependencias, recompila y reinicia **sobre el código que ya hay en el servidor** (sin volver a subir nada) — útil tras editar ficheros por el gestor/consola o cambiar el `.env`. Para traer código nuevo de un repositorio Git, usa el botón **Git/Webhook** de la app (`git pull` + redeploy).
 
 ---
 
