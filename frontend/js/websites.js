@@ -243,14 +243,18 @@ function openDeployWizard(type, opts = {}) {
             <label style="font-weight:400"><input type="radio" name="dep-src" value="zip" checked onchange="toggleDeploySrc()"> Subir ZIP</label>
             <label style="font-weight:400"><input type="radio" name="dep-src" value="git" onchange="toggleDeploySrc()"> Repositorio Git</label>
           </div>
-          <input type="file" id="dep-zip" accept=".zip,.tar,.tar.gz,.tgz">
+          <input type="file" id="dep-zip" accept=".zip,.tar,.tar.gz,.tgz" style="display:none">
+          <div class="deploy-drop" id="dep-drop">
+            <i class="ti ti-cloud-upload" style="font-size:26px;display:block;margin-bottom:5px"></i>
+            <span id="dep-drop-label">Arrastra tu <strong>.zip</strong> aquí o haz clic para elegirlo</span>
+          </div>
           <div id="dep-git-fields" style="display:none">
             <input id="dep-git" placeholder="https://github.com/usuario/repo.git" style="width:100%;margin-bottom:6px">
             <input id="dep-branch" placeholder="main" value="main">
           </div>
         </div>
         <input type="hidden" id="dep-type" value="${esc(type)}">
-        <div class="console" id="dep-console" style="display:none;white-space:pre-wrap;max-height:340px;overflow:auto;margin-top:10px"></div>
+        <div class="console" id="dep-console" style="display:none;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;margin-top:10px;background:#050805;color:#33ff66;font-family:var(--mono),monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;border:1px solid #1c3a24"></div>
       </div>
       <div class="modal-footer">
         <button class="btn" onclick="document.getElementById('modal-deploy-app').remove()">Cerrar</button>
@@ -258,13 +262,33 @@ function openDeployWizard(type, opts = {}) {
       </div>
     </div>`;
   document.body.appendChild(mod);
+  setupDepDrop();
   setTimeout(() => document.getElementById('dep-name')?.focus(), 100);
 }
 
 function toggleDeploySrc() {
   const git = document.querySelector('input[name="dep-src"]:checked')?.value === 'git';
-  document.getElementById('dep-zip').style.display = git ? 'none' : '';
+  document.getElementById('dep-drop').style.display = git ? 'none' : '';
   document.getElementById('dep-git-fields').style.display = git ? '' : 'none';
+}
+
+// setupDepDrop: zona de arrastrar-soltar para el ZIP del asistente. El fichero
+// soltado se guarda en el propio <input type=file id=dep-zip> (FileList), así
+// submitDeploy() lo lee igual que si se hubiera elegido con el diálogo.
+function setupDepDrop() {
+  const zone = document.getElementById('dep-drop');
+  const input = document.getElementById('dep-zip');
+  if (!zone || !input) return;
+  const label = document.getElementById('dep-drop-label');
+  const show = () => { const f = input.files[0]; if (f) { label.textContent = f.name; zone.classList.add('has-file'); } };
+  zone.addEventListener('click', () => input.click());
+  input.addEventListener('change', show);
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) { input.files = e.dataTransfer.files; show(); }
+  });
 }
 
 async function submitDeploy() {
@@ -288,15 +312,21 @@ async function submitDeploy() {
     if (domain) createData.domain = domain;
     if (src === 'git') { createData.git_repo = gitRepo; createData.git_branch = gitBranch; }
     const created = await req('POST', '/apps', createData);
-    if (!created?.id) { con.textContent += '✖ ' + (created?.error || 'No se pudo crear la app') + '\n'; return; }
+    // Fallo ANTES de arrancar el despliegue → se puede corregir y reintentar.
+    if (!created?.id) { con.textContent += '✖ ' + (created?.error || 'No se pudo crear la app') + '\n'; if (go) go.disabled = false; return; }
     if (src === 'zip') {
       con.textContent += '📤 Subiendo ' + zipFile.name + '...\n';
       const up = await uploadBinary(zipFile, created.path + '/' + zipFile.name);
-      if (!up?.success) { con.textContent += '✖ No se pudo subir el archivo.\n'; return; }
+      if (!up?.success) { con.textContent += '✖ No se pudo subir el archivo.\n'; if (go) go.disabled = false; return; }
     }
     await streamDeploy(created.id, con);
+    // Despliegue terminado: no se vuelve a desplegar desde esta ventana; solo cerrar.
+    if (go) go.style.display = 'none';
     loadWebsites();
-  } finally { if (go) go.disabled = false; }
+  } catch (e) {
+    con.textContent += '✖ ' + (e?.message || e) + '\n';
+    if (go) go.disabled = false;
+  }
 }
 
 // streamDeploy: llama a POST /apps/:id/deploy y vuelca el streaming en la consola.
