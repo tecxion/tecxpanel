@@ -33,6 +33,14 @@ const NGINX_ENABLED = '/etc/nginx/sites-enabled';
 // path.resolve normaliza la ruta (quita "..", barras dobles, etc.).
 const SITES_DIR = path.resolve(process.env.SITES_DIR || '/var/www');
 
+// Endurecimiento anti-webshell común a los sitios que sirven ficheros:
+//  - DOTFILES_GUARD: nada de .git/.env/.htaccess (salvo .well-known de certbot).
+//  - PHP_GUARD: aunque alguien suba un .php a una carpeta de subidas, no se
+//    ejecuta; y las extensiones alternativas (.phtml/.phar/.php5…) no se sirven.
+//    DEBE ir antes de `location ~ \.php$` (nginx usa la primera regex que casa).
+const DOTFILES_GUARD = `    location ~ /\\.(?!well-known) { deny all; }\n`;
+const PHP_GUARD = `    location ~* ^/(?:wp-content/uploads|uploads?|files|media|storage|tmp|cache)/.*\\.(?:php\\d?|phtml|phar)$ { deny all; }\n    location ~* \\.(?:phtml|phar|php[3-8])$ { deny all; }\n`;
+
 // Detecta el socket de PHP-FPM instalado. En Debian/Ubuntu el socket real es
 // versión-específico (/run/php/php8.3-fpm.sock); el genérico /run/php/php-fpm.sock
 // solo existe cuando el paquete meta lo crea, y no siempre lo hace. Escaneamos
@@ -89,7 +97,7 @@ function buildSite(domain, type, proxyPort, opts = {}) {
   // HTML/PHP/React sí sirven archivos desde "root".
   //  - React: si no encuentra el archivo, devuelve index.html (rutas SPA).
   //  - PHP: añade el bloque que pasa los .php a PHP-FPM.
-  return `server {\n    ${listen};${serverName}${buildLogLines(domain)}\n    root ${root};\n    index index.html index.htm${type === 'php' ? ' index.php' : ''};\n    location / { try_files $uri $uri/ ${type === 'react' ? '/index.html' : '=404'}; }\n${type === 'php' ? `    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${fpmSock};\n    }\n` : ''}}\n`;
+  return `server {\n    ${listen};${serverName}${buildLogLines(domain)}\n    root ${root};\n    index index.html index.htm${type === 'php' ? ' index.php' : ''};\n    location / { try_files $uri $uri/ ${type === 'react' ? '/index.html' : '=404'}; }\n${DOTFILES_GUARD}${type === 'php' ? PHP_GUARD + `    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:${fpmSock};\n    }\n` : ''}}\n`;
 }
 
 // Genera un vhost de PROXY INVERSO: el dominio reenvía todo el tráfico a
@@ -122,11 +130,10 @@ function phpFpmBody(root, sock) {
   return `    root ${root};
     index index.php index.html;
     location / { try_files $uri $uri/ /index.php?$query_string; }
-    location ~ \\.php$ {
+${DOTFILES_GUARD}${PHP_GUARD}    location ~ \\.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:${sock};
-    }
-    location ~ /\\.ht { deny all; }`;
+    }`;
 }
 
 // Bloque por IP:PUERTO (fichero propio del panel, se reescribe sin miedo).

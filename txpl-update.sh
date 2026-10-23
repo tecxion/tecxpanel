@@ -73,6 +73,18 @@ if ! dpkg -s python3-venv >/dev/null 2>&1; then
         || warn "No se pudo instalar python3-venv automáticamente (instálalo con: apt install python3-venv)"
 fi
 
+# ── 3c. php2shell (CVE-2026-109618/109619): parchear PHP y aplicar mitigaciones ──
+# Fallo del propio PHP (RCE sin login). Solo si hay php-fpm instalado.
+if ls /usr/sbin/php-fpm[0-9]* >/dev/null 2>&1; then
+    log "🛡️  Parcheando PHP (php2shell) y aplicando mitigaciones..."
+    (cd "$TXPL_DIR/backend" && node -e "
+      const e = require('./lib/php/engine');
+      e.patch(console.log).then((c) => e.harden().then((b) => { console.log('Mitigaciones en: ' + b.join(', ')); process.exit(c); }));
+    ") \
+        && log "✅ PHP parcheado y endurecido" \
+        || warn "PHP sin parche confirmado (los repos pueden no haberlo publicado aún). Mitigaciones aplicadas igualmente."
+fi
+
 # ── 4. Reload sin downtime con PM2 ──────────────────────────
 sep
 log "🔄 Recargando panel (zero downtime)..."

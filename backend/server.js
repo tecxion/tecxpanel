@@ -98,6 +98,7 @@ app.use('/api/dns', require('./routes/dns'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/catalog', require('./routes/catalog'));
 app.use('/api/ssl', require('./routes/ssl'));
+app.use('/api/php', require('./routes/php'));
 
 // ── Frontend estático ─────────────────────────────────────────
 // Servimos los archivos del panel (HTML, JS, CSS).
