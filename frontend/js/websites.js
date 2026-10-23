@@ -90,6 +90,23 @@ function togglePhpVersion() {
   document.getElementById('site-php-version-group').style.display = type === 'php' ? '' : 'none';
 }
 
+// loadPhpVersions: rellena el selector con las versiones de PHP-FPM INSTALADAS.
+// Las que no llevan el parche de php2shell salen deshabilitadas (el backend
+// también las rechaza).
+async function loadPhpVersions() {
+  const sel = document.getElementById('site-php-version');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Auto-detectar</option>';
+  const st = await req('GET', '/php/status').catch(() => null);
+  for (const b of st?.branches || []) {
+    const o = document.createElement('option');
+    o.value = b.branch;
+    o.disabled = !b.patched;
+    o.textContent = `PHP ${b.branch}` + (b.patched ? ' ✓ parcheado' : ' ⚠ sin parchear (php2shell)');
+    sel.appendChild(o);
+  }
+}
+
 // openNewSiteModal: abre el modal reseteando el formulario (antes mantenía
 // los valores del intento anterior). Le da foco al input principal.
 function openNewSiteModal() {
@@ -102,6 +119,7 @@ function openNewSiteModal() {
   if (ssl) ssl.checked = false;
   toggleSiteMode();
   togglePhpVersion();
+  loadPhpVersions();
   openModal('modal-new-site');
   setTimeout(() => document.getElementById('site-domain')?.focus(), 100);
 }
@@ -394,7 +412,7 @@ async function redeployApp(id, name) {
 
 Object.assign(window, {
   createWebsite, deleteWebsite, installSiteSsl, loadWebsites,
-  togglePhpVersion, toggleSiteMode, openNewSiteModal,
+  togglePhpVersion, loadPhpVersions, toggleSiteMode, openNewSiteModal,
   rebuildVhost, viewVhost, openSiteFiles,
   openDeployWizard, toggleDeploySrc, submitDeploy, streamDeploy, redeployApp,
 });

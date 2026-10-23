@@ -16,6 +16,7 @@ const express = require('express');
 const { ok, fail, clientIp, runSafe, wrap } = require('../lib/helpers');
 const { ALLOWED_SITE_TYPES, RE_APP_NAME, isValidDomain } = require('../lib/validators');
 const nginx = require('../lib/nginx');
+const phpEngine = require('../lib/php/engine');
 const { queries, audit } = require('../database');
 
 // Carpeta raíz de los sitios (la define lib/nginx a partir de SITES_DIR).
@@ -51,6 +52,17 @@ router.post('/', wrap(async (req, res) => {
   const { domain, type = 'html', ssl = false, usePort = false, phpVersion } = req.body || {};
   if (!ALLOWED_SITE_TYPES.includes(type)) return fail(res, 400, 'Tipo de sitio inválido');
   if (phpVersion && !RE_PHP_VER.test(String(phpVersion))) return fail(res, 400, 'Versión de PHP inválida (formato esperado X.Y, ej. 8.3)');
+
+  // php2shell: no crear sitios PHP sobre una versión instalada sin parchear.
+  // Con "auto-detectar" se usa la más alta instalada (ver detectPhpFpmSock).
+  if (type === 'php') {
+    const branches = await phpEngine.check();
+    const target = phpVersion
+      ? branches.find((b) => b.branch === String(phpVersion))
+      : branches.slice().sort((a, b) => parseFloat(b.branch) - parseFloat(a.branch))[0];
+    if (!target) return fail(res, 400, phpVersion ? `PHP ${phpVersion} no está instalado.` : 'No hay PHP-FPM instalado.');
+    if (!target.patched) return fail(res, 400, `PHP ${target.branch} no tiene el parche de php2shell (CVE-2026-109618/109619). Actualiza PHP (POST /api/php/patch o txpl-update.sh) antes de crear sitios PHP.`);
+  }
 
   let siteDomain, listenPort = null;
   if (usePort) {
