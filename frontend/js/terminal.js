@@ -1,10 +1,25 @@
-// TecXPaneL — terminal (xterm + WebSocket + node-pty)
+// TecXPaneL — terminal (xterm + WebSocket + node-pty) con pestañas persistentes.
+// Cada pestaña = una sesión de shell en el servidor: sobrevive a cambiar de sección
+// y a recargar (el servidor guarda el historial y se reengancha por id de sesión).
 
-let term = null, fitAddon = null, termWS = null;
-let termOnDataDisposer = null;           // IDisposable devuelto por term.onData
-let termShouldConnect = false;           // flag para el auto-reconnect
-let termBackoffMs = 2000;                // 2s → 30s
-let termReconnectTimer = null;
+const TABS_KEY = 'txpl_term_tabs';
+let tabs = [];            // { k, id, name, term, fit, pane, ws, status, backoff, timer, closed, noRetry, busyCb }
+let activeK = null, tabSeq = 0, nameSeq = 0, xtermLoad = null, termRO = null, initing = false;
+
+const activeTab = () => tabs.find((t) => t.k === activeK);
+
+function saveTabs() {
+  try {
+    localStorage.setItem(TABS_KEY, JSON.stringify({
+      active: tabs.findIndex((t) => t.k === activeK),
+      tabs: tabs.map((t) => ({ id: t.id, name: t.name })),
+    }));
+  } catch (_) {}
+}
+function loadSavedTabs() {
+  try { const s = JSON.parse(localStorage.getItem(TABS_KEY)); return Array.isArray(s?.tabs) && s.tabs.length ? s : null; }
+  catch (_) { return null; }
+}
 
 // setTermStatus: badge visual al lado del título (Desconectado/Conectando/Conectado).
 function setTermStatus(state, extra) {
@@ -19,38 +34,147 @@ function setTermStatus(state, extra) {
   const s = map[state] || map.off;
   b.textContent = extra ? `${s.text} · ${extra}` : s.text;
   b.className = s.cls;
-  const c = document.getElementById('term-connect-btn');
-  const d = document.getElementById('term-disconnect-btn');
-  const connected = state === 'on' || state === 'wait';
-  if (c) c.style.display = connected ? 'none' : '';
-  if (d) d.style.display = connected ? '' : 'none';
+}
+function setTabStatus(t, state, extra) {
+  t.status = [state, extra];
+  if (t.k === activeK) setTermStatus(state, extra);
 }
 
-function sendResize() {
-  if (term && termWS && termWS.readyState === 1) {
-    termWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-  }
-}
-function termResizeHandler() {
-  if (!fitAddon) return;
-  try { fitAddon.fit(); sendResize(); } catch (_) {}
+function renderTabs() {
+  const el = document.getElementById('term-tabs');
+  if (!el) return;
+  el.innerHTML = tabs.map((t) =>
+    `<div class="term-tab${t.k === activeK ? ' active' : ''}" onclick="termSelect(${t.k})">` +
+    `<i class="ti ti-terminal-2"></i><span>${t.name}</span>` +
+    `<button class="term-tab-x" title="Cerrar terminal" onclick="event.stopPropagation();termCloseTab(${t.k})"><i class="ti ti-x"></i></button></div>`
+  ).join('') +
+    '<button class="term-tab-add" title="Nueva terminal" onclick="termNewTab()"><i class="ti ti-plus"></i></button>';
 }
 
-// termCleanup: cierra la terminal. Si userInitiated=true (botón Desconectar o
-// doLogout), desactiva el auto-reconnect para no volver a levantarla sola.
-function termCleanup(userInitiated) {
-  if (userInitiated) termShouldConnect = false;
-  if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-  window.removeEventListener('resize', termResizeHandler);
-  if (termOnDataDisposer) { try { termOnDataDisposer.dispose(); } catch (_) {} termOnDataDisposer = null; }
-  if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
-  if (term) { try { term.dispose(); } catch (_) {} term = null; fitAddon = null; }
+function sendResize(t) {
+  t = t || activeTab();
+  if (t && t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({ type: 'resize', cols: t.term.cols, rows: t.term.rows }));
+}
+function refit(t) {
+  if (!t || !t.pane.offsetWidth) return;      // pestaña/página oculta: no hay tamaño que medir
+  try { t.fit.fit(); sendResize(t); } catch (_) {}
+}
+
+function termSelect(k) {
+  activeK = k;
+  tabs.forEach((t) => { t.pane.style.display = t.k === k ? '' : 'none'; });
+  renderTabs();
+  saveTabs();
+  const t = activeTab();
+  if (!t) return;
+  setTermStatus(...t.status);
+  requestAnimationFrame(() => { refit(t); t.term.focus(); });
+}
+
+function connectTab(t) {
+  clearTimeout(t.timer);
+  setTabStatus(t, 'wait');
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}${t.id ? '&session=' + encodeURIComponent(t.id) : ''}`);
+  t.ws = ws;
+  // Todos los handlers comprueban `ws !== t.ws`: un WS obsoleto no debe tocar el estado.
+  ws.onmessage = (e) => {
+    if (ws !== t.ws) return;
+    let d; try { d = JSON.parse(e.data); } catch (_) { return; }
+    if (d.type === 'session') { t.id = d.id; t.term.reset(); saveTabs(); }   // el servidor repinta el historial a continuación
+    else if (d.type === 'output') t.term.write(d.data);
+    else if (d.type === 'busy') t.busyCb?.(d.busy);
+    else if (d.type === 'replaced') t.noRetry = true;
+    else if (d.type === 'exit') destroyTab(t, false);                          // el usuario hizo `exit`
+  };
+  ws.onopen = () => {
+    if (ws !== t.ws) return;
+    t.backoff = 2000;
+    setTabStatus(t, 'on');
+    sendResize(t);
+  };
+  ws.onclose = () => {
+    if (ws !== t.ws) return;
+    if (t.noRetry) { t.term.write('\r\n\x1b[90mSesión abierta en otra ventana.\x1b[0m\r\n'); setTabStatus(t, 'off'); return; }
+    // Auto-reconnect con backoff: 2s → 4 → 8 → 16 → 30s
+    setTabStatus(t, 'wait', `reintentando en ${Math.round(t.backoff / 1000)}s`);
+    t.timer = setTimeout(() => connectTab(t), t.backoff);
+    t.backoff = Math.min(t.backoff * 2, 30_000);
+  };
+  ws.onerror = () => { if (ws === t.ws) setTabStatus(t, 'err'); };
+}
+
+function addTab(saved) {
+  const pane = document.createElement('div');
+  pane.className = 'term-pane';
+  document.getElementById('xterm-mount').appendChild(pane);
+  const term = new Terminal({
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 13,
+    cursorBlink: true,
+    scrollback: 5000,
+    theme: { background: '#0a0a0a', foreground: '#e0e0e0', cursor: '#e0e0e0' },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  const t = { k: ++tabSeq, id: saved?.id || null, name: saved?.name || 'Terminal ' + (++nameSeq),
+              term, fit, pane, ws: null, status: ['off'], backoff: 2000 };
+  term.onData((data) => { if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({ type: 'input', data })); });
+  tabs.push(t);
+  termSelect(t.k);          // muestra el panel ANTES de abrir xterm para que mida bien
+  term.open(pane);
+  connectTab(t);
+  return t;
+}
+
+function termNewTab() { if (window.Terminal) addTab(); }
+
+function isBusy(t) {
+  if (!t.ws || t.ws.readyState !== 1) return Promise.resolve(false);
+  return new Promise((res) => {
+    const to = setTimeout(() => { t.busyCb = null; res(false); }, 1000);
+    t.busyCb = (b) => { clearTimeout(to); t.busyCb = null; res(b); };
+    t.ws.send(JSON.stringify({ type: 'busy' }));
+  });
+}
+
+// destroyTab: quita la pestaña. kill=true además mata la shell en el servidor.
+function destroyTab(t, kill) {
+  clearTimeout(t.timer);
+  const ws = t.ws; t.ws = null;
+  if (ws) { try { if (kill && ws.readyState === 1) ws.send(JSON.stringify({ type: 'kill' })); ws.close(); } catch (_) {} }
+  try { t.term.dispose(); } catch (_) {}
+  t.pane.remove();
+  const i = tabs.indexOf(t);
+  if (i < 0) return;
+  tabs.splice(i, 1);
+  if (!tabs.length) addTab();                                  // nunca dejamos el panel sin terminal
+  else if (activeK === t.k) termSelect(tabs[Math.min(i, tabs.length - 1)].k);
+  else { renderTabs(); saveTabs(); }
+}
+
+async function termCloseTab(k) {
+  const t = tabs.find((x) => x.k === k);
+  if (!t) return;
+  if (await isBusy(t) && !confirm(`Hay un proceso en ejecución en «${t.name}». ¿Cerrar la terminal y terminarlo?`)) return;
+  destroyTab(t, true);
+}
+
+// termCleanup: solo para logout. Cierra WebSockets y pantallas SIN matar las shells
+// del servidor (se recuperan al volver a entrar).
+function termCleanup() {
+  tabs.forEach((t) => {
+    clearTimeout(t.timer);
+    const ws = t.ws; t.ws = null;
+    try { ws?.close(); } catch (_) {}
+    try { t.term.dispose(); } catch (_) {}
+    t.pane.remove();
+  });
+  tabs = []; activeK = null;
   setTermStatus('off');
 }
 
-// Carga xterm.js bajo demanda (no en cada arranque del panel). Se inyecta la
-// primera vez que se abre la Terminal; las siguientes reutilizan la promesa.
-let xtermLoad = null;
+// Carga xterm.js bajo demanda (no en cada arranque del panel).
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
@@ -70,109 +194,42 @@ function ensureXterm() {
   return xtermLoad;
 }
 
-// initTerminal: abre la terminal SSH. Antes comprueba /system/features para no
-// intentar abrir el WS si node-pty no está instalado (mensaje más claro).
+// initTerminal: se llama cada vez que se entra en la sección. Si ya hay pestañas
+// vivas solo las reenfoca; si no, restaura las guardadas (o abre una nueva).
 async function initTerminal() {
-  // Cleanup ligero: destruye recursos pero NO toca termShouldConnect (antes
-  // llamábamos a termCleanup(true), que lo ponía en false y provocaba una
-  // carrera con el ws.onclose del anterior WebSocket → badge congelado en
-  // "Desconectado" aunque la conexión nueva sí funcionase).
-  if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-  window.removeEventListener('resize', termResizeHandler);
-  if (termOnDataDisposer) { try { termOnDataDisposer.dispose(); } catch (_) {} termOnDataDisposer = null; }
-  if (termWS) { try { termWS.close(); } catch (_) {} termWS = null; }
-  if (term) { try { term.dispose(); } catch (_) {} term = null; fitAddon = null; }
-
-  termShouldConnect = true;
-  termBackoffMs = 2000;
-
-  try { await ensureXterm(); } catch (_) {}
-  if (!window.Terminal || !window.FitAddon) {
-    toast('No se pudo cargar xterm.js', 'error');
-    setTermStatus('err');
-    return;
-  }
-
-  // Chequeo previo — evita el "node-pty no está instalado" con la terminal en
-  // negro. Si el endpoint falla (viejo backend), no bloquea el intento.
+  if (tabs.length) { termSelect(activeK); return; }
+  if (initing) return;
+  initing = true;
   try {
-    const f = await req('GET', '/system/features');
-    if (f && f.terminal === false) {
-      toast('La terminal está deshabilitada: node-pty no está instalado en el servidor.', 'error');
-      setTermStatus('err', 'node-pty ausente');
-      termShouldConnect = false;
+    try { await ensureXterm(); } catch (_) {}
+    if (!window.Terminal || !window.FitAddon) {
+      toast('No se pudo cargar xterm.js', 'error');
+      setTermStatus('err');
       return;
     }
-  } catch (_) { /* endpoint nuevo, si no está seguimos igual */ }
-
-  openTerminalWS();
-}
-
-function openTerminalWS() {
-  if (!termShouldConnect) return;
-  setTermStatus('wait');
-
-  const mount = document.getElementById('xterm-mount');
-  mount.innerHTML = '';
-  term = new Terminal({
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 13,
-    cursorBlink: true,
-    scrollback: 5000,
-    theme: { background: '#0a0a0a', foreground: '#e0e0e0', cursor: '#e0e0e0' },
-  });
-  fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  term.open(mount);
-  fitAddon.fit();
-  term.write('\x1b[33mConectando a terminal...\x1b[0m\r\n');
-
-  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-  termWS = new WebSocket(`${wsProto}://${location.host}/ws/terminal?token=${encodeURIComponent(TOKEN)}`);
-  const ws = termWS;
-
-  // Todos los handlers comprueban `ws !== termWS`: si mientras el WS estaba
-  // abriendo el usuario disparó otra conexión, esta se marca como obsoleta y
-  // sus eventos NO deben mutar el estado global (badge, reconnect timer).
-  ws.onmessage = (e) => {
-    if (ws !== termWS) return;
+    // Chequeo previo — evita abrir la terminal en negro si node-pty no está instalado.
     try {
-      const d = JSON.parse(e.data);
-      if (d.type === 'output') term.write(d.data);
-    } catch (_) {}
-  };
+      const f = await req('GET', '/system/features');
+      if (f && f.terminal === false) {
+        toast('La terminal está deshabilitada: node-pty no está instalado en el servidor.', 'error');
+        setTermStatus('err', 'node-pty ausente');
+        return;
+      }
+    } catch (_) { /* endpoint nuevo, si no está seguimos igual */ }
 
-  ws.onopen = () => {
-    if (ws !== termWS) return;
-    setTermStatus('on');
-    termBackoffMs = 2000;
-    sendResize();
-    // Guardar el disposer para evitar el bug del handler doble al reconectar.
-    termOnDataDisposer = term.onData((data) => {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data }));
-    });
-    window.addEventListener('resize', termResizeHandler);
-    term.focus();
-  };
-
-  ws.onclose = () => {
-    if (ws !== termWS) return;                  // WS obsoleto → no tocar nada
-    if (term) term.write('\r\n\x1b[90mConexión cerrada.\x1b[0m\r\n');
-    if (termOnDataDisposer) { try { termOnDataDisposer.dispose(); } catch (_) {} termOnDataDisposer = null; }
-    if (!termShouldConnect) { setTermStatus('off'); return; }
-    // Auto-reconnect con backoff: 2s → 4 → 8 → 16 → 30s
-    setTermStatus('wait', `reintentando en ${Math.round(termBackoffMs / 1000)}s`);
-    termReconnectTimer = setTimeout(openTerminalWS, termBackoffMs);
-    termBackoffMs = Math.min(termBackoffMs * 2, 30_000);
-  };
-
-  ws.onerror = () => {
-    if (ws !== termWS) return;
-    if (term) term.write('\r\n\x1b[31mError de conexión.\x1b[0m\r\n');
-    setTermStatus('err');
-  };
+    if (!termRO) {
+      termRO = new ResizeObserver(() => refit(activeTab()));
+      termRO.observe(document.getElementById('xterm-mount'));
+    }
+    const saved = loadSavedTabs();
+    if (saved) {
+      nameSeq = Math.max(0, ...saved.tabs.map((s) => parseInt(String(s.name).replace(/\D/g, ''), 10) || 0));
+      saved.tabs.forEach((s) => addTab(s));
+      if (tabs[saved.active]) termSelect(tabs[saved.active].k);
+    } else addTab();
+  } finally { initing = false; }
 }
 
 Object.assign(window, {
-  initTerminal, sendResize, termCleanup, termResizeHandler, setTermStatus,
+  initTerminal, sendResize, termCleanup, setTermStatus, termSelect, termNewTab, termCloseTab,
 });

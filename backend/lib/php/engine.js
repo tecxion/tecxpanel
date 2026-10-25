@@ -55,8 +55,8 @@ async function patch(log = () => {}) {
   const upd = await runSafe('apt-get', ['update', '-qq'], opts);
   if (!upd.ok) { log('✗ apt-get update falló: ' + upd.stderr.trim().split('\n')[0]); return 1; }
   for (const branch of installedBranches()) {
-    const q = await runSafe('dpkg-query', ['-W', '-f=${Package}\\n', `php${branch}*`]);
-    const pkgs = q.stdout.split('\n').filter(Boolean);
+    const q = await runSafe('dpkg-query', ['-W', '-f=${db:Status-Abbrev} ${Package}\\n', `php${branch}*`]);
+    const pkgs = P.parseInstalledPkgs(q.stdout);
     log(`⬆ php${branch}: actualizando ${pkgs.length} paquetes…`);
     const r = await runSafe('apt-get', ['install', '-y', '--only-upgrade', ...pkgs], opts);
     log(r.ok ? r.stdout.split('\n').slice(-3).join('\n') : '✗ ' + r.stderr.trim().split('\n').slice(-2).join(' '));

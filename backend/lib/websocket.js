@@ -15,6 +15,7 @@
 
 const os = require('os');
 const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { audit } = require('../database');
@@ -135,55 +136,113 @@ function setupWebSockets(server, verifyToken) {
   let pty = null;
   try { pty = require('node-pty'); } catch (_) { console.warn('[ws] node-pty no instalado: la terminal estará deshabilitada.'); }
 
+  // Sesiones persistentes: la shell sobrevive al WebSocket (cambio de sección, recarga)
+  // y guarda la salida reciente para repintarla al reenganchar la pestaña.
+  const sessions = new Map();            // id → { shell, sh, user, buf, ws, timer }
+  const BUF_MAX = 200_000;               // caracteres de historial que se reenvían al reconectar
+  const MAX_SESSIONS = 10;               // por usuario
+  const DETACHED_TTL = 24 * 3600 * 1000; // shell sin pestaña conectada → se mata a las 24 h
+  const send = (ws, msg) => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); };
+
+  function killSession(id) {
+    const s = sessions.get(id);
+    if (!s) return;
+    clearTimeout(s.timer);
+    sessions.delete(id);
+    try { s.shell.kill(); } catch (_) {}
+  }
+
   wssTerm.on('connection', (ws, req) => {
     if (!pty) {
-      ws.send(JSON.stringify({ type: 'output', data: 'node-pty no está instalado en el servidor.\r\n' }));
+      send(ws, { type: 'output', data: 'node-pty no está instalado en el servidor.\r\n' });
       ws.close();
       return;
     }
-    audit(req.user.username, clientIp(req), 'terminal.open', null);
-    // Env de la shell: WHITELIST mínima. NO pasar process.env entero — leakearía
-    // JWT_SECRET, TXPL_SECRET_KEY, ADMIN_PASS, credenciales de git guardadas
-    // en el env del panel al hacer `env` en el shell.
-    const parentEnv = process.env;
-    const safeEnv = {
-      PATH:    parentEnv.PATH  || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-      HOME:    parentEnv.HOME  || '/root',
-      USER:    parentEnv.USER  || 'root',
-      LOGNAME: parentEnv.LOGNAME || parentEnv.USER || 'root',
-      SHELL:   parentEnv.SHELL || '/bin/bash',
-      LANG:    parentEnv.LANG  || 'C.UTF-8',
-      TERM:    'xterm-256color',
-      PWD:     parentEnv.HOME  || '/root',
-    };
-    // Preserva locales LC_* si están puestas (no son secretos y afectan a la UX).
-    for (const k of Object.keys(parentEnv)) if (k.startsWith('LC_')) safeEnv[k] = parentEnv[k];
+    const user = req.user.username;
+    const wanted = new URL(req.url, 'http://localhost').searchParams.get('session');
+    let id = wanted;
+    let s = sessions.get(wanted);
+    if (s && s.user !== user) s = null;            // sesión de otro usuario: se ignora
 
-    // pty.spawn puede lanzar (binding nativo incompatible, shell inexistente…).
-    // Como este handler corre dentro del emit('connection') del upgrade, una
-    // excepción sin capturar tumbaría TODO el proceso del panel: la aislamos.
-    let shell;
-    try {
-      shell = pty.spawn(safeEnv.SHELL, ['-l'], {
-        name: 'xterm-256color', cols: 80, rows: 24, cwd: safeEnv.HOME, env: safeEnv,
+    if (!s) {
+      if ([...sessions.values()].filter((x) => x.user === user).length >= MAX_SESSIONS) {
+        send(ws, { type: 'output', data: `Límite de ${MAX_SESSIONS} terminales abiertas. Cierra alguna pestaña.\r\n` });
+        ws.close();
+        return;
+      }
+      audit(user, clientIp(req), 'terminal.open', null);
+      // Env de la shell: WHITELIST mínima. NO pasar process.env entero — leakearía
+      // JWT_SECRET, TXPL_SECRET_KEY, ADMIN_PASS, credenciales de git guardadas
+      // en el env del panel al hacer `env` en el shell.
+      const parentEnv = process.env;
+      const safeEnv = {
+        PATH:    parentEnv.PATH  || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        HOME:    parentEnv.HOME  || '/root',
+        USER:    parentEnv.USER  || 'root',
+        LOGNAME: parentEnv.LOGNAME || parentEnv.USER || 'root',
+        SHELL:   parentEnv.SHELL || '/bin/bash',
+        LANG:    parentEnv.LANG  || 'C.UTF-8',
+        TERM:    'xterm-256color',
+        PWD:     parentEnv.HOME  || '/root',
+      };
+      // Preserva locales LC_* si están puestas (no son secretos y afectan a la UX).
+      for (const k of Object.keys(parentEnv)) if (k.startsWith('LC_')) safeEnv[k] = parentEnv[k];
+
+      // pty.spawn puede lanzar (binding nativo incompatible, shell inexistente…).
+      // Como este handler corre dentro del emit('connection') del upgrade, una
+      // excepción sin capturar tumbaría TODO el proceso del panel: la aislamos.
+      let shell;
+      try {
+        shell = pty.spawn(safeEnv.SHELL, ['-l'], {
+          name: 'xterm-256color', cols: 80, rows: 24, cwd: safeEnv.HOME, env: safeEnv,
+        });
+      } catch (e) {
+        send(ws, { type: 'output', data: 'No se pudo iniciar la terminal: ' + e.message + '\r\n' });
+        ws.close();
+        return;
+      }
+      id = crypto.randomUUID();
+      s = { shell, sh: path.basename(safeEnv.SHELL), user, buf: '', ws: null, timer: null };
+      const mine = s;
+      shell.onData((data) => {
+        mine.buf = (mine.buf + data).slice(-BUF_MAX);
+        send(mine.ws, { type: 'output', data });
       });
-    } catch (e) {
-      try { ws.send(JSON.stringify({ type: 'output', data: 'No se pudo iniciar la terminal: ' + e.message + '\r\n' })); } catch (_) {}
-      ws.close();
-      return;
+      shell.onExit(() => {
+        clearTimeout(mine.timer);
+        if (sessions.get(id) === mine) sessions.delete(id);
+        send(mine.ws, { type: 'exit' });           // el cliente cierra la pestaña
+        try { mine.ws?.close(); } catch (_) {}
+      });
+      sessions.set(id, s);
     }
-    // Lo que escupe la shell → se envía al navegador.
-    shell.onData((data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'output', data })); });
-    // Lo que llega del navegador → se escribe en la shell (o se redimensiona).
+
+    clearTimeout(s.timer);
+    if (s.ws && s.ws !== ws) {                     // otra ventana toma la sesión
+      send(s.ws, { type: 'replaced' });
+      try { s.ws.close(); } catch (_) {}
+    }
+    s.ws = ws;
+    send(ws, { type: 'session', id });             // el cliente limpia su pantalla…
+    if (s.buf) send(ws, { type: 'output', data: s.buf }); // …y recibe el historial
+
+    const sid = id, cur = s;
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-        if (msg.type === 'input' && typeof msg.data === 'string') shell.write(msg.data);
-        else if (msg.type === 'resize' && msg.cols && msg.rows) shell.resize(msg.cols, msg.rows);
+        if (msg.type === 'input' && typeof msg.data === 'string') cur.shell.write(msg.data);
+        else if (msg.type === 'resize' && msg.cols && msg.rows) cur.shell.resize(msg.cols, msg.rows);
+        else if (msg.type === 'busy') send(ws, { type: 'busy', busy: cur.shell.process !== cur.sh });
+        else if (msg.type === 'kill') killSession(sid);
       } catch (_) {}
     });
-    // Al cerrar la pestaña/conexión, matamos la shell para no dejar procesos colgados.
-    ws.on('close', () => shell.kill());
+    // Al cerrar el WebSocket NO se mata la shell (así sobrevive a recargas); solo se
+    // programa su limpieza por si nadie vuelve.
+    ws.on('close', () => {
+      if (cur.ws !== ws) return;
+      cur.ws = null;
+      cur.timer = setTimeout(() => killSession(sid), DETACHED_TTL);
+    });
   });
 
   return { wssStats, wssTerm, cpuPercent, memInfo, readNetSample };

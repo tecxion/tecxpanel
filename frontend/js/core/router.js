@@ -58,7 +58,6 @@ export function navigate(pageOrEl) {
   document.getElementById('page-title').textContent = titles[pageName] || pageName;
 
   // Cleanup pages anteriores
-  if (current === 'terminal' && pageName !== 'terminal') window.termCleanup?.();
   if (current === 'logs' && pageName !== 'logs') window.logsLiveStop?.();
   current = pageName;
 

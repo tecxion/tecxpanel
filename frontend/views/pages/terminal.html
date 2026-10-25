@@ -6,16 +6,7 @@
     </div>
   </div>
   <div id="terminal-container">
-    <div class="terminal-toolbar">
-      <div class="term-dot r"></div>
-      <div class="term-dot y"></div>
-      <div class="term-dot g"></div>
-      <span style="font-size:11px;color:var(--text-muted);margin-left:8px">bash — TecXPaneL Terminal</span>
-    </div>
+    <div class="terminal-toolbar"><div class="term-tabs" id="term-tabs"></div></div>
     <div id="xterm-mount"></div>
-    <div class="terminal-footer">
-      <button class="btn btn-sm btn-primary" id="term-connect-btn" onclick="initTerminal()"><i class="ti ti-plug"></i> Conectar</button>
-      <button class="btn btn-sm" id="term-disconnect-btn" onclick="termCleanup(true)" style="display:none;margin-left:6px"><i class="ti ti-plug-off"></i> Desconectar</button>
-    </div>
   </div>
 </div>

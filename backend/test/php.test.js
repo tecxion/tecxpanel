@@ -37,3 +37,8 @@ test('vhost html protege dotfiles pero no añade reglas PHP', () => {
   assert.ok(conf.includes('(?!well-known)'));
   assert.ok(!conf.includes('fastcgi'));
 });
+
+test('parseInstalledPkgs ignora paquetes no instalados (php8.5-json)', () => {
+  const out = 'ii  php8.5-fpm\nun  php8.5-json\nrc  php8.5-old\nii  php8.5-cli\n';
+  assert.deepStrictEqual(php.parseInstalledPkgs(out), ['php8.5-fpm', 'php8.5-cli']);
+});

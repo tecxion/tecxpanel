@@ -45,9 +45,16 @@ cgi.fix_pathinfo = 0
 allow_url_include = Off
 `;
 
+// Salida de `dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n'` → solo paquetes
+// realmente instalados ("ii"). El glob php8.5* también devuelve virtuales/residuales
+// (p. ej. php8.5-json) y `apt install` abortaba entero con ellos.
+function parseInstalledPkgs(out) {
+  return String(out).split('\n').map((l) => /^ii\s+(\S+)$/.exec(l.trim())?.[1]).filter(Boolean);
+}
+
 const hardeningIniPath = (branch) => `/etc/php/${branch}/fpm/conf.d/99-txpl-hardening.ini`;
 
 module.exports = {
   FIXED_PATCH, CVE_PATTERN, RE_BRANCH, HARDENING_INI,
-  parsePhpVersion, isFixedUpstream, isSupportedBranch, hardeningIniPath,
+  parsePhpVersion, parseInstalledPkgs, isFixedUpstream, isSupportedBranch, hardeningIniPath,
 };
