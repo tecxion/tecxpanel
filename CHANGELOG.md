@@ -3,10 +3,14 @@
 Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 
 - **Actualización grande** (funciones nuevas, cambios importantes): suma `0.1` → `2.1.0`, `2.2.0`…
-- **Actualización pequeña** (arreglos, ajustes): suma `0.0.1` → `2.1.1`, `2.1.2`…
+- **Actualización pequeña** (arreglos, ajustes; todo cambio, por pequeño que sea, sube la versión): suma `0.0.1` → `2.1.1`, `2.1.2`…
 
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
+
+## 2.1.1 — 2026-10-26
+
+- Terminal: las pestañas nuevas usan el número libre más bajo ("Terminal 1", "Terminal 2"…) en vez de seguir sumando.
 
 ## 2.1.0 — 2026-10-26
 
