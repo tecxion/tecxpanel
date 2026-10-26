@@ -17,6 +17,9 @@ const {
   detectProject, flattenSingleSubdir,
 } = require('../lib/appdeploy');
 const { findFreePort } = require('../lib/catalogEngine');
+const { isValidGitToken, gitEnv, tokenNeedsHttps } = require('../lib/deploy');
+const deploy = require('../lib/deploy/engine');
+const { encryptSecret, decryptSecret } = require('../lib/crypto');
 const { detect } = require('../lib/apps/detect');
 const { preflight, preflightOk } = require('../lib/apps/preflight');
 
@@ -90,7 +93,7 @@ async function probeRuntimes(runtime) {
 
 // Crear app: solo registra y crea la carpeta o clona (NO arranca). El deploy va por pasos.
 router.post('/', wrap(async (req, res) => {
-  const { name, path: basePath, port, domain, git_repo, git_branch } = req.body || {};
+  const { name, path: basePath, port, domain, git_repo, git_branch, git_token } = req.body || {};
   if (!RE_APP_NAME.test(name || '')) return fail(res, 400, 'Nombre de app inválido (solo letras, números, - y _)');
   if (queries.getAppByName.get(name)) return fail(res, 409, 'Ya existe una app con ese nombre');
 
@@ -119,6 +122,8 @@ router.post('/', wrap(async (req, res) => {
     // por "-" y git podría interpretar como flag --upload-pack=...).
     if (!isValidGitUrl(gitRepo)) return fail(res, 400, 'URL de repositorio Git inválida (usa https://…, git://… o git@host:usuario/repo.git)');
     if (!isValidGitBranch(gitBranch)) return fail(res, 400, 'Nombre de rama inválido');
+    if (git_token && !isValidGitToken(git_token)) return fail(res, 400, 'Token de acceso inválido');
+    if (tokenNeedsHttps(gitRepo, git_token)) return fail(res, 400, 'El token solo se puede usar con una URL https://');
     webhookSecret = crypto.randomBytes(16).toString('hex');
   }
 
@@ -126,10 +131,10 @@ router.post('/', wrap(async (req, res) => {
     fs.mkdirSync(cwd, { recursive: true });
   } else {
     // Intentar clonar el repositorio Git
-    const cloneRes = await runSafe('git', ['clone', '--depth=1', '-b', gitBranch, gitRepo, cwd]);
+    const cloneRes = await deploy.cloneRepo(cwd, gitRepo, gitBranch, git_token);
     if (!cloneRes.ok) {
       removeAppDir(cwd);
-      return fail(res, 400, `Error al clonar el repositorio Git: ${cloneRes.stderr}`);
+      return fail(res, 400, `Error al clonar el repositorio Git: ${cloneRes.error}`);
     }
   }
 
@@ -157,7 +162,8 @@ router.post('/', wrap(async (req, res) => {
     status: 'stopped',
     git_repo: gitRepo,
     git_branch: gitBranch,
-    webhook_secret: webhookSecret
+    webhook_secret: webhookSecret,
+    git_token: isGit && git_token ? encryptSecret(git_token) : null,
   });
 
   audit(req.user.username, clientIp(req), 'app.create', name + (isGit ? ' (Git)' : ''));
@@ -336,7 +342,7 @@ router.post('/:id/git-pull', wrap(async (req, res) => {
 
   // 1. git fetch && git reset --hard
   lines.push(`$ git fetch --all && git reset --hard origin/${branch}`);
-  const gitFetch = await runSafe('git', ['fetch', '--all'], { cwd });
+  const gitFetch = await runSafe('git', ['fetch', '--all'], { cwd, env: gitEnv(decryptSecret(appRow.git_token)) });
   if (!gitFetch.ok) {
     return ok(res, { success: false, output: lines.join('\n') + `\n\nError al sincronizar repositorio (fetch):\n${gitFetch.stderr}` });
   }

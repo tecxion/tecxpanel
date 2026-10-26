@@ -8,6 +8,7 @@ const SITE_TYPE_LABELS = {
   nodejs:  { text: 'Node.js', icon: '🟢' },
   react:   { text: 'React',   icon: '⚛️' },
   python:  { text: 'Python',  icon: '🐍' },
+  proxy:   { text: 'Proxy',   icon: '🔀' },
 };
 
 // loadWebsites: pide la lista de sitios web y la pinta en la tabla. Cachea la
@@ -35,13 +36,14 @@ async function loadWebsites() {
       ? `${esc(s.domain)} <span style="font-size:11px;color:var(--cyan)">:${s.listen_port}</span>`
       : esc(s.domain);
     const typeInfo = SITE_TYPE_LABELS[s.type] || { text: s.type, icon: '•' };
-    const typeLabel = typeInfo.icon + ' ' + typeInfo.text + (s.php_version ? ` ${esc(s.php_version)}` : '');
+    const isProxy = s.type === 'proxy';
+    const typeLabel = typeInfo.icon + ' ' + typeInfo.text + (s.php_version ? ` ${esc(s.php_version)}` : '') + (isProxy ? ` :${s.proxy_port}` : '');
     const sitePath = `/var/www/${s.domain}/public`;
     return `
     <tr>
       <td>
         <span class="domain-pill">${domainLabel}</span>
-        <div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);margin-top:4px" title="Ruta física de los archivos">${esc(sitePath)}</div>
+        ${isProxy ? '' : `<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);margin-top:4px" title="Ruta física de los archivos">${esc(sitePath)}</div>`}
       </td>
       <td><span class="badge badge-purple">${typeLabel}</span></td>
       <td>${isPort
@@ -52,8 +54,10 @@ async function loadWebsites() {
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           <button class="btn btn-sm" onclick="window.open('${accessUrl}','_blank')" title="Abrir sitio en nueva pestaña"><i class="ti ti-external-link"></i></button>
-          <button class="btn btn-sm" onclick="openSiteFiles('${esc(s.domain)}')" title="Ir a los archivos del sitio"><i class="ti ti-folder"></i></button>
-          <button class="btn btn-sm" onclick="copyText('${esc(sitePath)}').then(()=>toast('Ruta copiada','success'))" title="Copiar ruta al portapapeles"><i class="ti ti-copy"></i></button>
+          ${isProxy ? '' : `<button class="btn btn-sm" onclick="openSiteFiles('${esc(s.domain)}')" title="Ir a los archivos del sitio"><i class="ti ti-folder"></i></button>
+          <button class="btn btn-sm" onclick="copyText('${esc(sitePath)}').then(()=>toast('Ruta copiada','success'))" title="Copiar ruta al portapapeles"><i class="ti ti-copy"></i></button>`}
+          ${s.git_repo ? `<button class="btn btn-sm" onclick="gitPullSite(${s.id}, event)" title="Actualizar desde Git (${esc(s.git_branch)})"><i class="ti ti-git-pull-request"></i></button>
+          <button class="btn btn-sm" onclick="copySiteWebhook('${esc(s.webhook_secret)}')" title="Copiar URL del webhook (auto-actualizar en cada push)"><i class="ti ti-webhook"></i></button>` : ''}
           <button class="btn btn-sm" onclick="viewVhost(${s.id})" title="Ver configuración Nginx"><i class="ti ti-file-code"></i></button>
           <button class="btn btn-sm" onclick="rebuildVhost(${s.id}, event)" title="Regenerar configuración Nginx (útil tras cambiar versión de PHP)"><i class="ti ti-refresh"></i></button>
           ${!isPort && !s.ssl ? `<button class="btn btn-sm" onclick="installSiteSsl(${s.id}, '${esc(s.domain)}', event)" title="Instalar certificado Let's Encrypt">🔒 SSL</button>` : ''}
@@ -84,10 +88,14 @@ function toggleSiteMode() {
   }
 }
 
-// togglePhpVersion: muestra el selector de versión de PHP solo si el tipo es PHP.
+// toggleSiteType: muestra solo los campos que aplican al tipo elegido
+// (versión de PHP, puerto del proxy, origen del código).
 function togglePhpVersion() {
   const type = document.getElementById('site-type').value;
-  document.getElementById('site-php-version-group').style.display = type === 'php' ? '' : 'none';
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('site-php-version-group', type === 'php');
+  show('site-proxy-port-group', type === 'proxy');
+  show('site-source-mount', type !== 'proxy'); // un proxy no tiene archivos
 }
 
 // loadPhpVersions: rellena el selector con las versiones de PHP-FPM INSTALADAS.
@@ -113,6 +121,8 @@ function openNewSiteModal() {
   document.getElementById('site-mode').value = 'domain';
   document.getElementById('site-domain').value = '';
   document.getElementById('site-type').value = 'html';
+  document.getElementById('site-proxy-port').value = '';
+  document.getElementById('site-source-mount').innerHTML = sourceFieldsHtml('site', true);
   const pv = document.getElementById('site-php-version');
   if (pv) pv.value = '';
   const ssl = document.getElementById('site-ssl');
@@ -124,38 +134,131 @@ function openNewSiteModal() {
   setTimeout(() => document.getElementById('site-domain')?.focus(), 100);
 }
 
+// ── Origen del código (compartido por el modal de sitio y el asistente de apps) ──
+// `p` es el prefijo de los ids del formulario ('site' | 'dep').
+// Opciones: vacío (solo sitios) · ZIP · archivos/carpeta sueltos · GitHub (público o privado).
+function sourceFieldsHtml(p, withEmpty) {
+  const radio = (v, label, checked) =>
+    `<label style="font-weight:400"><input type="radio" name="${p}-src" value="${v}" ${checked ? 'checked' : ''} onchange="toggleSrc('${p}')"> ${label}</label>`;
+  return `
+    <div class="form-group"><label>Origen del c&oacute;digo</label>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 8px">
+        ${withEmpty ? radio('empty', 'Vac&iacute;o', true) : ''}
+        ${radio('zip', 'Subir ZIP', !withEmpty)}
+        ${radio('files', 'Archivos / carpeta', false)}
+        ${radio('git', 'GitHub', false)}
+      </div>
+      <div id="${p}-src-zip" style="display:${withEmpty ? 'none' : ''}"><input type="file" id="${p}-zip" accept=".zip,.tar,.tar.gz,.tgz"></div>
+      <div id="${p}-src-files" style="display:none">
+        <label style="font-weight:400;font-size:12px">Archivos sueltos</label> <input type="file" id="${p}-files" multiple>
+        <label style="font-weight:400;font-size:12px;display:block;margin-top:6px">&hellip;o una carpeta entera</label> <input type="file" id="${p}-dir" webkitdirectory multiple>
+      </div>
+      <div id="${p}-src-git" style="display:none">
+        <input id="${p}-git" placeholder="https://github.com/usuario/repo.git" style="width:100%;margin-bottom:6px">
+        <input id="${p}-branch" placeholder="main" value="main" style="width:100%;margin-bottom:6px">
+        <input id="${p}-token" type="password" autocomplete="off" placeholder="Token de acceso (solo si el repo es privado)" style="width:100%">
+        <small class="muted">El token se guarda cifrado. Tras crear, el bot&oacute;n webhook te da la URL para actualizar en cada push.</small>
+      </div>
+      ${p === 'site' ? '<small class="muted" id="site-src-hint" style="display:block;margin-top:6px">Se guardar&aacute; en la carpeta p&uacute;blica del sitio (/var/www/&lt;dominio&gt;/public/).</small>' : ''}
+    </div>`;
+}
+
+// toggleSrc: enseña solo el bloque de la opción elegida.
+function toggleSrc(p) {
+  const v = document.querySelector(`input[name="${p}-src"]:checked`)?.value;
+  for (const k of ['zip', 'files', 'git']) {
+    const el = document.getElementById(`${p}-src-${k}`);
+    if (el) el.style.display = v === k ? '' : 'none';
+  }
+}
+
+// readSource: lee y valida el formulario de origen. Devuelve { error } o los datos.
+function readSource(p) {
+  const v = (id) => document.getElementById(`${p}-${id}`)?.value.trim() || '';
+  const src = document.querySelector(`input[name="${p}-src"]:checked`)?.value || 'empty';
+  const zip = document.getElementById(`${p}-zip`)?.files[0];
+  const files = [...(document.getElementById(`${p}-files`)?.files || []), ...(document.getElementById(`${p}-dir`)?.files || [])];
+  if (src === 'zip' && !zip) return { error: 'Selecciona un archivo ZIP' };
+  if (src === 'files' && !files.length) return { error: 'Selecciona archivos o una carpeta' };
+  if (src === 'git' && !v('git')) return { error: 'Indica la URL del repositorio' };
+  return { src, zip, files, repo: v('git'), branch: v('branch') || 'main', token: v('token') };
+}
+
+// uploadSource: sube el ZIP o los archivos a `destDir` conservando la estructura de
+// carpetas (de una carpeta elegida se quita el primer nivel: su propio nombre).
+// Devuelve un mensaje de error o null si todo fue bien.
+async function uploadSource(destDir, s, log = () => {}) {
+  const list = s.src === 'zip' ? [s.zip] : s.files;
+  let n = 0;
+  for (const f of list) {
+    const rel = f.webkitRelativePath ? f.webkitRelativePath.split('/').slice(1).join('/') : f.name;
+    log(`📤 Subiendo ${rel} (${++n}/${list.length})`);
+    const up = await uploadBinary(f, destDir + '/' + rel);
+    if (!up?.success) return up?.tooBig ? 'Archivo demasiado grande para Nginx (sube client_max_body_size).' : `No se pudo subir ${rel}`;
+  }
+  return null;
+}
+
 // createWebsite: envía el formulario para crear un sitio web nuevo.
 // Bloquea el botón mientras la petición viaja para evitar dobles envíos.
 async function createWebsite(evt) {
   const type = document.getElementById('site-type').value;
   const domain = document.getElementById('site-domain').value.trim();
   const usePort = document.getElementById('site-mode').value === 'port';
-  // Node/React/Python → asistente de despliegue (subir ZIP/Git → instalar → arrancar).
-  if (['nodejs', 'react', 'python'].includes(type)) {
-    closeModal('modal-new-site');
-    openDeployWizard(type, { presetName: usePort ? domain : '', domain: usePort ? '' : domain });
-    return;
-  }
   const btn = evt?.currentTarget;
   if (!domain) { toast('Introduce un dominio o nombre', 'error'); return; }
+  const proxyPort = document.getElementById('site-proxy-port').value;
+  if (type === 'proxy' && !proxyPort) { toast('Indica el puerto local del proxy', 'error'); return; }
+  const s = type === 'proxy' ? { src: 'empty' } : readSource('site');
+  if (s.error) { toast(s.error, 'error'); return; }
   const phpVersion = type === 'php' ? document.getElementById('site-php-version').value : '';
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
   toast('Creando sitio web...', 'info');
   try {
-    const r = await req('POST', '/websites', {
+    const body = {
       domain, type, usePort,
       phpVersion: phpVersion || undefined,
+      proxyPort: type === 'proxy' ? proxyPort : undefined,
       ssl: !usePort && document.getElementById('site-ssl')?.checked,
-    });
-    if (r?.success) {
-      const msg = r.port ? `Sitio creado. Accede en http://${window.serverIp || 'tu-ip'}:${r.port}` : `Sitio ${domain} creado`;
-      toast(msg, 'success');
-      closeModal('modal-new-site');
-      loadWebsites();
-    } else toast(r?.error || 'Error al crear sitio', 'error');
+    };
+    // GitHub: el servidor clona directamente en la carpeta pública.
+    if (s.src === 'git') Object.assign(body, { git_repo: s.repo, git_branch: s.branch, git_token: s.token || undefined });
+    const r = await req('POST', '/websites', body);
+    if (!r?.success) { toast(r?.error || 'Error al crear sitio', 'error'); return; }
+
+    // Archivos: se suben a la carpeta pública y, si es un ZIP, se descomprime allí.
+    if (s.src === 'zip' || s.src === 'files') {
+      toast('Subiendo archivos...', 'info');
+      const err = await uploadSource(`/var/www/${domain}/public`, s);
+      const ext = !err && s.src === 'zip' ? await req('POST', `/websites/${r.id}/extract`) : null;
+      if (err || (ext && !ext.success)) {
+        toast(`Sitio creado, pero: ${err || ext.error}`, 'error');
+        closeModal('modal-new-site'); loadWebsites(); return;
+      }
+    }
+    toast(r.port ? `Sitio creado. Accede en http://${window.serverIp || 'tu-ip'}:${r.port}` : `Sitio ${domain} creado`, 'success');
+    closeModal('modal-new-site');
+    loadWebsites();
   } finally {
     if (btn) { btn.disabled = false; btn.style.opacity = ''; }
   }
+}
+
+// gitPullSite: actualiza un sitio con Git desde el panel (equivale al webhook).
+async function gitPullSite(id, evt) {
+  const btn = evt?.currentTarget;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  try {
+    const r = await req('POST', `/websites/${id}/git-pull`);
+    toast(r?.success ? 'Sitio actualizado desde Git' : (r?.error || 'Error al actualizar'), r?.success ? 'success' : 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+// copySiteWebhook: copia la URL que GitHub debe llamar en cada push.
+function copySiteWebhook(secret) {
+  copyText(`${window.location.origin}/api/webhooks/deploy/${secret}`).then(() => toast('URL del webhook copiada', 'success'));
 }
 
 // installSiteSsl: instala un certificado Let's Encrypt en un sitio existente.
@@ -235,14 +338,11 @@ async function deleteWebsite(id) {
   else toast(r?.error || 'Error', 'error');
 }
 
-// ── Asistente de despliegue de apps (Node/React/Python) ──────
-// Crea la app, sube el ZIP (o clona Git) y llama al endpoint único /deploy que
+// ── Asistente de despliegue de apps (Node/Python/React; el tipo se autodetecta) ──
+// Crea la app, sube los archivos (o clona Git) y llama al endpoint único /deploy que
 // hace todo de una pasada (detectar → instalar → build → arrancar → proxy) con
-// streaming. Sustituye al antiguo flujo manual por pasos.
-const DEPLOY_TYPE_LABELS = { nodejs: 'Node.js', react: 'React', python: 'Python' };
-
-function openDeployWizard(type, opts = {}) {
-  const label = DEPLOY_TYPE_LABELS[type] || type;
+// streaming. El código queda en /var/www/<nombre>/.
+function openDeployWizard() {
   document.getElementById('modal-deploy-app')?.remove();
   const mod = document.createElement('div');
   mod.className = 'modal-overlay open';
@@ -250,28 +350,13 @@ function openDeployWizard(type, opts = {}) {
   mod.innerHTML = `
     <div class="modal" style="max-width:640px">
       <div class="modal-header">
-        <div class="modal-title">🚀 Desplegar app ${esc(label)}</div>
+        <div class="modal-title">🚀 Nueva app</div>
         <button class="btn btn-sm" onclick="document.getElementById('modal-deploy-app').remove()"><i class="ti ti-x"></i></button>
       </div>
       <div class="modal-body">
-        <div class="form-group"><label>Nombre de la app</label><input id="dep-name" placeholder="mi-app" value="${esc(opts.presetName || '')}"></div>
-        <div class="form-group"><label>Dominio (opcional)</label><input id="dep-domain" placeholder="app.midominio.com" value="${esc(opts.domain || '')}"><small class="muted">Sin dominio se sirve por IP:puerto.</small></div>
-        <div class="form-group"><label>Origen del código</label>
-          <div style="display:flex;gap:14px;margin:4px 0 8px">
-            <label style="font-weight:400"><input type="radio" name="dep-src" value="zip" checked onchange="toggleDeploySrc()"> Subir ZIP</label>
-            <label style="font-weight:400"><input type="radio" name="dep-src" value="git" onchange="toggleDeploySrc()"> Repositorio Git</label>
-          </div>
-          <input type="file" id="dep-zip" accept=".zip,.tar,.tar.gz,.tgz" style="display:none">
-          <div class="deploy-drop" id="dep-drop">
-            <i class="ti ti-cloud-upload" style="font-size:26px;display:block;margin-bottom:5px"></i>
-            <span id="dep-drop-label">Arrastra tu <strong>.zip</strong> aquí o haz clic para elegirlo</span>
-          </div>
-          <div id="dep-git-fields" style="display:none">
-            <input id="dep-git" placeholder="https://github.com/usuario/repo.git" style="width:100%;margin-bottom:6px">
-            <input id="dep-branch" placeholder="main" value="main">
-          </div>
-        </div>
-        <input type="hidden" id="dep-type" value="${esc(type)}">
+        <div class="form-group"><label>Nombre de la app</label><input id="dep-name" placeholder="mi-app"><small class="muted">Se guardar&aacute; en /var/www/&lt;nombre&gt;/</small></div>
+        <div class="form-group"><label>Dominio (opcional)</label><input id="dep-domain" placeholder="app.midominio.com"><small class="muted">Sin dominio se sirve por IP:puerto.</small></div>
+        ${sourceFieldsHtml('dep', false)}
         <div class="console" id="dep-console" style="display:none;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;margin-top:10px;background:#050805;color:#33ff66;font-family:var(--mono),monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;border:1px solid #1c3a24"></div>
       </div>
       <div class="modal-footer">
@@ -280,69 +365,39 @@ function openDeployWizard(type, opts = {}) {
       </div>
     </div>`;
   document.body.appendChild(mod);
-  setupDepDrop();
   setTimeout(() => document.getElementById('dep-name')?.focus(), 100);
-}
-
-function toggleDeploySrc() {
-  const git = document.querySelector('input[name="dep-src"]:checked')?.value === 'git';
-  document.getElementById('dep-drop').style.display = git ? 'none' : '';
-  document.getElementById('dep-git-fields').style.display = git ? '' : 'none';
-}
-
-// setupDepDrop: zona de arrastrar-soltar para el ZIP del asistente. El fichero
-// soltado se guarda en el propio <input type=file id=dep-zip> (FileList), así
-// submitDeploy() lo lee igual que si se hubiera elegido con el diálogo.
-function setupDepDrop() {
-  const zone = document.getElementById('dep-drop');
-  const input = document.getElementById('dep-zip');
-  if (!zone || !input) return;
-  const label = document.getElementById('dep-drop-label');
-  const show = () => { const f = input.files[0]; if (f) { label.textContent = f.name; zone.classList.add('has-file'); } };
-  zone.addEventListener('click', () => input.click());
-  input.addEventListener('change', show);
-  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-  zone.addEventListener('drop', (e) => {
-    e.preventDefault(); zone.classList.remove('dragover');
-    if (e.dataTransfer.files[0]) { input.files = e.dataTransfer.files; show(); }
-  });
 }
 
 async function submitDeploy() {
   const name = document.getElementById('dep-name').value.trim();
   const domain = document.getElementById('dep-domain').value.trim();
-  const src = document.querySelector('input[name="dep-src"]:checked')?.value;
-  const zipFile = document.getElementById('dep-zip').files[0];
-  const gitRepo = document.getElementById('dep-git').value.trim();
-  const gitBranch = document.getElementById('dep-branch').value.trim() || 'main';
   if (!name) { toast('Indica un nombre para la app', 'error'); return; }
-  if (src === 'zip' && !zipFile) { toast('Selecciona un archivo ZIP', 'error'); return; }
-  if (src === 'git' && !gitRepo) { toast('Indica la URL del repositorio', 'error'); return; }
+  const s = readSource('dep');
+  if (s.error) { toast(s.error, 'error'); return; }
 
   const con = document.getElementById('dep-console');
   const go = document.getElementById('dep-go');
+  const log = (t) => { con.textContent += t + '\n'; con.scrollTop = con.scrollHeight; };
   con.style.display = 'block'; con.textContent = '';
   if (go) go.disabled = true;
   try {
-    con.textContent += '⏳ Creando la app...\n';
+    log('⏳ Creando la app...');
     const createData = { name };
     if (domain) createData.domain = domain;
-    if (src === 'git') { createData.git_repo = gitRepo; createData.git_branch = gitBranch; }
+    if (s.src === 'git') Object.assign(createData, { git_repo: s.repo, git_branch: s.branch, git_token: s.token || undefined });
     const created = await req('POST', '/apps', createData);
     // Fallo ANTES de arrancar el despliegue → se puede corregir y reintentar.
-    if (!created?.id) { con.textContent += '✖ ' + (created?.error || 'No se pudo crear la app') + '\n'; if (go) go.disabled = false; return; }
-    if (src === 'zip') {
-      con.textContent += '📤 Subiendo ' + zipFile.name + '...\n';
-      const up = await uploadBinary(zipFile, created.path + '/' + zipFile.name);
-      if (!up?.success) { con.textContent += '✖ No se pudo subir el archivo.\n'; if (go) go.disabled = false; return; }
+    if (!created?.id) { log('✖ ' + (created?.error || 'No se pudo crear la app')); if (go) go.disabled = false; return; }
+    if (s.src !== 'git') {
+      const err = await uploadSource(created.path, s, log);
+      if (err) { log('✖ ' + err); if (go) go.disabled = false; return; }
     }
     await streamDeploy(created.id, con);
     // Despliegue terminado: no se vuelve a desplegar desde esta ventana; solo cerrar.
     if (go) go.style.display = 'none';
     loadWebsites();
   } catch (e) {
-    con.textContent += '✖ ' + (e?.message || e) + '\n';
+    log('✖ ' + (e?.message || e));
     if (go) go.disabled = false;
   }
 }
@@ -413,6 +468,7 @@ async function redeployApp(id, name) {
 Object.assign(window, {
   createWebsite, deleteWebsite, installSiteSsl, loadWebsites,
   togglePhpVersion, loadPhpVersions, toggleSiteMode, openNewSiteModal,
-  rebuildVhost, viewVhost, openSiteFiles,
-  openDeployWizard, toggleDeploySrc, submitDeploy, streamDeploy, redeployApp,
+  rebuildVhost, viewVhost, openSiteFiles, gitPullSite, copySiteWebhook,
+  sourceFieldsHtml, toggleSrc, readSource, uploadSource,
+  openDeployWizard, submitDeploy, streamDeploy, redeployApp,
 });

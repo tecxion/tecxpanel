@@ -12,5 +12,6 @@ CREATE TABLE IF NOT EXISTS apps (
   git_repo       TEXT,
   git_branch     TEXT,
   webhook_secret TEXT,
+  git_token      TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -18,3 +18,9 @@ test('isApexDomain: entrada no-string no rompe', () => {
   assert.strictEqual(nginx.isApexDomain(''), false);
   assert.strictEqual(nginx.isApexDomain('localhost'), false);
 });
+
+test('buildSite: tipo proxy reenvía al puerto indicado', () => {
+  const conf = nginx.buildSite('ejemplo.com', 'proxy', 4321);
+  assert.match(conf, /proxy_pass http:\/\/127\.0\.0\.1:4321;/);
+  assert.doesNotMatch(conf, /root /);
+});

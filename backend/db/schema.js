@@ -26,10 +26,31 @@ function listSql(dir) {
     .map((f) => ({ name: f, full: path.join(dir, f) }));
 }
 
+// Columnas añadidas DESPUÉS de la primera versión de su tabla. CREATE TABLE IF NOT
+// EXISTS no toca una tabla que ya existe, así que un panel ya instalado se
+// quedaría sin ellas. Se añaden aquí si faltan (idempotente, no pierde datos).
+// Las BDs nuevas ya las traen del .sql.
+const ADDED_COLUMNS = [
+  ['websites', 'proxy_port', 'INTEGER'],
+  ['websites', 'git_repo', 'TEXT'],
+  ['websites', 'git_branch', 'TEXT'],
+  ['websites', 'git_token', 'TEXT'],
+  ['websites', 'webhook_secret', 'TEXT'],
+  ['apps', 'git_token', 'TEXT'],
+];
+
+function addMissingColumns() {
+  for (const [table, col, def] of ADDED_COLUMNS) {
+    const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+    if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  }
+}
+
 function initSchema() {
   for (const { full } of listSql(SCHEMA_DIR)) {
     db.exec(fs.readFileSync(full, 'utf8'));
   }
+  addMissingColumns();
 }
 
 module.exports = { initSchema };

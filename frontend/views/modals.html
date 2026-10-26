@@ -22,10 +22,15 @@
         <select id="site-type" onchange="togglePhpVersion()">
           <option value="html">HTML est&aacute;tico</option>
           <option value="php">PHP</option>
-          <option value="nodejs">Node.js (proxy)</option>
-          <option value="react">React (build)</option>
-          <option value="python">Python (proxy)</option>
+          <option value="react">React / Vue / Vite (build ya compilado)</option>
+          <option value="proxy">Proxy a un puerto local</option>
         </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">&iquest;Tu app Node/Python o un proyecto con c&oacute;digo fuente que hay que compilar? Usa <strong>Nueva app</strong>.</div>
+      </div>
+      <div class="form-group" id="site-proxy-port-group" style="display:none">
+        <label>Puerto local</label>
+        <input type="number" id="site-proxy-port" placeholder="3000" min="1" max="65535">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Nginx reenviar&aacute; el dominio a 127.0.0.1:puerto (algo que ya corre en este servidor).</div>
       </div>
       <div class="form-group" id="site-php-version-group" style="display:none">
         <label>Versi&oacute;n de PHP</label>
@@ -33,6 +38,7 @@
           <option value="">Auto-detectar</option>
         </select>
       </div>
+      <div id="site-source-mount"></div>
       <div class="form-group" id="site-ssl-group">
         <label><input type="checkbox" id="site-ssl"> SSL autom&aacute;tico (Let's Encrypt)</label>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Requiere que el dominio ya apunte a este servidor.</div>

@@ -17,7 +17,8 @@ const ALLOWED_SVC_ACTIONS = ['start', 'stop', 'restart'];
 // Acciones permitidas sobre las apps de PM2.
 const ALLOWED_APP_ACTIONS = ['start', 'stop', 'restart', 'delete'];
 // Tipos de sitio web soportados.
-const ALLOWED_SITE_TYPES = ['html', 'php', 'nodejs', 'react', 'python'];
+// ('nodejs'/'python' ya no se crean como sitio: son apps. Las filas antiguas siguen funcionando.)
+const ALLOWED_SITE_TYPES = ['html', 'php', 'react', 'proxy'];
 // Tipos de app desplegable soportados.
 const ALLOWED_APP_TYPES = ['nodejs', 'typescript', 'react', 'python'];
 // Motores de base de datos soportados.

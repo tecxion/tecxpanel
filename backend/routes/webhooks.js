@@ -13,8 +13,12 @@
 const express = require('express');
 const { queries, audit } = require('../database');
 const { ok, fail, runSafe, wrap } = require('../lib/helpers');
+const nginx = require('../lib/nginx');
 const fs = require('fs');
 const path = require('path');
+const { gitEnv } = require('../lib/deploy');
+const deploy = require('../lib/deploy/engine');
+const { decryptSecret } = require('../lib/crypto');
 
 const router = express.Router();
 
@@ -32,7 +36,7 @@ async function executeDeployment(appRow) {
   try {
     // 1. Git fetch and reset hard
     console.log(`[webhook] [${appRow.name}] git fetch & reset...`);
-    const gitFetch = await runSafe('git', ['fetch', '--all'], { cwd });
+    const gitFetch = await runSafe('git', ['fetch', '--all'], { cwd, env: gitEnv(decryptSecret(appRow.git_token)) });
     if (!gitFetch.ok) throw new Error(`git fetch falló: ${gitFetch.stderr}`);
 
     const gitReset = await runSafe('git', ['reset', '--hard', `origin/${branch}`], { cwd });
@@ -98,12 +102,23 @@ async function executeDeployment(appRow) {
   }
 }
 
-// POST /deploy/:secret
+// Auto-actualización de un SITIO WEB: solo git pull en su carpeta pública
+// (no hay procesos que recargar; Nginx sirve los archivos nuevos al instante).
+async function pullSite(site) {
+  const r = await deploy.pullRepo(path.join(nginx.SITES_DIR, site.domain, 'public'), site.git_branch || 'main', decryptSecret(site.git_token));
+  audit('system', '127.0.0.1', r.ok ? 'website.webhook.pull' : 'website.webhook.error', r.ok ? site.domain : `${site.domain}: ${r.error}`);
+}
+
+// POST /deploy/:secret — el secreto identifica una app o un sitio web.
 router.post('/deploy/:secret', wrap(async (req, res) => {
   const { secret } = req.params;
   const appRow = queries.getAppByWebhookSecret.get(secret);
   if (!appRow) {
-    return fail(res, 404, 'Webhook no válido');
+    const site = queries.getWebsiteByWebhookSecret.get(secret);
+    if (!site) return fail(res, 404, 'Webhook no válido');
+    ok(res, { success: true, message: 'Actualización iniciada en segundo plano' });
+    pullSite(site);
+    return;
   }
 
   // Respond with 202 Accepted immediately to avoid remote provider timeout

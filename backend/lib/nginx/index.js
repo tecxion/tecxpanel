@@ -91,7 +91,7 @@ function buildSite(domain, type, proxyPort, opts = {}) {
 
   // Node.js y Python no sirven archivos: se hace de "proxy inverso" hacia
   // el puerto donde corre su proceso.
-  if (type === 'nodejs' || type === 'python') {
+  if (type === 'proxy' || type === 'nodejs' || type === 'python') {
     return `server {\n    ${listen};${serverName}${buildLogLines(domain)}\n    location / {\n        proxy_pass http://127.0.0.1:${proxyPort};\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n`;
   }
   // HTML/PHP/React sí sirven archivos desde "root".
