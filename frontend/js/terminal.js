@@ -4,7 +4,7 @@
 
 const TABS_KEY = 'txpl_term_tabs';
 let tabs = [];            // { k, id, name, term, fit, pane, ws, status, backoff, timer, closed, noRetry, busyCb }
-let activeK = null, tabSeq = 0, nameSeq = 0, xtermLoad = null, termRO = null, initing = false;
+let activeK = null, tabSeq = 0, xtermLoad = null, termRO = null, initing = false;
 
 const activeTab = () => tabs.find((t) => t.k === activeK);
 
@@ -104,6 +104,16 @@ function connectTab(t) {
   ws.onerror = () => { if (ws === t.ws) setTabStatus(t, 'err'); };
 }
 
+// freeTermName: "Terminal N" con el N más bajo que no esté en uso. Así, al cerrar
+// todas las pestañas y abrir una nueva vuelve a llamarse "Terminal 1" (en vez de
+// seguir sumando) y cerrar la 2 deja el hueco para la siguiente.
+function freeTermName() {
+  const used = new Set(tabs.map((t) => t.name));
+  let n = 1;
+  while (used.has('Terminal ' + n)) n++;
+  return 'Terminal ' + n;
+}
+
 function addTab(saved) {
   const pane = document.createElement('div');
   pane.className = 'term-pane';
@@ -117,7 +127,7 @@ function addTab(saved) {
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
-  const t = { k: ++tabSeq, id: saved?.id || null, name: saved?.name || 'Terminal ' + (++nameSeq),
+  const t = { k: ++tabSeq, id: saved?.id || null, name: saved?.name || freeTermName(),
               term, fit, pane, ws: null, status: ['off'], backoff: 2000 };
   term.onData((data) => { if (t.ws && t.ws.readyState === 1) t.ws.send(JSON.stringify({ type: 'input', data })); });
   tabs.push(t);
@@ -223,7 +233,6 @@ async function initTerminal() {
     }
     const saved = loadSavedTabs();
     if (saved) {
-      nameSeq = Math.max(0, ...saved.tabs.map((s) => parseInt(String(s.name).replace(/\D/g, ''), 10) || 0));
       saved.tabs.forEach((s) => addTab(s));
       if (tabs[saved.active]) termSelect(tabs[saved.active].k);
     } else addTab();
