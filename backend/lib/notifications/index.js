@@ -40,6 +40,7 @@ const resourceKey = {
   disk: () => 'disk',
   service: (name) => `service:${name}`,
   container: (name) => `container:${name}`,
+  php: () => 'php:patch',
 };
 
 // ── Transiciones de estado (anti-flapping + reintento) ───────────
@@ -107,6 +108,8 @@ function buildStatusEvent({ key, event, hostname, since, detail }) {
   let title;
   if (type === 'disk') {
     title = event === 'down' ? 'Disco por encima del umbral' : 'Disco de nuevo bajo el umbral';
+  } else if (type === 'php') {
+    title = event === 'down' ? 'PHP sin parchear (php2shell)' : 'PHP parcheado';
   } else if (type === 'service') {
     title = `Servicio ${name} ${event === 'down' ? 'caído' : 'recuperado'}`;
   } else {

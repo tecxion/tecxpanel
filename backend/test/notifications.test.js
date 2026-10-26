@@ -218,3 +218,10 @@ test('buildSslExpiryEvent: aviso y recuperación', () => {
   assert.strictEqual(rec.kind, 'recovered');
   assert.ok(rec.title.includes('renovado'));
 });
+
+test('buildStatusEvent: PHP sin parchear y parcheado', () => {
+  const down = ntf.buildStatusEvent({ key: ntf.resourceKey.php(), event: 'down', hostname: 'mi-vps', since: NOW, detail: 'Sin parchear: PHP 8.3' });
+  assert.match(down.title, /PHP sin parchear/);
+  const up = ntf.buildStatusEvent({ key: ntf.resourceKey.php(), event: 'recovered', hostname: 'mi-vps', since: NOW, detail: null });
+  assert.match(up.title, /PHP parcheado/);
+});

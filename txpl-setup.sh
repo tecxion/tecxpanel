@@ -246,6 +246,9 @@ step_begin "Copiando archivos del panel"
 # Sin sistema de migraciones — no hace falta ninguna acción manual.
 cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
 cp "$SCRIPT_DIR/package.json"        "$TXPL_DIR/backend/"
+cp "$SCRIPT_DIR/package-lock.json"   "$TXPL_DIR/backend/" 2>/dev/null || true
+cp "$SCRIPT_DIR/VERSION"             "$TXPL_DIR/"
+mkdir -p "$TXPL_DIR/scripts" && cp -r "$SCRIPT_DIR/scripts/update.d" "$TXPL_DIR/scripts/"
 # Frontend (index.html, css/, js/, views/) — copia recursiva, incluye las vistas modulares
 cp -r "$SCRIPT_DIR/frontend/." "$TXPL_DIR/frontend/"
 cp "$SCRIPT_DIR/ecosystem.config.js" "$TXPL_DIR/"

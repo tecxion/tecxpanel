@@ -66,6 +66,10 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders
   message: { error: 'Demasiados intentos de login. Espera unos minutos.' } });
 app.use('/api/', apiLimiter);
 
+// Comprobación de salud PÚBLICA: la usa txpl-update.sh tras recargar el panel para
+// decidir si la actualización funciona o hay que hacer rollback. No revela nada.
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
 // ── Rutas de autenticación ────────────────────────────────────
 // El router de auth es una "fábrica": le pasamos el secreto JWT y nos devuelve
 // el router, el middleware `auth` (exige token) y `verifyToken`.

@@ -23,6 +23,7 @@ async function loadSettings() {
   }
 
   loadNotifyConfig();
+  loadAbout();
 }
 
 // saveRecovery: guarda los datos de recuperación (email, pregunta y, opcional,
@@ -56,6 +57,69 @@ async function changePassword() {
   } else toast(r?.error || 'Error al cambiar la contraseña', 'error');
 }
 
+// ── Acerca de: versión instalada y actualización ─────────────────
+// Muestra la versión; si hay una más nueva en GitHub, sus novedades y el botón
+// Actualizar. La actualización corre en segundo plano en el servidor (el panel se
+// recarga a mitad), así que aquí solo se consulta el estado cada pocos segundos
+// hasta que acaba, y entonces se recarga la página.
+let aboutPoll = null;
+
+async function loadAbout(refresh) {
+  const box = document.getElementById('about-update');
+  if (!box) return;
+  const s = await req('GET', '/system/update' + (refresh ? '?refresh=1' : ''));
+  if (!s) return;
+  if (s.running) { renderUpdating(s); watchUpdate(); return; }
+  const ver = s.current ? 'v' + esc(s.current) : 'desconocida';
+  let html = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span>Versión instalada: <strong>${ver}</strong></span>`;
+  if (s.available) {
+    html += `<span class="badge badge-green">Nueva versión v${esc(s.latest)}</span>
+      <button class="btn btn-primary btn-sm" onclick="startPanelUpdate()"><i class="ti ti-download"></i> Actualizar</button>`;
+  } else if (s.latest) {
+    html += '<span class="badge badge-green">Al día</span>';
+  }
+  html += `<button class="btn btn-sm" onclick="loadAbout(true)" title="Buscar actualizaciones"><i class="ti ti-refresh"></i></button></div>`;
+  if (s.error) html += `<div class="muted" style="margin-top:6px">${esc(s.error)}</div>`;
+  if (s.available && s.notes) html += `<pre style="margin-top:10px;white-space:pre-wrap;font-family:inherit;font-size:12px;color:var(--text-secondary)">${esc(s.notes)}</pre>`;
+  // Si la última actualización falló, se enseña por qué (el log del servidor).
+  if (s.result && s.result !== 0 && s.log) html += `<div class="muted" style="margin-top:10px">La última actualización falló y se restauró la copia previa:</div><pre style="max-height:200px;overflow:auto;font-size:11px">${esc(s.log)}</pre>`;
+  box.innerHTML = html;
+}
+
+function renderUpdating(s) {
+  const box = document.getElementById('about-update');
+  box.innerHTML = `<div><i class="ti ti-loader-2 spin"></i> <strong>Actualizando…</strong> <span class="muted">No cierres esta página; el panel se recargará solo al terminar.</span></div>
+    <pre id="about-update-log" style="margin-top:10px;max-height:240px;overflow:auto;font-size:11px;background:#050805;color:#33ff66;padding:10px;border-radius:8px">${esc(s.log || '')}</pre>`;
+  const pre = document.getElementById('about-update-log');
+  if (pre) pre.scrollTop = pre.scrollHeight;
+}
+
+async function startPanelUpdate() {
+  if (!confirm('Se descargará la última versión y se reiniciará el panel unos segundos. Se hace una copia previa y, si algo falla, se restaura sola. ¿Actualizar ahora?')) return;
+  const r = await req('POST', '/system/update');
+  if (!r?.success) { toast(r?.error || 'No se pudo iniciar la actualización', 'error'); return; }
+  renderUpdating({ log: 'Iniciando…' });
+  watchUpdate();
+}
+
+// watchUpdate: consulta el estado cada 3 s. Mientras el panel se reinicia las
+// peticiones fallan: se ignoran y se sigue esperando.
+function watchUpdate() {
+  if (aboutPoll) return;
+  aboutPoll = setInterval(async () => {
+    let s = null;
+    try {
+      const r = await fetch(API + '/api/system/update', { headers: { Authorization: `Bearer ${TOKEN}` } });
+      if (r.ok) s = await r.json();
+    } catch (_) { /* panel reiniciándose */ }
+    if (!s) return;
+    if (s.running) { renderUpdating(s); return; }
+    clearInterval(aboutPoll); aboutPoll = null;
+    if (s.result === 0) { toast('Panel actualizado. Recargando…', 'success'); setTimeout(() => location.reload(), 1500); }
+    else { toast('La actualización falló; se restauró la versión anterior', 'error'); loadAbout(); }
+  }, 3000);
+}
+
 Object.assign(window, {
-  changePassword, loadSettings, saveRecovery,
-});
+  changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate });

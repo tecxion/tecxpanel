@@ -58,6 +58,7 @@ Cada feature con helpers puros y/o motor de efectos vive en su propia subcarpeta
 - `lib/catalog/` — `index.js` (CATALOG declarativo, validación, configs), `engine.js` (instalación docker/native/pm2 con rollback). Tests en `backend/test/catalog.test.js`.
 - `lib/php/` — seguridad PHP (php2shell, CVE-2026-109618/109619): `index.js` (helpers puros: versión mínima por rama, ini de mitigación), `engine.js` (`check`/`harden`/`patch` sobre php-fpm instalado). Ruta `routes/php.js` (`/api/php/status|harden|patch`). `txpl-update.sh` ejecuta patch+harden. Los vhosts PHP de `lib/nginx` llevan `DOTFILES_GUARD`/`PHP_GUARD` (sin ejecución PHP en carpetas de subidas); deben ir ANTES de `location ~ \.php$`.
 - `lib/deploy/` — origen del código de sitios y apps: `index.js` (puro: `gitEnv` pasa el token de repos privados por env, `isValidGitToken`) y `engine.js` (`cloneRepo`, `pullRepo`, `extractArchive`). Sitios: archivos/clon en `/var/www/<dominio>/public/`; apps: en `/var/www/<nombre>/`. El webhook `/api/webhooks/deploy/:secret` sirve a apps y a sitios. Tests en `backend/test/deploySource.test.js`.
+- `lib/update/` — versión y actualizador del panel: `index.js` (puro: `compareVersions`, `changelogSection`, `parseUpdateLog`) y `engine.js` (lee `VERSION`, consulta el `VERSION` de GitHub, lanza `txpl-update.sh --remote` con `systemd-run` para que sobreviva al reload de PM2). Rutas `GET/POST /api/system/update`; `/api/health` es público y lo usa el script. UI en Ajustes → Acerca de.
 - `lib/cron/`, `lib/dns/`, `lib/ssl/`, `lib/n8n/`, `lib/nginx/`, `lib/apps/` — Cada uno con `index.js` (helpers puros) y delegates para engine cuando aplica. `lib/apps/deploy.js` = `appdeploy.js` v1 (helpers Python web/worker).
 - Helpers sueltos que siguen en `lib/` (sin subcarpeta, son puros y cortos): `crypto.js`, `validators.js`, `rclone.js`, `dockerDeploy.js`, `logs.js`, `websocket.js`.
 
@@ -80,9 +81,13 @@ Cada feature con helpers puros y/o motor de efectos vive en su propia subcarpeta
 - **Estados vacíos:** helper `emptyState(icon, message, ctaLabel, ctaOnclick)` en `core/utils.js` aplicado a todos los listados. Los handlers `onclick=` inline resuelven contra el scope global: toda función usada en vistas debe ser global y existir exactamente una vez (test `backend/test/frontend-handlers.test.js`).
 - **Migración a lit-html progresiva:** las páginas v1 siguen funcionando con `window.fn` + onclick inline. La migración a `lit-html` (`html\`...\`` + `@click` bindings) se hará página por página en tareas futuras (docker.js primero, por ser la más grande: 26 KB).
 
+**Versiones:** fichero `VERSION` (+ `package.json` + sección en `CHANGELOG.md`). Actualización grande suma 0.1 (2.1.0 → 2.2.0), pequeña 0.0.1 (2.1.0 → 2.1.1). Los paneles detectan una versión nueva comparando su `VERSION` con el de `main` en GitHub, así que un push sin cambiar `VERSION` no ofrece actualización.
+
+**Actualizador por pasos:** `txpl-update.sh` recorre `scripts/update.d/NN-nombre.sh`; cada paso define `step_check` (¿hace falta?, mirando el estado real del servidor), `step_run` y opcionalmente `step_preview`. Fallo de un paso o `/api/health` caído → rollback de archivos, dependencias y BD. `--check` simula; `--force` reaplica. Para añadir un paso nuevo basta crear un fichero.
+
 **Shell scripts** (for VPS, not for dev):
 - `txpl-setup.sh` — Full VPS provisioner (Node, Nginx, PM2, UFW, Certbot, optional MySQL/PG).
-- `txpl-update.sh` — Actualización in-place del panel en el VPS (pull + reinstalación de deps + reload PM2).
+- `txpl-update.sh` — Actualizador (ver arriba); `txpl update` descarga la última versión de GitHub y la aplica.
 - `txpl-cli.sh` — Terminal CLI (`txpl status`, `txpl restart`, `txpl logs`, etc.).
 - `txpl-backup.sh` — Backup script for DB + configs + sites.
 - `txpl-nginx.conf` — Nginx reverse proxy config template for the panel.

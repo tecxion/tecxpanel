@@ -36,7 +36,8 @@ help() {
     echo "  txpl restart         — Reiniciar el panel"
     echo "  txpl logs            — Ver logs en tiempo real"
     echo "  txpl reset-password  — Restablecer la contraseña de un usuario"
-    echo "  txpl update          — Actualizar el panel"
+    echo "  txpl update          — Actualizar el panel (descarga la última versión)"
+    echo "  txpl update:check    — Ver qué cambiaría la actualización, sin aplicarla"
     echo "  txpl panel:ssl <dom> — Instalar HTTPS en el panel (dominio propio)"
     echo ""
     echo -e "${C}Sitios web:${X}"
@@ -194,7 +195,11 @@ reset-password)
     ;;
 
 update)
-    bash "$(dirname $0)/txpl-update.sh"
+    # Descarga la última versión de GitHub y la aplica (antes buscaba el script junto al binario y no existía).
+    bash /opt/txpl/txpl-update.sh --remote "${@:2}"
+    ;;
+update:check)
+    bash /opt/txpl/txpl-update.sh --remote --check
     ;;
 
 # ── Sitios web ───────────────────────────────────────────────

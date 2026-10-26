@@ -16,6 +16,7 @@ const { runSafe } = require('../lib/helpers');
 const { cpuPercent, memInfo } = require('../lib/websocket'); // reutilizamos los cálculos del WS
 const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
+const updater = require('../lib/update/engine');
 
 const router = express.Router();
 
@@ -133,6 +134,20 @@ router.get('/php-versions', wrap(async (req, res) => {
     }
   }
   ok(res, versions);
+}));
+
+// GET /api/system/update[?refresh=1] — Versión instalada, última publicada, novedades
+// y estado/log de la actualización en curso (la UI lo consulta cada pocos segundos).
+router.get('/update', wrap(async (req, res) => {
+  ok(res, await updater.status({ refresh: req.query.refresh === '1' }));
+}));
+
+// POST /api/system/update — Lanza la actualización en segundo plano (txpl-update.sh --remote).
+// No recibe parámetros: repo y rama salen del entorno del servidor.
+router.post('/update', wrap(async (req, res) => {
+  await updater.start();
+  audit(req.user.username, clientIp(req), 'system.update', 'inicio');
+  ok(res, { success: true });
 }));
 
 // GET /api/system/versions — Versiones de las piezas clave para mostrar en el

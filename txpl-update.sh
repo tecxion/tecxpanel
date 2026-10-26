@@ -1,179 +1,191 @@
 #!/bin/bash
 # ============================================================
-#  TecXPaneL — Update Script (zero downtime)
-#  Uso: bash txpl-update.sh
+#  TecXPaneL — Actualizador
+#
+#  Uso:
+#    txpl update                      descarga la última versión de GitHub y la aplica
+#    bash txpl-update.sh --check      simulacro: muestra qué se haría, sin tocar nada
+#    bash txpl-update.sh [--force]    aplica desde la carpeta donde está este script
+#    --remote   descargar el código de GitHub (TXPL_UPDATE_REPO / TXPL_UPDATE_BRANCH)
+#    --force    reaplicar aunque la versión sea la misma (o más antigua)
+#
+#  Cómo funciona:
+#   1. Cada paso vive en scripts/update.d/NN-nombre.sh y define step_check
+#      ("¿hace falta?", mirando el estado REAL del servidor) y step_run.
+#      Así un servidor con PHP ya parcheado se lo salta, y uno que se saltó
+#      varias versiones recibe todo lo pendiente.
+#   2. Si algo falla, o el panel no responde en /api/health, se hace rollback
+#      automático (archivos, dependencias y base de datos).
+#   3. Deja marcas en /var/log/txpl-update.log que el panel usa para mostrar
+#      el progreso y el resultado.
 # ============================================================
 
-set -e
-GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'
-RED='\033[0;31m'; BOLD='\033[1m'; RESET='\033[0m'
+set -Eeuo pipefail
+
+if [[ -t 1 ]]; then GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; RESET='\033[0m'
+else GREEN=''; YELLOW=''; RED=''; BOLD=''; RESET=''; fi
 log()  { echo -e "${GREEN}[TXPL]${RESET} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${RESET} $1"; }
 err()  { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
-sep()  { echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
-TXPL_DIR="/opt/txpl"
-BACKUP_DIR="$TXPL_DIR/backups/update-$(date +%Y%m%d-%H%M%S)"
+TXPL_DIR="${TXPL_DIR:-/opt/txpl}"
+LOG_FILE="${TXPL_UPDATE_LOG:-/var/log/txpl-update.log}"
+REMOTE=0; CHECK=0; FORCE=0; SRC_DIR=""; CLEANUP=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --remote) REMOTE=1 ;;
+        --check)  CHECK=1 ;;
+        --force)  FORCE=1 ;;
+        --yes)    ;;                          # compatibilidad: ya no pregunta nada
+        --from-dir) SRC_DIR="$2"; shift ;;    # interno: carpeta con el código descargado
+        --cleanup)  CLEANUP="$2"; shift ;;    # interno: carpeta temporal a borrar al acabar
+        *) err "Opción desconocida: $1" ;;
+    esac
+    shift
+done
 
-[[ $EUID -ne 0 ]] && err "Ejecutar como root"
+[[ $CHECK == 0 && $EUID -ne 0 ]] && err "Ejecutar como root"
 [[ ! -f "$TXPL_DIR/.env" ]] && err "TXPL no instalado. Ejecuta txpl-setup.sh primero"
 
-sep
-echo -e "${BOLD}TecXPaneL — Actualizador${RESET}"
-sep
+# Log + marcas START/DONE (las lee el panel). Solo una vez, aunque el script se relance.
+if [[ $CHECK == 0 && -z "${TXPL_UPDATE_LOGGED:-}" ]]; then
+    export TXPL_UPDATE_LOGGED=1
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    echo "__TXPL_UPDATE_START__ $(date -Is)"
+fi
+LOCK_HELD=""
+trap 'rc=$?; [[ -n "$LOCK_HELD" ]] && rm -f "$LOCK"; [[ -n "$CLEANUP" ]] && rm -rf "$CLEANUP"; [[ $CHECK == 0 ]] && echo "__TXPL_UPDATE_DONE__$rc"' EXIT
 
-# ── 1. Backup previo ─────────────────────────────────────────
-log "📦 Creando backup previo a la actualización..."
-mkdir -p "$BACKUP_DIR"
-cp -r "$TXPL_DIR/backend" "$BACKUP_DIR/backend" 2>/dev/null || true
-cp -r "$TXPL_DIR/frontend" "$BACKUP_DIR/frontend" 2>/dev/null || true
-cp "$TXPL_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
-cp "$TXPL_DIR/data/txpl.db" "$BACKUP_DIR/txpl.db" 2>/dev/null || true
-log "✅ Backup guardado en $BACKUP_DIR"
-
-# ── 2. Copiar nuevos archivos ─────────────────────────────────
-log "📁 Copiando archivos actualizados..."
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Backend v2 modular: server.js + db/ (schema/, queries/) + lib/ (common/, docker/, mail/, backups/, notifications/, catalog/, ...) + routes/.
-# db/schema.js aplica los CREATE TABLE IF NOT EXISTS de db/schema/*.sql al arrancar
-# de forma idempotente: sobre BD nueva crea las tablas, sobre BD existente no toca nada.
-# Sin sistema de migraciones — instalación limpia.
-if [[ -d "$SCRIPT_DIR/backend" ]]; then
-    cp -r "$SCRIPT_DIR/backend/." "$TXPL_DIR/backend/"
-    log "  ↳ backend/ actualizado"
+# ── Descarga remota: clona el repo y relanza ESTE mismo script, ya actualizado ──
+if [[ $REMOTE == 1 ]]; then
+    REPO="${TXPL_UPDATE_REPO:-tecxion/tecxpanel}"; BRANCH="${TXPL_UPDATE_BRANCH:-main}"
+    [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || err "TXPL_UPDATE_REPO inválido"
+    [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || err "TXPL_UPDATE_BRANCH inválido"
+    command -v git >/dev/null || { apt-get update -qq && apt-get install -y -qq git; }
+    TMP=$(mktemp -d /tmp/txpl-update.XXXXXX); CLEANUP="$TMP"
+    log "Descargando $REPO ($BRANCH)..."
+    git clone -q --depth=1 -b "$BRANCH" "https://github.com/$REPO.git" "$TMP/src" || err "No se pudo descargar el repositorio"
+    log "Descargado: v$(cat "$TMP/src/VERSION" 2>/dev/null || echo '?') (commit $(git -C "$TMP/src" rev-parse --short HEAD))"
+    ARGS=(--from-dir "$TMP/src" --cleanup "$TMP")
+    [[ $CHECK == 1 ]] && ARGS+=(--check)
+    [[ $FORCE == 1 ]] && ARGS+=(--force)
+    exec bash "$TMP/src/txpl-update.sh" "${ARGS[@]}"
 fi
 
-# Frontend (css + js + index.html)
-if [[ -d "$SCRIPT_DIR/frontend" ]]; then
-    cp -r "$SCRIPT_DIR/frontend/." "$TXPL_DIR/frontend/"
-    log "  ↳ frontend/ actualizado"
-fi
+SRC="${SRC_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+[[ -d "$SRC/backend" && -f "$SRC/VERSION" ]] || err "No encuentro backend/ y VERSION en $SRC"
 
-if [[ -f "$SCRIPT_DIR/ecosystem.config.js" ]]; then
-    cp "$SCRIPT_DIR/ecosystem.config.js" "$TXPL_DIR/ecosystem.config.js"
-    log "  ↳ ecosystem.config.js actualizado"
-fi
-
-# ── 3. Instalar/actualizar dependencias npm ──────────────────
-log "📦 Actualizando dependencias Node.js..."
-cd "$TXPL_DIR/backend"
-if [[ -f "$SCRIPT_DIR/package.json" ]]; then
-    cp "$SCRIPT_DIR/package.json" "$TXPL_DIR/backend/package.json"
-fi
-npm install --silent --production
-log "✅ Dependencias actualizadas"
-
-# ── 3b. Asegurar python3-venv (necesario para desplegar apps Python) ──
-if ! dpkg -s python3-venv >/dev/null 2>&1; then
-    log "🐍 Instalando python3-venv (necesario para apps Python)..."
-    apt-get update -qq && apt-get install -y -qq python3-venv \
-        && log "✅ python3-venv instalado" \
-        || warn "No se pudo instalar python3-venv automáticamente (instálalo con: apt install python3-venv)"
-fi
-
-# ── 3c. php2shell (CVE-2026-109618/109619): parchear PHP y aplicar mitigaciones ──
-# Fallo del propio PHP (RCE sin login). Solo si hay php-fpm instalado.
-if ls /usr/sbin/php-fpm[0-9]* >/dev/null 2>&1; then
-    log "🛡️  Parcheando PHP (php2shell) y aplicando mitigaciones..."
-    (cd "$TXPL_DIR/backend" && node -e "
-      const e = require('./lib/php/engine');
-      e.patch(console.log).then((c) => e.harden().then((b) => { console.log('Mitigaciones en: ' + b.join(', ')); process.exit(c); }));
-    ") \
-        && log "✅ PHP parcheado y endurecido" \
-        || warn "PHP sin parche confirmado (los repos pueden no haberlo publicado aún). Mitigaciones aplicadas igualmente."
-fi
-
-# ── 4. Reload sin downtime con PM2 ──────────────────────────
-sep
-log "🔄 Recargando panel (zero downtime)..."
-if pm2 describe txpl-panel > /dev/null 2>&1; then
-    pm2 reload txpl-panel --update-env
-    log "✅ Panel recargado con PM2 reload (sin downtime)"
-else
-    pm2 start "$TXPL_DIR/ecosystem.config.js" --env production
-    log "✅ Panel iniciado"
-fi
-pm2 save
-
-# ── 5. Verificar que está corriendo ─────────────────────────
-sleep 2
-if pm2 describe txpl-panel | grep -q "online"; then
-    log "✅ Panel corriendo correctamente"
-else
-    warn "El panel no parece estar online. Restaurando backup..."
-    cp -r "$BACKUP_DIR/backend/." "$TXPL_DIR/backend/"
-    cp -r "$BACKUP_DIR/frontend/." "$TXPL_DIR/frontend/"
-    # Restaurar la BD también: si el runner v2 introdujo columnas nuevas o migraciones
-    # que dejaron la BD en un estado incompatible con el código restaurado, el .db
-    # pre-update es la única forma segura de volver al estado anterior.
-    if [[ -f "$BACKUP_DIR/txpl.db" ]]; then
-        cp "$BACKUP_DIR/txpl.db" "$TXPL_DIR/data/txpl.db"
-        log "✅ Base de datos restaurada al estado pre-update"
+# Una sola actualización a la vez. Fichero con el PID en vez de flock: los procesos
+# que lanzamos (pm2 deja un daemon vivo) heredarían el descriptor del flock y el
+# bloqueo no se liberaría nunca.
+LOCK="${TXPL_UPDATE_LOCK:-/var/lock/txpl-update.lock}"
+if [[ $CHECK == 0 ]]; then
+    if [[ -f "$LOCK" ]] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then
+        err "Ya hay otra actualización en curso"
     fi
-    pm2 restart txpl-panel || pm2 start "$TXPL_DIR/ecosystem.config.js" --env production
-    err "Actualización fallida. Backup restaurado. Revisa: pm2 logs txpl-panel"
+    echo $$ > "$LOCK"; LOCK_HELD=1
 fi
 
-# ── 6. Verificar Nginx ────────────────────────────────────────
-# IMPORTANTE: NO sobrescribir la config de nginx en cada actualización. El
-# operador (o Certbot) suele personalizarla — SSL (listen 443), el enrutado del
-# WebSocket sobre HTTPS, dominios propios… Machacarla aquí rompe el SSL y el
-# WebSocket del panel (CPU/RAM/red dejan de verse). Solo la instalamos si NO
-# existe todavía; si ya está, se conserva tal cual.
-LIVE_NGINX=/etc/nginx/sites-available/txpl-panel
-if [[ -f "$SCRIPT_DIR/txpl-nginx.conf" ]]; then
-    if [[ ! -f "$LIVE_NGINX" ]]; then
-        cp "$SCRIPT_DIR/txpl-nginx.conf" "$LIVE_NGINX"
-        ln -sf "$LIVE_NGINX" /etc/nginx/sites-enabled/txpl-panel
-        if nginx -t 2>/dev/null; then
-            systemctl reload nginx
-            log "✅ Nginx instalado y recargado"
+# Herramientas que usan los pasos (instalaciones antiguas pueden no tener rsync).
+for tool in rsync curl; do
+    command -v "$tool" >/dev/null 2>&1 || { [[ $CHECK == 1 ]] && warn "Falta $tool (se instalará al actualizar)" || { apt-get update -qq && apt-get install -y -qq "$tool"; }; }
+done
+
+NEW=$(tr -d '[:space:]' < "$SRC/VERSION")
+OLD=$(tr -d '[:space:]' < "$TXPL_DIR/VERSION" 2>/dev/null || true); OLD="${OLD:-0.0.0}"
+[[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || err "VERSION inválido: $NEW"
+
+# ¿Hay que tocar archivos? Solo si la versión es distinta (y no más antigua), o con --force.
+# Aun sin cambio de versión, los pasos "de sistema" (PHP, Nginx…) miran su propio estado.
+FILES_CHANGE=0
+if [[ "$NEW" != "$OLD" ]]; then
+    if [[ "$(printf '%s\n%s\n' "$NEW" "$OLD" | sort -V | head -1)" == "$NEW" && $FORCE == 0 ]]; then
+        warn "La versión descargada ($NEW) es más antigua que la instalada ($OLD). Usa --force para forzarlo."
+    else
+        FILES_CHANGE=1
+    fi
+elif [[ $FORCE == 1 ]]; then
+    FILES_CHANGE=1
+fi
+
+BACKUP_DIR="$TXPL_DIR/backups/update-$(date +%Y%m%d-%H%M%S)"
+NEED_RESTART=0
+APPLIED=()
+STEP_DESC=""
+
+echo -e "${BOLD}TecXPaneL — Actualizador${RESET}  (instalada: v$OLD → disponible: v$NEW)"
+[[ $CHECK == 1 ]] && echo "Simulacro (--check): no se modifica nada."
+
+# ── Rollback: devuelve archivos, dependencias y BD al estado previo ──────────
+rollback() {
+    [[ -d "$BACKUP_DIR/backend" ]] || { warn "No hay copia previa; no se puede hacer rollback."; return; }
+    warn "Restaurando la copia previa a la actualización..."
+    rsync -a --delete --exclude node_modules "$BACKUP_DIR/backend/" "$TXPL_DIR/backend/"
+    rsync -a --delete "$BACKUP_DIR/frontend/" "$TXPL_DIR/frontend/"
+    cp "$BACKUP_DIR/.env" "$BACKUP_DIR/VERSION" "$BACKUP_DIR/ecosystem.config.js" "$TXPL_DIR/" 2>/dev/null || true
+    pm2 stop txpl-panel >/dev/null 2>&1 || true
+    if [[ -f "$BACKUP_DIR/txpl.db" ]]; then
+        rm -f "$TXPL_DIR"/data/txpl.db-wal "$TXPL_DIR"/data/txpl.db-shm
+        cp "$BACKUP_DIR/txpl.db" "$TXPL_DIR/data/txpl.db"
+        log "Base de datos restaurada al estado previo"
+    fi
+    # El package.json restaurado puede pedir otras dependencias: se reinstalan y se
+    # borra el hash para que la próxima actualización vuelva a comprobarlas.
+    rm -f "$TXPL_DIR/data/deps.hash"
+    (cd "$TXPL_DIR/backend" && npm install --omit=dev --no-audit --no-fund --silent) || warn "No se pudieron reinstalar las dependencias"
+    pm2 restart txpl-panel >/dev/null 2>&1 || pm2 start "$TXPL_DIR/ecosystem.config.js" --env production >/dev/null 2>&1 || true
+}
+on_fail() {
+    local rc=$?
+    trap - ERR; set +e
+    warn "Fallo en el paso: ${STEP_DESC:-desconocido} (código $rc)"
+    [[ $CHECK == 0 ]] && rollback
+    exit 1
+}
+trap on_fail ERR
+
+# ── Pasos ───────────────────────────────────────────────────
+for f in "$SRC"/scripts/update.d/*.sh; do
+    unset -f step_check step_run step_preview 2>/dev/null || true
+    STEP_DESC=""
+    # shellcheck disable=SC1090
+    source "$f"
+    if step_check; then
+        if [[ $CHECK == 1 ]]; then
+            echo "  • $STEP_DESC — pendiente"
+            declare -F step_preview >/dev/null && step_preview
         else
-            warn "Config Nginx inválida; revisa con: nginx -t"
+            log "▶ $STEP_DESC"
+            step_run
+            APPLIED+=("$(basename "$f" .sh)")
         fi
     else
-        log "ℹ️  Nginx: se conserva tu configuración actual (no se toca al actualizar)."
-        warn "Si una versión nueva añade rutas de nginx, aplícalas a mano (ver txpl-nginx.conf)."
+        echo "  ✓ $STEP_DESC — al día"
     fi
+done
+[[ $CHECK == 1 ]] && exit 0
+
+# ── Recarga del panel + comprobación de salud ───────────────
+if [[ $NEED_RESTART == 1 ]]; then
+    log "🔄 Recargando panel..."
+    if pm2 describe txpl-panel >/dev/null 2>&1; then pm2 reload txpl-panel --update-env >/dev/null
+    else pm2 start "$TXPL_DIR/ecosystem.config.js" --env production >/dev/null; fi
+    pm2 save >/dev/null
+
+    PORT=$(grep -E '^TXPL_PORT=' "$TXPL_DIR/.env" | cut -d= -f2 | tr -d '"' || true); PORT="${PORT:-8585}"
+    healthy=0
+    for _ in $(seq 1 25); do
+        if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then healthy=1; break; fi
+        sleep 1
+    done
+    if [[ $healthy == 0 ]]; then
+        warn "El panel no responde en /api/health tras recargar."
+        rollback
+        err "Actualización fallida. Copia restaurada. Revisa: pm2 logs txpl-panel"
+    fi
+    log "✅ Panel respondiendo correctamente"
 fi
 
-# Límite de subida: las instalaciones antiguas tienen un vhost del panel sin
-# "client_max_body_size", así que subir un .zip da 413. Lo aplicamos a nivel
-# global vía conf.d (se incluye dentro de http{}) sin tocar el vhost con SSL/WS.
-# Idempotente: solo se crea si falta.
-UPLOAD_CONF=/etc/nginx/conf.d/txpl-upload.conf
-if [[ ! -f "$UPLOAD_CONF" ]]; then
-    echo 'client_max_body_size 512M;' > "$UPLOAD_CONF"
-    if nginx -t 2>/dev/null; then
-        systemctl reload nginx
-        log "✅ Límite de subida (512M) aplicado para archivos grandes"
-    else
-        rm -f "$UPLOAD_CONF"
-        warn "No se pudo aplicar el límite de subida; revisa con: nginx -t"
-    fi
-fi
-
-sep
-echo -e "${BOLD}${GREEN}✅ Actualización completada${RESET}"
-echo -e "  ${BOLD}COMANDOS TecXPanel${RESET}"
-echo -e "  ${CYAN}─────────────────────────${RESET}"
-echo -e "     txpl status    estado del panel y servicios"
-echo -e "     txpl logs      registros en vivo (Ctrl+C para salir)"
-echo -e "     txpl restart   reiniciar el panel"
-echo -e "     txpl backup    copia de seguridad ahora"
-echo -e "     txpl panel:ssl <tudominio>  instalar HTTPS en 2 minutos"
-echo -e "     txpl sites     Lista los sitios web Nginx gestionados"
-echo -e "     txpl apps      Muestra las aplicaciones en ejecución de PM2"
-echo -e "     txpl dbs       Lista las bases de datos SQLite, MySQL y Postgres"
-echo -e "     txpl backup    Crea una copia de seguridad empaquetada en '/opt/txpl/backups'"
-echo -e "     txpl backup:cron     Instala un cron job diario para backups a las 03:00 AM"
-echo -e "     txpl backup:list    Lista todas las copias de seguridad disponibles"
-echo ""
-echo -e " Si quieres ayudarme no olvides compartir y darle una estrella a este proyecto."
-echo ""
-echo -e "  Panel:    $(pm2 describe txpl-panel | grep status | awk '{print $4}')"
-echo -e "${BOLD}  Backup: ${GREEN}  $BACKUP_DIR${RESET}"
-echo -e "  Logs:     pm2 logs txpl-panel"
-sep
+COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo '-')
+echo "$(date -Is) $OLD -> $NEW pasos=[${APPLIED[*]:-}] commit=$COMMIT" >> "$TXPL_DIR/data/update-history.log"
+log "✅ Actualización completada: v$NEW"

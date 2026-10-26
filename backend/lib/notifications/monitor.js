@@ -17,6 +17,7 @@ const { runSafe } = require('../common/run');
 const { applyTick, resourceKey, buildStatusEvent, applySslThreshold, buildSslExpiryEvent } = require('./index');
 const { dispatch } = require('./executor');
 const { parseCertbotCertificates } = require('../ssl');
+const phpEngine = require('../php/engine');
 
 const TICK_MS = 60_000;
 const WATCHED_SERVICES = ['nginx', 'mysql', 'postgresql', 'redis', 'ssh'];
@@ -75,6 +76,19 @@ async function checkServices() {
     });
   }
   return result;
+}
+
+// PHP-FPM instalado sin el parche de php2shell (RCE). Así un CVE se avisa aunque
+// nadie haya ejecutado todavía la actualización. Sin PHP instalado no hay chequeo.
+async function checkPhp() {
+  const branches = await phpEngine.check().catch(() => []);
+  const bad = branches.filter((b) => b.supported && !b.patched);
+  if (!branches.length) return [];
+  return [{
+    key: resourceKey.php(),
+    status: bad.length ? 'down' : 'ok',
+    detail: bad.length ? `Sin parchear: ${bad.map((b) => 'PHP ' + b.branch).join(', ')}. Ejecuta la actualización.` : null,
+  }];
 }
 
 // Contenedores gestionados por el panel (txpl-*): n8n, mail…
@@ -145,6 +159,7 @@ async function tick() {
     if (cfg.ev_services_enabled) {
       checks.push(...await checkServices());
       checks.push(...await checkContainers());
+      checks.push(...await checkPhp());
     }
 
     for (const c of checks) {
