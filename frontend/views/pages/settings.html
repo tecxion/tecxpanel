@@ -96,6 +96,36 @@
 
   <button class="btn btn-primary" onclick="saveNotifyConfig()"><i class="ti ti-device-floppy"></i> Guardar notificaciones</button>
 </div>
+<!-- Tokens de API para IA / MCP (settings.js: loadApiTokens / createApiToken / revokeApiToken) -->
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-key"></i> Tokens de API (IA / MCP)</div>
+  </div>
+  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
+    Permiten que una IA como Claude consulte el panel. Un token nunca puede abrir la terminal, borrar recursos ni leer contraseñas.
+  </p>
+  <div class="form-group"><label>Nombre</label><input type="text" id="tok-name" placeholder="Claude Desktop" maxlength="60"></div>
+  <div class="form-group"><label>Permiso</label>
+    <select id="tok-scope"><option value="read">Solo lectura</option></select>
+  </div>
+  <div class="form-group"><label>Caduca en</label>
+    <select id="tok-days">
+      <option value="30">30 días</option>
+      <option value="90" selected>90 días</option>
+      <option value="365">365 días</option>
+    </select>
+  </div>
+  <div class="form-group"><label>Contraseña actual</label><input type="password" id="tok-pass" autocomplete="current-password"></div>
+  <button class="btn btn-primary" onclick="createApiToken()"><i class="ti ti-plus"></i> Crear token</button>
+  <!-- Se rellena solo justo tras crear; el token no se guarda en ningún otro sitio -->
+  <div id="tok-new" style="display:none;margin-top:1rem"></div>
+  <div class="table-wrap" style="margin-top:1rem">
+    <table>
+      <thead><tr><th>Nombre</th><th>Permiso</th><th>Creado</th><th>Caduca</th><th>Último uso</th><th></th></tr></thead>
+      <tbody id="tok-list"></tbody>
+    </table>
+  </div>
+</div>
 <div class="card mt-2">
   <div class="card-header">
     <div class="card-title"><i class="ti ti-info-circle"></i> Acerca de TecXPaneL</div>
