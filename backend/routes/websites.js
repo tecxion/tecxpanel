@@ -43,8 +43,10 @@ const publicDir = (domain) => path.join(SITES_DIR, domain, 'public');
 // mira si existe /etc/letsencrypt/live/<dominio>/fullchain.pem, que es donde
 // certbot guarda el cert por Certificate Name (= primer -d que le pasamos).
 router.get('/', (req, res) => {
-  const rows = queries.listWebsites.all().map(({ git_token, ...w }) => ({
+  const rows = queries.listWebsites.all().map(({ git_token, webhook_secret, ...w }) => ({
     ...w, // (el token cifrado nunca sale de la BD)
+    // El secreto del webhook solo se muestra en sesión; nunca a un token de API.
+    ...(req.user.apiToken ? {} : { webhook_secret }),
     ssl: fs.existsSync(`/etc/letsencrypt/live/${w.domain}/fullchain.pem`),
     php: !!w.php,
     listen_port: w.listen_port || null,

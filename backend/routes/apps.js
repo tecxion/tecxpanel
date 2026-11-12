@@ -51,7 +51,9 @@ router.get('/', wrap(async (req, res) => {
     return {
       id: a.id, name: a.name, type: a.type, path: a.path, start_cmd: a.start_cmd,
       port: a.port, domain: a.domain,
-      git_repo: a.git_repo, git_branch: a.git_branch, webhook_secret: a.webhook_secret,
+      git_repo: a.git_repo, git_branch: a.git_branch,
+      // El secreto del webhook solo se muestra en sesión; nunca a un token de API.
+      ...(req.user.apiToken ? {} : { webhook_secret: a.webhook_secret }),
       status: snap ? (info ? info.status : 'stopped') : 'unknown',
       restarts: info?.restarts || 0,
     };
