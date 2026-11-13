@@ -39,7 +39,9 @@ export function createClient({ url, token, fetchImpl = fetch }) {
       throw new Error('No se pudo conectar con el panel');
     }
 
-    const raw = await res.text().catch(() => '');
+    // Un corte leyendo el cuerpo no debe parecer un éxito vacío.
+    let raw;
+    try { raw = await res.text(); } catch { throw new Error('No se pudo leer la respuesta del panel'); }
     let data = raw;
     try { data = JSON.parse(raw); } catch { /* texto plano */ }
 

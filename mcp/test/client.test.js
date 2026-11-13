@@ -57,6 +57,11 @@ test('fallo de red -> No se pudo conectar con el panel (sin filtrar token ni URL
   });
 });
 
+test('cuerpo cortado con 200 -> No se pudo leer la respuesta del panel (no éxito vacío)', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => ({ status: 200, ok: true, text: async () => { throw new Error('cortado'); } }) });
+  await assert.rejects(c.call('GET', '/x'), { message: 'No se pudo leer la respuesta del panel' });
+});
+
 test('valida url y token al construir', () => {
   assert.throws(() => createClient({ url: 'http://panel.ejemplo.com', token: TOKEN }));
   assert.throws(() => createClient({ url: undefined, token: TOKEN }));

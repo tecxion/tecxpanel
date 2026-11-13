@@ -23,7 +23,7 @@ const get = (name, description, tpl, input = {}) =>
 
 export const TOOLS = [
   get('estado_sistema', 'Estado del VPS: CPU, memoria, disco y uptime.', '/api/system/stats'),
-  get('estado_servicios', 'Estado de los servicios del sistema (nginx, docker, etc.).', '/api/system/services'),
+  get('estado_servicios', 'Estado de los servicios del sistema (nginx, mysql, postgresql, redis y ssh).', '/api/system/services'),
   get('version_panel', 'Versión instalada del panel y si hay actualización disponible.', '/api/system/update'),
   get('listar_sitios', 'Lista los sitios web configurados.', '/api/websites'),
   get('listar_apps', 'Lista las apps desplegadas y su estado.', '/api/apps'),
@@ -34,5 +34,5 @@ export const TOOLS = [
   get('stats_contenedor', 'Uso de CPU y memoria de un contenedor Docker.', '/api/docker/containers/{id}/stats', { id: idContenedor }),
   get('certificados_ssl', 'Lista los certificados SSL y su caducidad.', '/api/ssl/certificates'),
   get('listar_backups', 'Lista las copias de seguridad existentes.', '/api/backups'),
-  get('errores_recientes', `Errores recientes registrados por el panel. ${AVISO_LOGS}`, '/api/logs/errors'),
+  get('errores_recientes', `Errores recientes de nginx y del log del sistema (líneas filtradas por error/warn/fail…). ${AVISO_LOGS}`, '/api/logs/errors'),
 ];

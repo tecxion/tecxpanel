@@ -106,7 +106,18 @@ async function createApiToken() {
   const password = document.getElementById('tok-pass').value;
   if (!name) { toast('Ponle un nombre al token', 'error'); return; }
   if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
-  const r = await req('POST', '/auth/tokens', { name, scope, days, password });
+  const btn = document.getElementById('tok-create');
+  if (btn.disabled) return; // evita crear dos tokens con doble clic
+  btn.disabled = true;
+  let r;
+  try {
+    r = await req('POST', '/auth/tokens', { name, scope, days, password });
+  } catch (e) {
+    toast('Error de red al crear el token', 'error');
+    return;
+  } finally {
+    btn.disabled = false;
+  }
   document.getElementById('tok-pass').value = '';
   if (!r?.token) { toast(r?.error || 'Error al crear el token', 'error'); return; }
   document.getElementById('tok-name').value = '';

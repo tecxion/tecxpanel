@@ -56,6 +56,7 @@ before(async () => {
   app.get('/api/apps/:id/env', pega);
   app.post('/api/apps/:id/:action', pega);
   app.use('/api/websites', require('../routes/websites'));
+  app.use('/api/apps', require('../routes/apps'));
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
   jwtToken = jwt.sign({ uid: userId, username: 'kiko', role: 'admin' }, SECRET, { expiresIn: '1h' });
@@ -186,4 +187,20 @@ test('GET /api/websites: webhook_secret solo con JWT, nunca con token de API', a
   assert.equal(conToken.status, 200);
   assert.equal(conToken.body[0].domain, 'ej.com');
   assert.ok(!('webhook_secret' in conToken.body[0]));
+});
+
+test('git_repo con credenciales: un token de API nunca las recibe; el webhook_secret tampoco', async () => {
+  const repo = 'https://user:ghp_SECRET@github.com/o/r.git';
+  db.prepare("INSERT INTO websites (domain, type, git_repo, webhook_secret) VALUES ('git.com', 'html', ?, 'wh-web')").run(repo);
+  db.prepare("INSERT INTO apps (name, pm2_name, git_repo, webhook_secret) VALUES ('appgit', 'appgit', ?, 'wh-app')").run(repo);
+  for (const url of ['/api/websites', '/api/apps']) {
+    const t = await call('GET', url, readToken);
+    assert.equal(t.status, 200);
+    const txt = JSON.stringify(t.body);
+    assert.ok(!txt.includes('ghp_SECRET') && !txt.includes('user:'), url);
+    assert.ok(txt.includes('https://github.com/o/r.git'), url);
+    assert.ok(!txt.includes('wh-web') && !txt.includes('wh-app'), url);
+    const j = await call('GET', url, jwtToken); // con sesión todo sigue igual
+    assert.ok(JSON.stringify(j.body).includes('wh-' + (url.endsWith('apps') ? 'app' : 'web')), url);
+  }
 });

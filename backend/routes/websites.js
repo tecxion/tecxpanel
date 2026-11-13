@@ -22,6 +22,7 @@ const {
 const { isValidGitToken, tokenNeedsHttps } = require('../lib/deploy');
 const deploy = require('../lib/deploy/engine');
 const { encryptSecret, decryptSecret } = require('../lib/crypto');
+const { sanitizeRepoUrl } = require('../lib/dockerDeploy');
 const nginx = require('../lib/nginx');
 const phpEngine = require('../lib/php/engine');
 const { queries, audit } = require('../database');
@@ -47,6 +48,8 @@ router.get('/', (req, res) => {
     ...w, // (el token cifrado nunca sale de la BD)
     // El secreto del webhook solo se muestra en sesión; nunca a un token de API.
     ...(req.user.apiToken ? {} : { webhook_secret }),
+    // La URL puede traer credenciales (https://user:tok@...): un token de API nunca las recibe.
+    ...(req.user.apiToken ? { git_repo: sanitizeRepoUrl(w.git_repo) } : {}),
     ssl: fs.existsSync(`/etc/letsencrypt/live/${w.domain}/fullchain.pem`),
     php: !!w.php,
     listen_port: w.listen_port || null,

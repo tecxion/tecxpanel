@@ -20,6 +20,7 @@ const { findFreePort } = require('../lib/catalogEngine');
 const { isValidGitToken, gitEnv, tokenNeedsHttps } = require('../lib/deploy');
 const deploy = require('../lib/deploy/engine');
 const { encryptSecret, decryptSecret } = require('../lib/crypto');
+const { sanitizeRepoUrl } = require('../lib/dockerDeploy');
 const { detect } = require('../lib/apps/detect');
 const { preflight, preflightOk } = require('../lib/apps/preflight');
 
@@ -51,7 +52,8 @@ router.get('/', wrap(async (req, res) => {
     return {
       id: a.id, name: a.name, type: a.type, path: a.path, start_cmd: a.start_cmd,
       port: a.port, domain: a.domain,
-      git_repo: a.git_repo, git_branch: a.git_branch,
+      // La URL puede traer credenciales (https://user:tok@...): un token de API nunca las recibe.
+      git_repo: req.user.apiToken ? sanitizeRepoUrl(a.git_repo) : a.git_repo, git_branch: a.git_branch,
       // El secreto del webhook solo se muestra en sesión; nunca a un token de API.
       ...(req.user.apiToken ? {} : { webhook_secret: a.webhook_secret }),
       status: snap ? (info ? info.status : 'stopped') : 'unknown',
