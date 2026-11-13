@@ -36,12 +36,14 @@ router.get('/', (req, res) => {
 });
 
 // ── Recursos disponibles para respaldar ──────────────────────
-router.get('/resources', (req, res) => {
+// Todos los recursos respaldables, agrupados (lo usa la UI y el backup completo sin `resources`).
+function listResources() {
   const dbs = queries.listDatabases.all().map((d) => ({ class: d.type === 'postgresql' ? 'db-pg' : 'db-mysql', name: d.name }));
   const sites = queries.listWebsites.all().map((w) => ({ class: 'site', name: w.domain }));
   const apps = queries.listApps.all().map((a) => ({ class: 'app', name: a.name }));
-  ok(res, { databases: dbs, sites, apps, panel: [{ class: 'panel', name: 'panel' }] });
-});
+  return { databases: dbs, sites, apps, panel: [{ class: 'panel', name: 'panel' }] };
+}
+router.get('/resources', (req, res) => ok(res, listResources()));
 
 // Lock de proceso: solo una operación de backup/restauración a la vez dentro del
 // panel (evita que dos pestañas lancen backups simultáneos que se pisen en disco).
@@ -56,7 +58,8 @@ function unlockBackup() { backupRunning = false; }
 
 // ── Crear backup (streaming) ─────────────────────────────────
 router.post('/', (req, res) => {
-  const { kind = 'full', resources = [] } = req.body || {};
+  // Sin `resources` (p. ej. el MCP con token write, que no puede listarlos) => copia completa de todo.
+  const { kind = 'full', resources = Object.values(listResources()).flat() } = req.body || {};
   let items = [];
   try {
     const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];

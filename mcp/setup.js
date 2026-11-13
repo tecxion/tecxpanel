@@ -9,6 +9,8 @@
 //         npm run setup -- --url https://vps.tu-dominio.com --code
 //  Flags: --url <https://…>   --token <txpl_…>   (si faltan, se preguntan)
 //         --desktop (por defecto) | --code | --both
+//         --write  (activa las herramientas de acciones: reiniciar, backup, SSL)
+//         --admin  (control total: ejecutar comandos y llamar a cualquier API; implica --write)
 //         --no-check  (no probar el token contra el panel)
 // ============================================================
 import fs from 'node:fs';
@@ -36,11 +38,19 @@ export function mergeServer(config, entry) {
   return { ...base, mcpServers: { ...(base.mcpServers || {}), [SERVER_NAME]: entry } };
 }
 
+// Variables de entorno del servidor MCP. --admin implica --write; sin flags solo hay lectura.
+export const buildEnv = ({ url, token, write = false, admin = false }) => ({
+  TXPL_URL: url,
+  TXPL_TOKEN: token,
+  ...((write || admin) && { TXPL_ENABLE_WRITE: '1' }),
+  ...(admin && { TXPL_ENABLE_ADMIN: '1' }),
+});
+
 // Entrada que Claude Desktop lanzará: este mismo Node + index.js con rutas absolutas.
-export const buildEntry = ({ url, token }) => ({
+export const buildEntry = (opts) => ({
   command: process.execPath,
   args: [INDEX_JS],
-  env: { TXPL_URL: url, TXPL_TOKEN: token },
+  env: buildEnv(opts),
 });
 
 // Escribe la config de Claude Desktop. Si el JSON actual no es válido NO lo toca.
@@ -75,6 +85,8 @@ function parseArgs(argv) {
     else if (a === '--code') o.target = 'code';
     else if (a === '--both') o.target = 'both';
     else if (a === '--desktop') o.target = 'desktop';
+    else if (a === '--write') o.write = true;
+    else if (a === '--admin') o.admin = true;
     else if (a === '--no-check') o.check = false;
     else throw new Error(`Opción desconocida: ${a}`);
   }
@@ -93,7 +105,7 @@ async function main() {
     console.log('✔ El panel ha aceptado el token.');
   }
 
-  const entry = buildEntry({ url, token });
+  const entry = buildEntry({ url, token, write: o.write, admin: o.admin });
   if (o.target === 'desktop' || o.target === 'both') {
     const file = desktopConfigPath();
     writeDesktopConfig(file, entry);
@@ -103,7 +115,7 @@ async function main() {
     // Reemplaza un registro anterior con el mismo nombre (ignora el error si no existía).
     spawnSync('claude', ['mcp', 'remove', SERVER_NAME, '--scope', 'user'], { stdio: 'ignore' });
     const r = spawnSync('claude', ['mcp', 'add', '--scope', 'user', SERVER_NAME,
-      '-e', `TXPL_URL=${url}`, '-e', `TXPL_TOKEN=${token}`, '--', process.execPath, INDEX_JS], { stdio: 'inherit' });
+      ...Object.entries(entry.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), '--', process.execPath, INDEX_JS], { stdio: 'inherit' });
     if (r.error || r.status !== 0) throw new Error('No se pudo ejecutar «claude mcp add» (¿está instalado Claude Code?)');
     console.log('✔ Claude Code configurado (ámbito de usuario).');
   }

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { mergeServer, writeDesktopConfig, desktopConfigPath, buildEntry, SERVER_NAME } from '../setup.js';
+import { mergeServer, writeDesktopConfig, desktopConfigPath, buildEntry, buildEnv, SERVER_NAME } from '../setup.js';
 
 const entry = buildEntry({ url: 'https://p.test', token: 'txpl_x' });
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'txpl-setup-'));
@@ -55,4 +55,12 @@ test('desktopConfigPath según sistema', () => {
   assert.equal(desktopConfigPath('darwin', {}, '/h'), '/h/Library/Application Support/Claude/claude_desktop_config.json');
   assert.equal(desktopConfigPath('linux', {}, '/h'), '/h/.config/Claude/claude_desktop_config.json');
   assert.match(desktopConfigPath('win32', { APPDATA: 'C:\\A' }, 'C:\\h'), /Claude.claude_desktop_config\.json$/);
+});
+
+test('buildEnv: sin flags solo lectura; --write y --admin añaden interruptores (admin implica write)', () => {
+  const base = { url: 'https://p.test', token: 'txpl_x' };
+  assert.deepEqual(buildEnv(base), { TXPL_URL: base.url, TXPL_TOKEN: base.token });
+  assert.deepEqual(buildEnv({ ...base, write: true }), { ...buildEnv(base), TXPL_ENABLE_WRITE: '1' });
+  assert.deepEqual(buildEnv({ ...base, admin: true }), { ...buildEnv(base), TXPL_ENABLE_WRITE: '1', TXPL_ENABLE_ADMIN: '1' });
+  assert.deepEqual(buildEntry({ ...base, admin: true }).env, buildEnv({ ...base, admin: true }));
 });

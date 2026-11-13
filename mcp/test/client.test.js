@@ -74,3 +74,55 @@ test('valida url y token al construir', () => {
 test('los errores de construcción no incluyen el token', () => {
   try { createClient({ url: 'http://malo.example', token: 'txpl_secreto' }); } catch (e) { assert.ok(!e.message.includes('txpl_secreto')); }
 });
+
+test('POST envía cuerpo JSON y Content-Type; GET no', async () => {
+  let seen;
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async (u, o) => { seen = o; return resp(200, { ok: true }); } });
+  await c.call('POST', '/api/backups', { kind: 'full' });
+  assert.equal(seen.body, '{"kind":"full"}');
+  assert.equal(seen.headers['Content-Type'], 'application/json');
+  await c.call('GET', '/api/apps');
+  assert.equal(seen.body, undefined);
+  assert.equal(seen.headers['Content-Type'], undefined);
+});
+
+test('POST sin cuerpo no envía body', async () => {
+  let seen;
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async (u, o) => { seen = o; return resp(200, {}); } });
+  await c.call('POST', '/api/apps/1/restart');
+  assert.equal(seen.body, undefined);
+});
+
+test('timeout: 30 s en GET y 120 s en el resto', async () => {
+  const orig = AbortSignal.timeout;
+  const vistos = [];
+  AbortSignal.timeout = (ms) => { vistos.push(ms); return orig.call(AbortSignal, ms); };
+  try {
+    const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, {}) });
+    await c.call('GET', '/x');
+    await c.call('POST', '/x', {});
+    assert.deepEqual(vistos, [30000, 120000]);
+  } finally { AbortSignal.timeout = orig; }
+});
+
+test('streaming: centinela 0 se quita y se devuelve el texto', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'línea\n__TXPL_DONE__0', 'text/plain') });
+  assert.equal(await c.call('POST', '/api/ssl/a.com/renew'), 'línea');
+});
+
+test('streaming: centinela distinto de 0 lanza con el texto como detalle', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'fallo\n__TXPL_DONE__1', 'text/plain') });
+  await assert.rejects(c.call('POST', '/x'), (e) => {
+    assert.match(e.message, /^La operación terminó con error/);
+    assert.match(e.message, /fallo/);
+    assert.doesNotMatch(e.message, /TXPL_DONE/);
+    return true;
+  });
+});
+
+test('503/504 -> El panel no respondió a tiempo', async () => {
+  for (const st of [503, 504]) {
+    const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(st, 'x', 'text/plain') });
+    await assert.rejects(c.call('POST', '/x'), { message: 'El panel no respondió a tiempo' });
+  }
+});

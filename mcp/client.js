@@ -12,7 +12,11 @@
 
 export const MAX_CHARS = 20000;
 const SUFFIX = '\n…[recortado]';
-const TIMEOUT_MS = 30000;
+const TIMEOUT_GET_MS = 30000;
+// Las acciones (backup, renovar SSL, comandos de hasta 110 s) tardan más que una lectura.
+const TIMEOUT_WRITE_MS = 120000;
+// Los endpoints en streaming terminan con "\n__TXPL_DONE__<código>" (0 = éxito).
+const DONE_RE = /\n?__TXPL_DONE__(\d+)\s*$/;
 
 const esLocal = (url) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url);
 
@@ -26,14 +30,19 @@ export function createClient({ url, token, fetchImpl = fetch }) {
   }
   const base = url.replace(/\/+$/, '');
 
-  async function call(method, path) {
+  async function call(method, path, body) {
     let res;
     try {
       res = await fetchImpl(base + path, {
         method,
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          ...(body !== undefined && { 'Content-Type': 'application/json' }),
+        },
+        ...(body !== undefined && { body: JSON.stringify(body) }),
         redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(method === 'GET' ? TIMEOUT_GET_MS : TIMEOUT_WRITE_MS),
       });
     } catch {
       throw new Error('No se pudo conectar con el panel');
@@ -47,13 +56,22 @@ export function createClient({ url, token, fetchImpl = fetch }) {
 
     if (res.status === 401) throw new Error('Token inválido o caducado');
     if (res.status === 403) throw new Error('El token no tiene permiso para esta operación');
+    if (res.status === 503 || res.status === 504) throw new Error('El panel no respondió a tiempo');
     if (!res.ok) {
       const msg = (data && typeof data === 'object' && data.error) || res.statusText || 'error desconocido';
       throw new Error(`Error ${res.status}: ${msg}`);
     }
 
-    const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    return text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + SUFFIX : text;
+    let text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    const recortar = (t) => (t.length > MAX_CHARS ? t.slice(0, MAX_CHARS) + SUFFIX : t);
+
+    // Respuesta en streaming: quita el centinela y, si el código != 0, falla con el texto como detalle.
+    const done = typeof data === 'string' && DONE_RE.exec(text);
+    if (done) {
+      text = text.slice(0, done.index);
+      if (done[1] !== '0') throw new Error(`La operación terminó con error:\n${recortar(text)}`);
+    }
+    return recortar(text);
   }
 
   return { call };
