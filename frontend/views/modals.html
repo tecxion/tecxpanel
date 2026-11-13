@@ -602,3 +602,36 @@
     </div>
   </div>
 </div>
+
+<!-- Información del MCP (botón "i" de la barra superior). Contenido estático: sin datos de usuario. -->
+<div class="modal-overlay" id="modal-mcp-info">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-robot" style="color:var(--accent)"></i> Conectar una IA (MCP)</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-mcp-info')" aria-label="Cerrar"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.6">
+      <p>El <strong>MCP</strong> deja que una IA como <strong>Claude</strong> consulte y gestione este panel con un <strong>token</strong>, sin contraseña ni acceso SSH. Funciona con la URL de <em>cada</em> panel (HTTPS obligatorio).</p>
+      <p style="margin-top:10px"><strong>Pasos</strong></p>
+      <ol style="margin:4px 0 10px 18px">
+        <li>Crea un token en <strong>Ajustes → Tokens de API (IA / MCP)</strong>. Se muestra una sola vez.</li>
+        <li>En tu ordenador, dentro de la carpeta <code>mcp/</code> del repo:
+          <pre style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;font-family:var(--mono);font-size:12px;margin:6px 0;white-space:pre-wrap">npm install
+npm run setup -- --code --url https://TU-PANEL</pre>
+          Usa <code>--desktop</code> para Claude Desktop o <code>--both</code> para ambos.
+        </li>
+        <li>Reinicia Claude y pídele algo como «¿cómo está mi VPS?».</li>
+      </ol>
+      <p><strong>Permisos del token</strong></p>
+      <ul style="margin:4px 0 10px 18px">
+        <li><strong>Solo lectura</strong>: estado, apps, contenedores, logs, SSL, backups.</li>
+        <li><strong>Lectura y acciones</strong> (<code>--write</code>): reiniciar apps/contenedores, backups, renovar SSL.</li>
+        <li><strong>Control total</strong> (<code>--admin</code>): cualquier ruta del panel y comandos como root. Requiere el interruptor «Control total de IA» en Ajustes. Equivale a dar root a la IA.</li>
+      </ul>
+      <p style="color:var(--text-secondary)"><i class="ti ti-shield-lock"></i> Revoca un token en Ajustes cuando no lo uses. Cada acción de la IA queda en el registro de auditoría.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('modal-mcp-info')">Entendido</button>
+    </div>
+  </div>
+</div>

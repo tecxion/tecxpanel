@@ -623,15 +623,39 @@ Para configurar avisos por correo, debes completar los 4 campos obligatorios (**
 
 ## 🤖 Integración con IA (MCP)
 
-Desde la v2.2 puedes dejar que una IA como **Claude** consulte tu VPS (estado, servicios, apps, contenedores, logs, SSL, backups) sin darle acceso al servidor. Creas un **token de API** con caducidad y revocable en **Ajustes → Tokens de API (IA / MCP)** y lo usas con el **servidor MCP** de la carpeta `mcp/`, que corre en tu ordenador. Desde la v2.3 hay tres ámbitos:
+Deja que una IA como **Claude** consulte y gestione tu VPS **sin darle contraseña ni SSH**. Funciona con la URL de *cada* panel (p. ej. `https://vps.tecxart.es` o `https://mipanel.elpanel.es`); la URL no está fijada en el código y debe ser **HTTPS**. Un token solo vale para el panel donde se creó.
 
-- **Solo lectura** (por defecto): lista blanca de rutas `GET`; no lee contraseñas ni archivos, no abre la terminal y no borra nada.
-- **Lectura y acciones**: además reiniciar apps y contenedores, crear backups completos y renovar SSL.
-- **Control total**: cualquier ruta `/api/*` salvo `/api/auth*`, incluida la ejecución de comandos como root. Equivale a darle root a la IA: exige encender el interruptor global **«Control total de IA»** (apagado por defecto), tiene caducidad de 7 o 30 días y toda petición queda auditada.
+> [!TIP]
+> En el panel, el botón **ⓘ** de la barra superior abre una ventana con esta misma guía resumida.
 
-Las herramientas de acción del MCP solo se activan con `TXPL_ENABLE_WRITE=1` / `TXPL_ENABLE_ADMIN=1`.
+**Ámbitos del token** (Ajustes → *Tokens de API (IA / MCP)*; se muestra una sola vez y solo se guarda su hash SHA-256):
 
-Guía paso a paso, ámbitos, configuración de Claude Desktop / Claude Code, advertencias y límites de seguridad: [`mcp/README.md`](mcp/README.md).
+| Ámbito | Qué permite | Caducidad |
+|---|---|---|
+| **Solo lectura** (por defecto) | Estado, apps, contenedores, logs, SSL, backups (lista blanca de rutas `GET`) | 30 / 90 / 365 días |
+| **Lectura y acciones** | Lo anterior + reiniciar apps y contenedores, crear backups completos, renovar SSL | 30 / 90 / 365 días |
+| **Control total** | Cualquier ruta `/api/*` salvo `/api/auth*`, incluida la ejecución de **comandos como root** (`POST /api/system/exec`) | 7 / 30 días |
+
+Crear un token pide tu contraseña actual (y el código 2FA si lo tienes). El ámbito **Control total** exige además encender el interruptor global **«Control total de IA»** en Ajustes (apagado por defecto; apagarlo neutraliza al instante esos tokens). Toda acción no-GET de un token queda en la auditoría como `apitoken.call`. **Un token de control total equivale a dar root a la IA: úsalo solo si lo necesitas y revócalo después.**
+
+**Puesta en marcha** (en tu ordenador, con Node.js 18+):
+
+```bash
+cd mcp && npm install
+npm run setup                                   # Claude Desktop (pregunta URL y token)
+npm run setup -- --code --url https://TU-PANEL  # Claude Code
+npm run setup -- --both --write                 # ambos + acciones
+npm run setup -- --code --admin                 # + control total y comandos
+```
+
+Sin editar JSON a mano: el instalador comprueba el token, hace copia de seguridad (`.bak`) y no pisa otros servidores MCP. Por defecto instala solo lectura; `--write` / `--admin` activan `TXPL_ENABLE_WRITE=1` / `TXPL_ENABLE_ADMIN=1`.
+
+**Comandos desde la IA:** con token `admin` la herramienta `ejecutar_comando` hace lo que una terminal SSH (como root, sin TTY, máx. 110 s, devuelve los últimos 64 KB). Para tareas largas: `setsid nohup CMD >/dev/null 2>&1 &`.
+
+> [!NOTE]
+> **Paneles ya instalados:** el actualizador no toca un vhost de nginx existente. Para que `exec` aguante hasta 110 s, añade antes de `location /api/` un bloque `location = /api/system/exec` con `proxy_read_timeout 130s; proxy_send_timeout 130s;` (copia el de `txpl-nginx.conf`) y ejecuta `nginx -t && systemctl reload nginx`.
+
+Guía completa, herramientas y límites de seguridad: [`mcp/README.md`](mcp/README.md).
 
 ---
 
