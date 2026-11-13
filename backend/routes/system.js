@@ -17,6 +17,8 @@ const { cpuPercent, memInfo } = require('../lib/websocket'); // reutilizamos los
 const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
 const updater = require('../lib/update/engine');
+const { runShell } = require('../lib/system/exec');
+const path = require('path');
 
 const router = express.Router();
 
@@ -181,5 +183,39 @@ router.get('/features', (req, res) => {
   try { require.resolve('node-pty'); terminal = true; } catch (_) {}
   ok(res, { terminal });
 });
+
+// ── Ejecución de comandos (SOLO tokens de API `admin`) ───────────────────────
+//  RIESGO: ejecuta un comando arbitrario de shell COMO ROOT en el servidor.
+//  Es la puerta de entrada del MCP con ámbito `admin`, no una función del navegador:
+//    - solo pasa con token `admin` (y con el interruptor global `ai_admin_enabled`
+//      encendido, que ya comprueba el middleware `auth`); las sesiones JWT reciben 403;
+//    - se audita ANTES de ejecutar (acción `system.exec`, comando recortado a 500),
+//      así queda registro aunque el comando falle o se cuelgue;
+//    - tiene tope de tiempo (1..110 s, por defecto 60) y de salida (últimos 64 KB).
+//  Body: { command, cwd?, timeout_s? } → { success, ok, code, output }.
+router.post('/exec', wrap(async (req, res) => {
+  if (!req.user.apiToken || req.user.apiToken.scope !== 'admin') {
+    return fail(res, 403, 'Este token no tiene permiso para esta operación');
+  }
+  const { command, cwd: cwdIn, timeout_s: timeoutIn } = req.body || {};
+  if (typeof command !== 'string' || !command.trim()) return fail(res, 400, 'Comando requerido');
+  if (command.length > 8000) return fail(res, 400, 'El comando supera los 8000 caracteres');
+
+  // Por defecto /root; si no existe o no se puede entrar (panel sin root, p. ej. en tests), /.
+  let cwd = '/';
+  try { fs.accessSync('/root', fs.constants.X_OK); cwd = '/root'; } catch (_) { /* se queda en / */ }
+  if (cwdIn !== undefined) {
+    let isDir = false;
+    try { isDir = typeof cwdIn === 'string' && path.isAbsolute(cwdIn) && fs.statSync(cwdIn).isDirectory(); } catch (_) { /* no existe */ }
+    if (!isDir) return fail(res, 400, 'cwd debe ser una ruta absoluta de un directorio existente');
+    cwd = cwdIn;
+  }
+  const timeoutS = timeoutIn === undefined ? 60 : timeoutIn;
+  if (!Number.isInteger(timeoutS) || timeoutS < 1 || timeoutS > 110) return fail(res, 400, 'timeout_s debe ser un entero entre 1 y 110');
+
+  audit(req.user.username, clientIp(req), 'system.exec', command.slice(0, 500));
+  const r = await runShell(command, { cwd, timeoutMs: timeoutS * 1000 });
+  ok(res, { success: true, ok: r.ok, code: r.code, output: r.output });
+}));
 
 module.exports = router;
