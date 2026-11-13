@@ -106,16 +106,18 @@
   </p>
   <div class="form-group"><label>Nombre</label><input type="text" id="tok-name" placeholder="Claude Desktop" maxlength="40"></div>
   <div class="form-group"><label>Permiso</label>
-    <select id="tok-scope"><option value="read">Solo lectura</option></select>
-  </div>
-  <div class="form-group"><label>Caduca en</label>
-    <select id="tok-days">
-      <option value="30">30 días</option>
-      <option value="90" selected>90 días</option>
-      <option value="365">365 días</option>
+    <select id="tok-scope" onchange="onTokScopeChange()">
+      <option value="read">Solo lectura</option>
+      <option value="write">Lectura y acciones</option>
+      <option value="admin" disabled title="Actívalo primero abajo">Control total (admin)</option>
     </select>
   </div>
+  <div id="tok-admin-warn" style="display:none;margin-bottom:1rem;padding:10px;border:1px solid var(--red);border-radius:var(--radius);color:var(--red);font-size:12px">
+    <i class="ti ti-alert-triangle"></i> Permite ejecutar comandos como root en tu VPS. Un token filtrado equivale a acceso root. Caduca en ≤30 días.
+  </div>
+  <div class="form-group"><label>Caduca en</label><select id="tok-days"></select></div>
   <div class="form-group"><label>Contraseña actual</label><input type="password" id="tok-pass" autocomplete="current-password"></div>
+  <div class="form-group" id="tok-code-group" style="display:none"><label>Código 2FA</label><input type="text" id="tok-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
   <button class="btn btn-primary" id="tok-create" onclick="createApiToken()"><i class="ti ti-plus"></i> Crear token</button>
   <!-- Se rellena solo justo tras crear; el token no se guarda en ningún otro sitio -->
   <div id="tok-new" style="display:none;margin-top:1rem"></div>
@@ -125,6 +127,13 @@
       <tbody id="tok-list"></tbody>
     </table>
   </div>
+</div>
+<!-- Control total de IA (settings.js: loadAiAdmin / toggleAiAdmin) -->
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-shield-lock"></i> Control total de IA</div>
+  </div>
+  <label class="backup-toggle-row"><span><strong>Permitir tokens de control total</strong><small>Sin esto no se pueden crear tokens admin. Pide tu contraseña al cambiarlo.</small></span><input type="checkbox" id="ai-admin-toggle" onchange="toggleAiAdmin(this.checked)"><span class="backup-toggle"></span></label>
 </div>
 <div class="card mt-2">
   <div class="card-header">
