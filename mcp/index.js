@@ -14,7 +14,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createClient } from './client.js';
-import { selectTools, modoDe, annotationsDe } from './tools.js';
+import { selectTools, modoDe, annotationsDe, ejecutarHerramienta } from './tools.js';
 
 let client;
 try {
@@ -32,9 +32,7 @@ for (const t of selectTools(process.env)) {
     { description: t.description, inputSchema: t.input, annotations: annotationsDe(t) },
     async (args) => {
       try {
-        const method = typeof t.method === 'function' ? t.method(args) : t.method;
-        const text = await client.call(method, t.path(args), t.body?.(args));
-        return { content: [{ type: 'text', text: t.format ? t.format(text) : text }] };
+        return { content: [{ type: 'text', text: await ejecutarHerramienta(client, t, args) }] };
       } catch (e) {
         return { isError: true, content: [{ type: 'text', text: e.message }] };
       }

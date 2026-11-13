@@ -5,7 +5,7 @@
 // ============================================================
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient, MAX_CHARS } from '../client.js';
+import { createClient, MAX_CHARS, recortar } from '../client.js';
 
 const URL_OK = 'https://p.test';
 const TOKEN = 'txpl_x';
@@ -125,4 +125,50 @@ test('503/504 -> El panel no respondió a tiempo', async () => {
     const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(st, 'x', 'text/plain') });
     await assert.rejects(c.call('POST', '/x'), { message: 'El panel no respondió a tiempo' });
   }
+});
+
+test('recortar acota a MAX_CHARS y marca el corte', () => {
+  assert.equal(recortar('abc'), 'abc');
+  assert.ok(recortar('a'.repeat(MAX_CHARS + 5)).endsWith('\n…[recortado]'));
+});
+
+test('call() no recorta JSON correcto (lo hace quien lo formatea) pero sí el texto', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, { output: 'a'.repeat(50000) }) });
+  assert.ok((await c.call('POST', '/x')).length > MAX_CHARS);
+});
+
+test('TimeoutError al conectar o al leer -> mensaje de espera agotada', async () => {
+  const esperado = /^Tiempo de espera agotado: la operación puede seguir en curso en el panel \(compruébalo con listar_backups\)$/;
+  const te = () => Object.assign(new Error('t'), { name: 'TimeoutError' });
+  const c1 = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => { throw te(); } });
+  await assert.rejects(c1.call('POST', '/x'), { message: esperado });
+  const c2 = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => ({ status: 200, ok: true, text: async () => { throw te(); } }) });
+  await assert.rejects(c2.call('POST', '/x'), { message: esperado });
+});
+
+test('error de stream: el detalle es la COLA del texto (la causa) y va acotado', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'E'.repeat(25000) + 'CAUSA\n__TXPL_DONE__1', 'text/plain') });
+  await assert.rejects(c.call('POST', '/x'), (e) => {
+    assert.match(e.message, /CAUSA$/);
+    assert.ok(e.message.length < 2300);
+    return true;
+  });
+});
+
+test('502/503/504 con JSON {error} usan ese error; sin él, "no respondió a tiempo"', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(503, { error: 'ufw no está instalado' }) });
+  await assert.rejects(c.call('POST', '/x'), { message: 'Error 503: ufw no está instalado' });
+  for (const st of [502, 503, 504]) {
+    const c2 = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(st, '<html>gateway</html>', 'text/html') });
+    await assert.rejects(c2.call('POST', '/x'), { message: 'El panel no respondió a tiempo' });
+  }
+});
+
+test('POST con texto sin centinela o con código no numérico -> sin confirmación; GET de texto no se ve afectado', async () => {
+  for (const body of ['hola', 'hola\n__TXPL_DONE__x']) {
+    const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, body, 'text/plain') });
+    await assert.rejects(c.call('POST', '/x'), { message: 'La operación terminó sin confirmación' });
+  }
+  const g = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'logs', 'text/plain') });
+  assert.equal(await g.call('GET', '/x'), 'logs');
 });

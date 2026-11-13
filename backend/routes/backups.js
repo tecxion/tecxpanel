@@ -59,7 +59,8 @@ function unlockBackup() { backupRunning = false; }
 // ── Crear backup (streaming) ─────────────────────────────────
 router.post('/', (req, res) => {
   // Sin `resources` (p. ej. el MCP con token write, que no puede listarlos) => copia completa de todo.
-  const { kind = 'full', resources = Object.values(listResources()).flat() } = req.body || {};
+  const { resources = Object.values(listResources()).flat() } = req.body || {};
+  const kind = req.body?.kind === 'resource' ? 'resource' : 'full'; // solo los valores que entiende el manifest
   let items = [];
   try {
     const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
