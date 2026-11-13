@@ -156,10 +156,7 @@ router.post('/schedule', wrap(async (req, res) => {
   if (!Number.isInteger(retention) || retention < 1 || retention > 3650) return fail(res, 400, 'Retención inválida (1-3650 días)');
   let normalizedResources = [];
   try {
-    // Backup completo sin lista de recursos (clientes como el MCP no la envían) => respalda todo.
-    const sinLista = !Array.isArray(resources) || resources.length === 0;
-    const pedidos = kind === 'full' && sinLista ? Object.values(allResources()).flat() : resources;
-    const requested = Array.isArray(pedidos) ? pedidos.filter((r) => B.isValidResourceClass(r?.class)) : [];
+    const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
     normalizedResources = engine.resolveResourceItems(requested).map(({ class: resourceClass, name }) => ({ class: resourceClass, name }));
   } catch (error) {
     return fail(res, 400, error.message || 'Recursos de backup inválidos');

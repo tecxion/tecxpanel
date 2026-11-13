@@ -19,6 +19,10 @@ const TIMEOUT_MS = 30000;
 const TIMEOUT_ACCION_MS = 120000;
 const CENTINELA = /\n?__TXPL_DONE__(\d+)\s*$/;
 
+// Al agotarse el tiempo el panel NO cancela la operación (y puede seguir con el bloqueo puesto).
+const esTimeout = (e) => e?.name === 'TimeoutError' || e?.name === 'AbortError';
+const TIMEOUT_MSG = 'Tiempo de espera agotado: la operación puede seguir ejecutándose en el panel';
+
 const recortar = (text) => (text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + SUFFIX : text);
 
 const esLocal = (url) => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url);
@@ -46,13 +50,13 @@ export function createClient({ url, token, fetchImpl = fetch }) {
         redirect: 'error',
         signal: AbortSignal.timeout(lectura ? TIMEOUT_MS : TIMEOUT_ACCION_MS),
       });
-    } catch {
-      throw new Error('No se pudo conectar con el panel');
+    } catch (e) {
+      throw new Error(esTimeout(e) ? TIMEOUT_MSG : 'No se pudo conectar con el panel');
     }
 
     // Un corte leyendo el cuerpo no debe parecer un éxito vacío.
     let raw;
-    try { raw = await res.text(); } catch { throw new Error('No se pudo leer la respuesta del panel'); }
+    try { raw = await res.text(); } catch (e) { throw new Error(esTimeout(e) ? TIMEOUT_MSG : 'No se pudo leer la respuesta del panel'); }
     let data = raw;
     try { data = JSON.parse(raw); } catch { /* texto plano */ }
 

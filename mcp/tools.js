@@ -57,8 +57,8 @@ export const TOOLS = [
   post('write', 'reiniciar_app', 'Reinicia (restart) o recarga sin cortes (reload) una app de PM2.', '/api/apps/{id}/{modo}',
     { id: idApp, modo: z.enum(['restart', 'reload']).describe('restart o reload') }),
   post('write', 'reiniciar_contenedor', 'Reinicia un contenedor Docker.', '/api/docker/containers/{id}/restart', { id: idContenedor }),
-  post('write', 'crear_backup', 'Crea una copia de seguridad completa del servidor (puede tardar).', '/api/backups', {}, () => ({ kind: 'full' })),
-  post('write', 'renovar_ssl', 'Renueva un certificado SSL con certbot (solo si está cerca de caducar).', '/api/ssl/{nombre}/renew', { nombre: nombreCert }),
+  post('write', 'crear_backup', 'Crea una copia de seguridad completa del servidor. Puede tardar varios minutos; si se agota el tiempo, comprueba el resultado con listar_backups antes de reintentar.', '/api/backups', {}, () => ({ kind: 'full' })),
+  post('write', 'renovar_ssl', 'Renueva un certificado SSL con certbot (solo si está cerca de caducar). Puede tardar varios minutos; si se agota el tiempo, comprueba el resultado con certificados_ssl antes de reintentar.', '/api/ssl/{nombre}/renew', { nombre: nombreCert }),
 
   // ── admin: control total ──
   post('admin', 'ejecutar_comando', 'Ejecuta un comando de shell (bash -lc); ejecuta como root en el VPS; usa `nohup … &` para trabajos de más de 100 s. Devuelve el código de salida y la salida.',

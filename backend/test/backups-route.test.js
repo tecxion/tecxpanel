@@ -3,7 +3,8 @@
 // ============================================================
 //  Test de integración: POST /api/backups sin lista de recursos.
 //  Express real (puerto 0) + BD SQLite temporal; auth falsa y
-//  engine.createBackup sustituido para no ejecutar mysqldump/tar.
+//  engine.createBackup y run/runSafe sustituidos para no ejecutar
+//  mysqldump/tar ni tocar el crontab real.
 // ============================================================
 
 // La BD debe apuntar a un directorio temporal ANTES de cargar nada del panel.
@@ -19,12 +20,16 @@ const { before, after } = test;
 const assert = require('node:assert/strict');
 const express = require('express');
 const engine = require('../lib/backupEngine');
+const helpers = require('../lib/helpers');
 
-let server, base, llamadas = [];
+let server, base, llamadas = [], comandos = [];
 engine.createBackup = async (opts) => { llamadas.push(opts); return null; };
+// La ruta desestructura run/runSafe al cargarse: se sustituyen ANTES de requerirla.
+helpers.runSafe = async (cmd, args) => { comandos.push([cmd, ...args]); return { ok: true, stdout: '' }; };
+helpers.run = async (cmd, args) => { comandos.push([cmd, ...args]); return ''; };
 
-const post = async (body) => {
-  const r = await fetch(base + '/api/backups', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const post = async (body, url = '/api/backups') => {
+  const r = await fetch(base + url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return { status: r.status, text: await r.text() };
 };
 
@@ -54,4 +59,17 @@ test('una petición no completa sin recursos sigue dando 400', async () => {
   const r = await post({ kind: 'partial', resources: [] });
   assert.equal(r.status, 400);
   assert.equal(llamadas.length, 0);
+});
+
+test('/schedule no depende de kind: desactivar responde 200 y reescribe el crontab', async () => {
+  comandos = [];
+  const r = await post({ enabled: 0 }, '/api/backups/schedule');
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(comandos.map((c) => c.slice(0, 2)), [['crontab', '-l'], ['crontab', comandos[1][1]]]);
+});
+
+test('/schedule activado sin recursos sigue dando 400 (no respalda todo)', async () => {
+  const r = await post({ enabled: 1, resources: [] }, '/api/backups/schedule');
+  assert.equal(r.status, 400);
+  assert.match(r.text, /Selecciona al menos un recurso/);
 });

@@ -57,6 +57,17 @@ test('fallo de red -> No se pudo conectar con el panel (sin filtrar token ni URL
   });
 });
 
+test('tiempo agotado (TimeoutError/AbortError, al pedir o al leer) -> mensaje claro', async () => {
+  const MSG = 'Tiempo de espera agotado: la operación puede seguir ejecutándose en el panel';
+  const err = (name) => Object.assign(new Error('x txpl_x'), { name });
+  for (const name of ['TimeoutError', 'AbortError']) {
+    const alPedir = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => { throw err(name); } });
+    await assert.rejects(alPedir.call('POST', '/api/backups', { kind: 'full' }), { message: MSG });
+    const alLeer = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => ({ status: 200, ok: true, text: async () => { throw err(name); } }) });
+    await assert.rejects(alLeer.call('POST', '/api/backups', { kind: 'full' }), { message: MSG });
+  }
+});
+
 test('cuerpo cortado con 200 -> No se pudo leer la respuesta del panel (no éxito vacío)', async () => {
   const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => ({ status: 200, ok: true, text: async () => { throw new Error('cortado'); } }) });
   await assert.rejects(c.call('GET', '/x'), { message: 'No se pudo leer la respuesta del panel' });
