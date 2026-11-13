@@ -87,7 +87,7 @@ test('POST /api/auth/tokens con días no permitidos → 400', async () => {
 
 test('POST /api/auth/tokens: nombre y ámbito inválidos → 400 (antes que la contraseña)', async () => {
   assert.equal((await createToken({ name: 'a/b', password: 'mala' })).status, 400);
-  assert.equal((await createToken({ scope: 'admin', password: 'mala' })).status, 400);
+  assert.equal((await createToken({ scope: 'root', password: 'mala' })).status, 400);
 });
 
 test('POST /api/auth/tokens con JWT correcto → 200 y token txpl_', async () => {
