@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   generateToken, hashToken, isApiToken, isValidTokenName, expiresAt, isExpired, isAllowed,
+  expiryDaysFor,
 } = require('../lib/apitokens');
 
 test('generateToken: prefijo, longitud y hash coherente', () => {
@@ -60,4 +61,40 @@ test('isAllowed: id de contenedor debe empezar por alfanumérico (sin . ni ..)',
   assert.ok(!isAllowed('read', 'GET', '/api/docker/containers/../logs'));
   assert.ok(!isAllowed('read', 'GET', '/api/docker/containers/./stats'));
   assert.ok(isAllowed('read', 'GET', '/api/docker/containers/web.1_a-b/stats'));
+});
+
+test('isAllowed: write permite las 4 acciones de bajo riesgo y read no', () => {
+  for (const p of ['/api/apps/5/restart', '/api/apps/5/reload', '/api/docker/containers/web.1/restart',
+    '/api/backups', '/api/ssl/ejemplo.com/renew']) {
+    assert.ok(isAllowed('write', 'POST', p), p);
+    assert.ok(!isAllowed('read', 'POST', p), p);
+  }
+});
+
+test('isAllowed: write deniega acciones destructivas o de ejecución', () => {
+  for (const p of ['/api/apps/5/stop', '/api/apps/5/exec', '/api/docker/containers/x/stop',
+    '/api/backups/3/restore', '/api/ssl/issue', '/api/system/exec'])
+    assert.ok(!isAllowed('write', 'POST', p), p);
+});
+
+test('isAllowed: admin permite cualquier método fuera de /api/auth', () => {
+  assert.ok(isAllowed('admin', 'POST', '/api/system/exec'));
+  assert.ok(isAllowed('admin', 'DELETE', '/api/websites/3'));
+  assert.ok(isAllowed('admin', 'DELETE', '/api/dns/zones/ejemplo.com/records'));
+  assert.ok(isAllowed('admin', 'PUT', '/api/apps/2/env'));
+  assert.ok(isAllowed('admin', 'GET', '/api/databases'));
+});
+
+test('isAllowed: admin nunca alcanza /api/auth ni rutas con truco', () => {
+  for (const m of ['GET', 'POST', 'DELETE'])
+    for (const p of ['/api/auth', '/api/auth/tokens', '/api/auth/tokens/4', '//api/auth/tokens',
+      '/api/x/../auth/tokens', '/api/%61uth/tokens', '/API/auth/tokens', '/api/system/../x', '/apix', '/'])
+      assert.ok(!isAllowed('admin', m, p), `${m} ${p}`);
+});
+
+test('expiryDaysFor: caducidades por ámbito', () => {
+  assert.deepStrictEqual(expiryDaysFor('admin'), [7, 30]);
+  assert.deepStrictEqual(expiryDaysFor('read'), [30, 90, 365]);
+  assert.deepStrictEqual(expiryDaysFor('write'), [30, 90, 365]);
+  assert.deepStrictEqual(expiryDaysFor('x'), []);
 });
