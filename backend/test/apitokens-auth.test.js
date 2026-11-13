@@ -204,3 +204,87 @@ test('git_repo con credenciales: un token de API nunca las recibe; el webhook_se
     assert.ok(JSON.stringify(j.body).includes('wh-' + (url.endsWith('apps') ? 'app' : 'web')), url);
   }
 });
+
+// ── Tokens `admin`: interruptor global, 2FA y auditoría ─────────────────────
+const { base32Encode, base32Decode, hotp } = require('../lib/crypto');
+const setAiAdmin = (enabled, password = PASSWORD) => call('POST', '/api/auth/ai-admin', jwtToken, { enabled, password });
+const auditRows = (action) => db.prepare('SELECT * FROM audit_log WHERE action = ? ORDER BY id').all(action);
+
+test('ai-admin: GET apagado por defecto; POST con contraseña mala → 403 y sigue apagado', async () => {
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: false });
+  assert.equal((await setAiAdmin(true, 'mala')).status, 403);
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: false });
+  assert.equal((await call('POST', '/api/auth/ai-admin', jwtToken, { enabled: 'si', password: PASSWORD })).status, 400);
+});
+
+test('crear token admin con el interruptor apagado → 403', async () => {
+  const r = await createToken({ name: 'adm', scope: 'admin', days: 7 });
+  assert.equal(r.status, 403);
+});
+
+test('ai-admin: encender y apagar se audita (ai-admin.on / ai-admin.off)', async () => {
+  assert.deepEqual((await setAiAdmin(true)).body, { enabled: true });
+  assert.equal(auditRows('ai-admin.on').length, 1);
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: true });
+});
+
+test('admin: caducidad solo 7 o 30 días; read sigue admitiendo 90', async () => {
+  const r = await createToken({ name: 'adm', scope: 'admin', days: 90 });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /7, 30/);
+  assert.equal((await createToken({ name: 'r90', days: 90 })).status, 200);
+});
+
+test('admin con 2FA activo: sin code o con code malo → 401 (auditado); con code bueno → 200', async () => {
+  const secret = base32Encode(Buffer.from('12345678901234567890'));
+  db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?').run(secret, userId);
+  const antes = auditRows('apitoken.create.fail').length;
+  assert.equal((await createToken({ name: 'adm2fa', scope: 'admin', days: 7 })).status, 401);
+  assert.equal((await createToken({ name: 'adm2fa', scope: 'admin', days: 7, code: '000000' })).status, 401);
+  assert.equal(auditRows('apitoken.create.fail').length, antes + 2);
+  const code = hotp(base32Decode(secret), Math.floor(Date.now() / 1000 / 30));
+  const r = await createToken({ name: 'adm2fa', scope: 'admin', days: 7, code });
+  assert.equal(r.status, 200);
+  db.prepare('UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?').run(userId);
+  assert.ok(r.body.token.startsWith('txpl_'));
+});
+
+let adminToken, adminId;
+test('admin sin 2FA se crea; con el interruptor encendido llama a cualquier /api (menos /api/auth)', async () => {
+  const r = await createToken({ name: 'adm', scope: 'admin', days: 7 });
+  assert.equal(r.status, 200);
+  adminToken = r.body.token; adminId = r.body.id;
+  assert.equal((await call('GET', '/api/system/stats', adminToken)).status, 200);
+  for (const [m, u] of [['GET', '/api/auth/tokens'], ['POST', '/api/auth/password'], ['POST', '/api/auth/ai-admin'], ['GET', '/api/auth/ai-admin']]) {
+    assert.equal((await call(m, u, adminToken, m === 'POST' ? { enabled: false, password: PASSWORD } : undefined)).status, 403, u);
+  }
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: true });
+});
+
+test('apagar el interruptor → token admin 403 sin tocar last_used_at; inexistente/caducado siguen en 401', async () => {
+  const antes = tokenRow(adminId).last_used_at;
+  assert.notEqual(antes, null);
+  assert.deepEqual((await setAiAdmin(false)).body, { enabled: false });
+  assert.equal(auditRows('ai-admin.off').length, 1);
+  await new Promise((r) => setTimeout(r, 1100)); // datetime('now') tiene resolución de 1 s
+  const r = await call('GET', '/api/system/stats', adminToken);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Los tokens de control total están desactivados en el panel');
+  assert.equal(tokenRow(adminId).last_used_at, antes);
+  assert.equal((await call('GET', '/api/system/stats', 'txpl_noexiste')).status, 401);
+  db.prepare("UPDATE api_tokens SET expires_at = '2000-01-01 00:00:00' WHERE id = ?").run(adminId);
+  assert.equal((await call('GET', '/api/system/stats', adminToken)).status, 401);
+});
+
+test('auditoría apitoken.call: solo métodos no GET y permitidos, sin token ni hash', async () => {
+  const { token } = (await createToken({ name: 'escritor', scope: 'write' })).body;
+  const antes = auditRows('apitoken.call').length;
+  assert.equal((await call('GET', '/api/system/stats', token)).status, 200);
+  assert.equal((await call('POST', '/api/apps/1/delete', token)).status, 403);
+  assert.equal(auditRows('apitoken.call').length, antes);
+  assert.equal((await call('POST', '/api/apps/1/restart', token)).status, 200);
+  const fila = auditRows('apitoken.call').at(-1);
+  assert.equal(fila.user, 'kiko (token:escritor)');
+  assert.equal(fila.detail, 'POST /api/apps/1/restart');
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM audit_log').all()).includes('txpl_'));
+});

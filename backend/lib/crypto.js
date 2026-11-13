@@ -126,6 +126,7 @@ module.exports = {
   decryptSecret,
   base32Encode,
   base32Decode,
+  hotp,
   totpVerify,
   genPassword,
   encryptText,

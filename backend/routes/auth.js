@@ -78,6 +78,8 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     next();
   }
 
+  const aiAdminEnabled = () => queries.getPanelFlag.get('ai_admin_enabled')?.value === '1';
+
   // Token de API: debe existir, no estar caducado y la ruta pedida debe estar en
   // la lista blanca. Inexistente, caducado o revocado dan el MISMO 401 que un JWT
   // inválido para no revelar cuál de los casos es.
@@ -92,7 +94,13 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
       audit(username, clientIp(req), 'apitoken.denied', `${req.method} ${ruta}`);
       return fail(res, 403, 'Este token no tiene permiso para esta operación');
     }
+    // Interruptor global: con él apagado los tokens `admin` quedan inertes (sin tocar last_used_at).
+    if (row.scope === 'admin' && !aiAdminEnabled()) {
+      return fail(res, 403, 'Los tokens de control total están desactivados en el panel');
+    }
     queries.touchApiToken.run(row.id);
+    // Toda escritura hecha con token queda en el registro (nunca el token ni su hash).
+    if (req.method !== 'GET') audit(username, clientIp(req), 'apitoken.call', `${req.method} ${ruta}`);
     req.user = { uid: row.user_id, username, role: row.role, apiToken: { id: row.id, name: row.name, scope: row.scope } };
     next();
   }
@@ -287,18 +295,42 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
   // Crea un token. Exige la contraseña actual: un JWT robado no basta para
   // fabricar una credencial de larga duración. El token en claro sale solo aquí.
   router.post('/tokens', auth, sessionOnly, wrap(async (req, res) => {
-    const { name, scope, days, password } = req.body || {};
+    const { name, scope, days, password, code } = req.body || {};
     if (!apitokens.isValidTokenName(name)) return fail(res, 400, 'Nombre inválido (1-40 caracteres: letras, números, espacio, _ . -)');
     if (!apitokens.SCOPES.includes(scope)) return fail(res, 400, 'Ámbito inválido');
-    if (!apitokens.EXPIRY_DAYS.includes(days)) return fail(res, 400, `Caducidad inválida (días: ${apitokens.EXPIRY_DAYS.join(', ')})`);
+    const allowedDays = apitokens.expiryDaysFor(scope);
+    if (!allowedDays.includes(days)) return fail(res, 400, `Caducidad inválida (días: ${allowedDays.join(', ')})`);
     const u = queries.getUserFullById.get(req.user.uid);
     if (!u) return fail(res, 401, 'No autorizado');
     const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
     if (!valid) { audit(u.username, clientIp(req), 'apitoken.create.fail', name); return fail(res, 403, 'La contraseña actual no es correcta'); }
+    if (scope === 'admin') {
+      if (!aiAdminEnabled()) return fail(res, 403, 'Los tokens de control total están desactivados en el panel');
+      // Con 2FA activo, crear un token de control total exige también el código TOTP.
+      if (u.totp_enabled && !totpVerify(u.totp_secret, code)) {
+        audit(u.username, clientIp(req), 'apitoken.create.fail', name);
+        return fail(res, 401, 'Código 2FA requerido o incorrecto');
+      }
+    }
     const { token, hash } = apitokens.generateToken();
     const id = queries.insertApiToken.run(u.id, name, hash, scope, apitokens.expiresAt(days)).lastInsertRowid;
     audit(u.username, clientIp(req), 'apitoken.create', name);
     ok(res, { id: Number(id), token });
+  }));
+
+  // Interruptor global de los tokens `admin`. Solo desde sesión; cambiarlo exige la contraseña.
+  router.get('/ai-admin', auth, sessionOnly, (req, res) => ok(res, { enabled: aiAdminEnabled() }));
+
+  router.post('/ai-admin', auth, sessionOnly, wrap(async (req, res) => {
+    const { enabled, password } = req.body || {};
+    if (typeof enabled !== 'boolean') return fail(res, 400, 'enabled debe ser booleano');
+    const u = queries.getUserFullById.get(req.user.uid);
+    if (!u) return fail(res, 401, 'No autorizado');
+    const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
+    if (!valid) { audit(u.username, clientIp(req), 'ai-admin.fail', null); return fail(res, 403, 'La contraseña actual no es correcta'); }
+    queries.setPanelFlag.run('ai_admin_enabled', enabled ? '1' : '0');
+    audit(u.username, clientIp(req), enabled ? 'ai-admin.on' : 'ai-admin.off', null);
+    ok(res, { enabled });
   }));
 
   // Revoca un token propio (deleteApiToken filtra por user_id).

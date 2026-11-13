@@ -51,6 +51,21 @@ function initSchema() {
     db.exec(fs.readFileSync(full, 'utf8'));
   }
   addMissingColumns();
+  widenApiTokenScope();
+}
+
+// Los paneles ya instalados tienen api_tokens con CHECK (scope IN ('read','write')),
+// que rechazaría 'admin'. SQLite no puede alterar un CHECK: se reconstruye la tabla
+// copiando las filas (idempotente: solo actúa si el CHECK antiguo sigue ahí).
+function widenApiTokenScope() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'api_tokens'").get();
+  if (!row || row.sql.includes("'admin'")) return;
+  db.transaction(() => {
+    db.exec('ALTER TABLE api_tokens RENAME TO api_tokens_old');
+    db.exec(fs.readFileSync(path.join(SCHEMA_DIR, '017_api_tokens.sql'), 'utf8'));
+    db.exec('INSERT INTO api_tokens SELECT * FROM api_tokens_old');
+    db.exec('DROP TABLE api_tokens_old');
+  })();
 }
 
 module.exports = { initSchema };

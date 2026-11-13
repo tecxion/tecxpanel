@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT NOT NULL,
   token_hash   TEXT NOT NULL UNIQUE,
-  scope        TEXT NOT NULL CHECK (scope IN ('read','write')),
+  scope        TEXT NOT NULL CHECK (scope IN ('read','write','admin')),
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at   TEXT NOT NULL,
   last_used_at TEXT
