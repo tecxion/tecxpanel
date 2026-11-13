@@ -75,14 +75,19 @@ ROUTES.push(...[
 ].map((p) => ({ scope: 'write', method: 'POST', re: new RegExp(`^${p}$`) })));
 
 // Ámbito admin: cualquier método sobre /api/* salvo /api/auth (los tokens no se gestionan con tokens).
-// La clase de caracteres excluye `%` (sin codificaciones); `..` y `//` se rechazan en isAllowed.
-ROUTES.push({ scope: 'admin', method: '*', re: /^\/api\/(?!auth(\/|$))[A-Za-z0-9_.\-/]+$/ });
+// La clase de caracteres excluye `%` (sin codificaciones); `..`, `//` y segmentos que empiezan por `.`
+// se rechazan en isAllowed.
+ROUTES.push({ scope: 'admin', method: '*', re: /^\/api\/[A-Za-z0-9_.\-/]+$/ });
+
+// Express NO distingue mayúsculas al enrutar: /api/Auth/x llegaría al router de auth. Por eso esta
+// exclusión es insensible a mayúsculas (y cubre variantes como /api/auth./x); no toca /api/authx.
+const AUTH_DENEGADO = /^\/api\/auth(?![A-Za-z0-9_-])/i;
 
 // ¿Puede un token de este ámbito llamar a method+path? `path` sin query string y sin
 // normalizar. Cada ámbito incluye los anteriores. Ámbito desconocido => false.
 function isAllowed(scope, method, path) {
   const rank = SCOPES.indexOf(scope);
-  if (rank < 0 || path.includes('..') || path.includes('//')) return false;
+  if (rank < 0 || path.includes('//') || path.includes('/.') || path.includes('..') || AUTH_DENEGADO.test(path)) return false;
   return ROUTES.some((r) => SCOPES.indexOf(r.scope) <= rank && (r.method === '*' || r.method === method) && r.re.test(path));
 }
 

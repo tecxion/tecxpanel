@@ -88,7 +88,8 @@ test('isAllowed: admin permite cualquier método fuera de /api/auth', () => {
 test('isAllowed: admin nunca alcanza /api/auth ni rutas con truco', () => {
   for (const m of ['GET', 'POST', 'DELETE'])
     for (const p of ['/api/auth', '/api/auth/tokens', '/api/auth/tokens/4', '//api/auth/tokens',
-      '/api/x/../auth/tokens', '/api/%61uth/tokens', '/API/auth/tokens', '/api/system/../x', '/apix', '/'])
+      '/api/x/../auth/tokens', '/api/%61uth/tokens', '/API/auth/tokens', '/api/Auth/tokens', '/api/AUTH', '/api/auth./x',
+      '/api/./auth/tokens', '/api/system/../x', '/apix', '/'])
       assert.ok(!isAllowed('admin', m, p), `${m} ${p}`);
 });
 
