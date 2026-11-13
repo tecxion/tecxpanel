@@ -10,6 +10,7 @@
 
 const os = require('os');
 const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { runSafe } = require('../lib/helpers');
@@ -18,7 +19,6 @@ const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
 const updater = require('../lib/update/engine');
 const { runShell } = require('../lib/system/exec');
-const path = require('path');
 
 const router = express.Router();
 
@@ -200,6 +200,7 @@ router.post('/exec', wrap(async (req, res) => {
   const { command, cwd: cwdIn, timeout_s: timeoutIn } = req.body || {};
   if (typeof command !== 'string' || !command.trim()) return fail(res, 400, 'Comando requerido');
   if (command.length > 8000) return fail(res, 400, 'El comando supera los 8000 caracteres');
+  if (command.includes('\0')) return fail(res, 400, 'El comando no puede contener caracteres NUL');
 
   // Por defecto /root; si no existe o no se puede entrar (panel sin root, p. ej. en tests), /.
   let cwd = '/';
@@ -213,7 +214,9 @@ router.post('/exec', wrap(async (req, res) => {
   const timeoutS = timeoutIn === undefined ? 60 : timeoutIn;
   if (!Number.isInteger(timeoutS) || timeoutS < 1 || timeoutS > 110) return fail(res, 400, 'timeout_s debe ser un entero entre 1 y 110');
 
-  audit(req.user.username, clientIp(req), 'system.exec', command.slice(0, 500));
+  // Caracteres de control escapados: un \n en el comando falsificaría líneas en el visor de logs.
+  const detail = command.slice(0, 500).replace(/[\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+  audit(req.user.username, clientIp(req), 'system.exec', detail);
   const r = await runShell(command, { cwd, timeoutMs: timeoutS * 1000 });
   ok(res, { success: true, ok: r.ok, code: r.code, output: r.output });
 }));

@@ -25,21 +25,33 @@ const { spawn } = require('child_process');
 const TAIL_BYTES = 64 * 1024;
 const TRUNCATED_MARK = '[…recortado…]\n';
 
+const FALLO = 'No se pudo ejecutar el comando'; // sin rutas ni detalles internos
+
 function runShell(command, { cwd, timeoutMs, tailBytes = TAIL_BYTES }) {
   return new Promise((resolve) => {
     let tail = Buffer.alloc(0);
     let truncated = false;
     let timedOut = false;
     let done = false;
+    let timer;
 
-    const child = spawn('bash', ['-lc', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-
-    const finish = (res) => {
+    // Resultado final; el TOTAL (aviso incluido) nunca supera tailBytes caracteres.
+    const finish = (code) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      resolve(res);
+      let text = tail.toString('utf8');
+      if (truncated) text = TRUNCATED_MARK + text.slice(-(tailBytes - TRUNCATED_MARK.length));
+      resolve({ ok: !timedOut && code === 0, code: timedOut ? null : code, output: text });
     };
+    const fail = () => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, code: null, output: FALLO }); } };
+
+    // spawn lanza síncrono con argumentos inválidos (p. ej. NUL en el comando) o si el cwd dejó de ser un directorio.
+    let child;
+    try {
+      child = spawn('bash', ['-lc', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (_) { return fail(); }
+
     const collect = (chunk) => {
       tail = Buffer.concat([tail, chunk]);
       if (tail.length > tailBytes) { truncated = true; tail = tail.subarray(tail.length - tailBytes); }
@@ -48,17 +60,21 @@ function runShell(command, { cwd, timeoutMs, tailBytes = TAIL_BYTES }) {
     child.stderr.on('data', collect);
 
     // Grupo de procesos entero (pid negativo): bash y todo lo que haya lanzado.
-    const timer = setTimeout(() => {
+    // Un nieto con `setsid` escapa del grupo y puede retener las tuberías, y `close`
+    // no llegaría: por eso se destruyen y se responde sin esperar a `close`.
+    timer = setTimeout(() => {
       timedOut = true;
       try { process.kill(-child.pid, 'SIGKILL'); } catch (_) { /* ya terminó */ }
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(null);
     }, timeoutMs);
 
-    child.on('error', (err) => finish({ ok: false, code: null, output: err.message }));
+    child.on('error', fail);
     child.on('close', (code) => {
       // Si el comando terminó solo pero dejó procesos en segundo plano, no los dejamos huérfanos.
       try { process.kill(-child.pid, 'SIGKILL'); } catch (_) { /* grupo ya vacío */ }
-      const text = (truncated ? TRUNCATED_MARK : '') + tail.toString('utf8');
-      finish({ ok: !timedOut && code === 0, code: timedOut ? null : code, output: text });
+      finish(code);
     });
   });
 }

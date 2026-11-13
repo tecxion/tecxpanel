@@ -108,6 +108,7 @@ test('validación → 400', async () => {
   const malos = [
     {}, { command: '' }, { command: '   ' }, { command: 42 },
     { command: 'x'.repeat(8001) },
+    { command: 'echo a\0b' },
     { command: 'true', cwd: 'relativo' },
     { command: 'true', cwd: '/no/existe/jamas' },
     { command: 'true', cwd: '/etc/hostname' }, // existe pero no es directorio (o no existe: 400 igualmente)
@@ -123,7 +124,7 @@ test('validación → 400', async () => {
 test('salida grande → últimos 64 KB con aviso de recorte', async () => {
   const r = await exec(adminToken, { command: 'head -c 200000 /dev/zero | tr "\\0" "a"; printf FIN' });
   assert.equal(r.status, 200);
-  assert.ok(r.body.output.length <= 65536 + 32);
+  assert.ok(r.body.output.length <= 65536);
   assert.ok(r.body.output.startsWith('[…recortado…]'));
   assert.ok(r.body.output.endsWith('FIN'));
 });
@@ -158,6 +159,38 @@ test('un 400 no se audita ni ejecuta', async () => {
   const antes = auditRows('system.exec').length;
   await exec(adminToken, { command: '' });
   assert.equal(auditRows('system.exec').length, antes);
+});
+
+test('timeout con un nieto en otra sesión (setsid) que retiene la tubería: responde igualmente <3 s', async () => {
+  const n = 5000 + (process.pid % 1000);       // duración única para localizar el nieto
+  const t0 = Date.now();
+  try {
+    const r = await exec(adminToken, { command: `setsid sleep ${n} & echo x`, timeout_s: 1 });
+    assert.ok(Date.now() - t0 < 3000, `tardó ${Date.now() - t0} ms`);
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.code, null);
+  } finally { // limpia siempre el nieto escapado del grupo
+    try { require('child_process').execFileSync('pkill', ['-f', `sleep ${n}`]); } catch (_) { /* ya no está */ }
+  }
+});
+
+test('auditoría: los caracteres de control del comando se escapan (sin saltos de línea reales)', async () => {
+  await exec(adminToken, { command: 'true\nX' });
+  const fila = auditRows('system.exec').find((f) => f.detail.startsWith('true\\x0a'));
+  assert.ok(fila);
+  assert.equal(fila.detail, 'true\\x0aX');
+});
+
+test('runShell nunca lanza: cwd que es un fichero o que no existe → ok:false', async () => {
+  const { runShell } = require('../lib/system/exec');
+  for (const cwd of ['/etc/hostname', '/no/existe/jamas']) {
+    const r = await runShell('echo x', { cwd, timeoutMs: 2000 });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, null);
+  }
+  const nul = await runShell('echo a\0b', { cwd: '/tmp', timeoutMs: 2000 });
+  assert.equal(nul.ok, false);
+  assert.equal(nul.output, 'No se pudo ejecutar el comando');
 });
 
 test('interruptor apagado → 403 aunque el token sea admin', async () => {
