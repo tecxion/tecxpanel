@@ -28,7 +28,19 @@ Para crear un token `admin` hace falta, además de la contraseña actual (y el c
    cd mcp && npm install
    ```
 
-3. **Configura el cliente.**
+3. **Configura el cliente por consola (recomendado).** Sin editar ningún JSON a mano:
+
+   ```bash
+   cd mcp && npm run setup                      # Claude Desktop (pregunta la URL y el token)
+   npm run setup -- --code                      # Claude Code
+   npm run setup -- --both --url https://panel.tudominio.com
+   ```
+
+   Comprueba que el panel acepta el token (`--no-check` lo omite), escribe la configuración de Claude Desktop con copia de seguridad (`.bak`) y sin pisar tus otros servidores MCP, y usa rutas absolutas. El token se pide sin mostrarse en pantalla.
+
+   El instalador deja el MCP en **solo lectura**. Para las acciones o el control total, añade después `TXPL_ENABLE_WRITE=1` / `TXPL_ENABLE_ADMIN=1` en la configuración (ver más abajo).
+
+   **Configuración manual (alternativa).**
 
    **Claude Desktop** (`claude_desktop_config.json`). Cambia la ruta, la URL y el token:
 

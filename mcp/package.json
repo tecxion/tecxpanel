@@ -8,7 +8,8 @@
     "txpl-mcp": "index.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "setup": "node setup.js"
   },
   "engines": {
     "node": ">=18"

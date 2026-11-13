@@ -8,6 +8,10 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.3.1 — 2026-11-14
+
+- MCP: `npm run setup` en `mcp/` registra el servidor en Claude Desktop o Claude Code por consola (con comprobación del token y copia de seguridad), sin editar JSON a mano. Instala el modo de solo lectura; las variables `TXPL_ENABLE_WRITE`/`TXPL_ENABLE_ADMIN` se añaden a mano.
+
 ## 2.3.0 — 2026-11-13
 
 - **Ámbitos de token de API**: `read` (solo lectura), `write` «Lectura y acciones» (reiniciar app/contenedor, crear backup completo, renovar SSL; 30/90/365 días) y `admin` «Control total» (cualquier ruta `/api/*` salvo `/api/auth*`; caducidad 7 o 30 días). Los paneles ya instalados amplían solos el `CHECK` de `api_tokens` al arrancar.
