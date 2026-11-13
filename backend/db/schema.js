@@ -46,11 +46,27 @@ function addMissingColumns() {
   }
 }
 
+// El ámbito 'admin' de api_tokens llegó después de 017: CREATE TABLE IF NOT EXISTS
+// no cambia un CHECK existente y SQLite no permite alterarlo, así que en un panel
+// ya instalado se reconstruye la tabla conservando las filas (idempotente).
+function rebuildApiTokensCheck() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='api_tokens'").get();
+  if (!row || row.sql.includes("'admin'")) return;
+  db.transaction(() => {
+    db.exec('ALTER TABLE api_tokens RENAME TO api_tokens_old');
+    db.exec(fs.readFileSync(path.join(SCHEMA_DIR, '017_api_tokens.sql'), 'utf8'));
+    const cols = 'id, user_id, name, token_hash, scope, created_at, expires_at, last_used_at';
+    db.exec(`INSERT INTO api_tokens (${cols}) SELECT ${cols} FROM api_tokens_old`);
+    db.exec('DROP TABLE api_tokens_old');
+  })();
+}
+
 function initSchema() {
   for (const { full } of listSql(SCHEMA_DIR)) {
     db.exec(fs.readFileSync(full, 'utf8'));
   }
   addMissingColumns();
+  rebuildApiTokensCheck();
 }
 
 module.exports = { initSchema };

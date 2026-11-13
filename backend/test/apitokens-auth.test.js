@@ -87,7 +87,7 @@ test('POST /api/auth/tokens con días no permitidos → 400', async () => {
 
 test('POST /api/auth/tokens: nombre y ámbito inválidos → 400 (antes que la contraseña)', async () => {
   assert.equal((await createToken({ name: 'a/b', password: 'mala' })).status, 400);
-  assert.equal((await createToken({ scope: 'admin', password: 'mala' })).status, 400);
+  assert.equal((await createToken({ scope: 'otro', password: 'mala' })).status, 400);
 });
 
 test('POST /api/auth/tokens con JWT correcto → 200 y token txpl_', async () => {
@@ -203,4 +203,84 @@ test('git_repo con credenciales: un token de API nunca las recibe; el webhook_se
     const j = await call('GET', url, jwtToken); // con sesión todo sigue igual
     assert.ok(JSON.stringify(j.body).includes('wh-' + (url.endsWith('apps') ? 'app' : 'web')), url);
   }
+});
+
+// ── Tokens admin: interruptor global, 2FA y auditoría de llamadas ──────────
+const crypto = require('crypto');
+const { base32Encode, base32Decode } = require('../lib/crypto');
+
+// Código TOTP actual (mismo algoritmo HOTP/SHA-1 que lib/crypto).
+function totpNow(secretB32) {
+  const buf = Buffer.alloc(8); buf.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+  const h = crypto.createHmac('sha1', base32Decode(secretB32)).update(buf).digest();
+  const off = h[h.length - 1] & 0xf;
+  return (((h.readUInt32BE(off) & 0x7fffffff) % 1_000_000)).toString().padStart(6, '0');
+}
+const setFlag = (enabled, password = PASSWORD) => call('POST', '/api/auth/ai-admin', jwtToken, { enabled, password });
+let adminToken, adminTokenId;
+
+test('flag apagado por defecto: GET /ai-admin → false y crear token admin → 403', async () => {
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: false });
+  const r = await createToken({ name: 'adm', scope: 'admin', days: 7 });
+  assert.equal(r.status, 403);
+});
+
+test('POST /ai-admin con contraseña mala → 403 y el flag sigue apagado', async () => {
+  assert.equal((await setFlag(true, 'mala')).status, 403);
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: false });
+});
+
+test('POST /ai-admin con contraseña correcta enciende; admin con 7 días → 200, con 90 → 400', async () => {
+  const r = await setFlag(true);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { enabled: true });
+  assert.equal((await createToken({ name: 'adm', scope: 'admin', days: 90 })).status, 400);
+  const c = await createToken({ name: 'adm', scope: 'admin', days: 7 });
+  assert.equal(c.status, 200);
+  adminToken = c.body.token; adminTokenId = c.body.id;
+});
+
+test('usuario con 2FA: admin sin code → 401, code malo → 401, code bueno → 200', async () => {
+  const secret = base32Encode(crypto.randomBytes(20));
+  const uid = db.prepare("INSERT INTO users (username, password_hash, role, totp_secret, totp_enabled) VALUES ('dos', ?, 'admin', ?, 1)")
+    .run(bcrypt.hashSync(PASSWORD, 4), secret).lastInsertRowid;
+  const jwt2 = jwt.sign({ uid, username: 'dos', role: 'admin' }, SECRET, { expiresIn: '1h' });
+  const crear = (code) => call('POST', '/api/auth/tokens', jwt2, { name: 'adm2', scope: 'admin', days: 30, password: PASSWORD, code });
+  assert.equal((await crear()).status, 401);
+  assert.equal((await crear('000000' === totpNow(secret) ? '111111' : '000000')).status, 401);
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'apitoken.create.fail' AND user = 'dos'").get());
+  assert.equal((await crear(totpNow(secret))).status, 200);
+});
+
+test('flag encendido: token admin → 200; apagado → 403 sin tocar last_used_at', async () => {
+  assert.equal((await call('GET', '/api/system/stats', adminToken)).status, 200);
+  db.prepare('UPDATE api_tokens SET last_used_at = NULL WHERE id = ?').run(adminTokenId);
+  assert.equal((await setFlag(false)).status, 200);
+  const r = await call('GET', '/api/system/stats', adminToken);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Los tokens de control total están desactivados en el panel');
+  assert.equal(tokenRow(adminTokenId).last_used_at, null);
+  const fila = deniedRows().at(-1);
+  assert.equal(fila.detail, 'GET /api/system/stats (control total desactivado)');
+  assert.match(fila.user, /\(token:/);
+  assert.ok(!fila.detail.includes(adminToken) && !fila.user.includes(adminToken));
+  assert.equal((await setFlag(true)).status, 200);
+});
+
+test('token admin en /api/auth/tokens, /password y /ai-admin → 403', async () => {
+  assert.equal((await call('GET', '/api/auth/tokens', adminToken)).status, 403);
+  assert.equal((await call('POST', '/api/auth/password', adminToken, { oldPassword: PASSWORD, newPassword: 'otraclave123' })).status, 403);
+  assert.equal((await call('POST', '/api/auth/ai-admin', adminToken, { enabled: false, password: PASSWORD })).status, 403);
+  assert.deepEqual((await call('GET', '/api/auth/ai-admin', jwtToken)).body, { enabled: true });
+});
+
+test('POST con token write → fila apitoken.call; ningún txpl_ en audit_log', async () => {
+  const { token } = (await createToken({ name: 'escritor', scope: 'write', days: 30 })).body;
+  assert.equal((await call('POST', '/api/apps/1/restart', token)).status, 200);
+  const fila = db.prepare("SELECT * FROM audit_log WHERE action = 'apitoken.call' ORDER BY id DESC").get();
+  assert.equal(fila.user, 'kiko (token:escritor)');
+  assert.equal(fila.detail, 'POST /api/apps/1/restart');
+  assert.equal((await call('GET', '/api/system/stats', token)).status, 200);
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action = 'apitoken.call'").get().c, 1); // GET no se audita
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM audit_log').all()).includes('txpl_'));
 });

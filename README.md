@@ -119,7 +119,7 @@ El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestruct
 │       ├── core/           # api.js, utils.js, theme.js, toast.js, stream.js, router.js
 │       ├── pages/          # Páginas migradas a lit-html (tarea futura)
 │       └── <dominio>.js    # 20 ficheros v1 (ES modules con export {} para back-compat)
-├── mcp/                    # Servidor MCP de solo lectura (paquete aparte, corre en tu ordenador)
+├── mcp/                    # Servidor MCP (solo lectura por defecto; acciones opcionales; paquete aparte, corre en tu ordenador)
 ├── data/
 │   └── txpl.db             # Base de datos SQLite del panel (se crea en el arranque)
 ├── public/                 # Assets estáticos (logotipos servidos por el panel)
@@ -623,9 +623,15 @@ Para configurar avisos por correo, debes completar los 4 campos obligatorios (**
 
 ## 🤖 Integración con IA (MCP)
 
-Desde la v2.2 puedes dejar que una IA como **Claude** consulte tu VPS (estado, servicios, apps, contenedores, logs, SSL, backups) sin darle acceso al servidor. Creas un **token de API** de solo lectura en **Ajustes → Tokens de API (IA / MCP)** (con caducidad y revocable) y lo usas con el **servidor MCP** de la carpeta `mcp/`, que corre en tu ordenador. El token solo alcanza una lista blanca de rutas de lectura: no lee contraseñas ni archivos, no abre la terminal y no borra nada.
+Desde la v2.2 puedes dejar que una IA como **Claude** consulte tu VPS (estado, servicios, apps, contenedores, logs, SSL, backups) sin darle acceso al servidor. Creas un **token de API** con caducidad y revocable en **Ajustes → Tokens de API (IA / MCP)** y lo usas con el **servidor MCP** de la carpeta `mcp/`, que corre en tu ordenador. Desde la v2.3 hay tres ámbitos:
 
-Guía paso a paso, configuración de Claude Desktop / Claude Code y límites de seguridad: [`mcp/README.md`](mcp/README.md).
+- **Solo lectura** (por defecto): lista blanca de rutas `GET`; no lee contraseñas ni archivos, no abre la terminal y no borra nada.
+- **Lectura y acciones**: además reiniciar apps y contenedores, crear backups completos y renovar SSL.
+- **Control total**: cualquier ruta `/api/*` salvo `/api/auth*`, incluida la ejecución de comandos como root. Equivale a darle root a la IA: exige encender el interruptor global **«Control total de IA»** (apagado por defecto), tiene caducidad de 7 o 30 días y toda petición queda auditada.
+
+Las herramientas de acción del MCP solo se activan con `TXPL_ENABLE_WRITE=1` / `TXPL_ENABLE_ADMIN=1`.
+
+Guía paso a paso, ámbitos, configuración de Claude Desktop / Claude Code, advertencias y límites de seguridad: [`mcp/README.md`](mcp/README.md).
 
 ---
 

@@ -9,10 +9,12 @@
 // ============================================================
 
 const os = require('os');
+const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { runSafe } = require('../lib/helpers');
+const { runShellTail } = require('../lib/common/run');
 const { cpuPercent, memInfo } = require('../lib/websocket'); // reutilizamos los cálculos del WS
 const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
@@ -181,5 +183,36 @@ router.get('/features', (req, res) => {
   try { require.resolve('node-pty'); terminal = true; } catch (_) {}
   ok(res, { terminal });
 });
+
+// POST /api/system/exec — Ejecuta un comando con `bash -lc` (solo tokens de API
+// con ámbito admin; la lista blanca ya cierra el paso a write/read, y aquí se
+// cierra también a la sesión JWT: la UI tiene su propia terminal).
+// Body: { command, cwd?, timeout_s? } → { success, ok, code, output }.
+const EXEC_MAX_OUTPUT = 64 * 1024;   // se devuelven los últimos 64 KB
+router.post('/exec', wrap(async (req, res) => {
+  if (req.user.apiToken?.scope !== 'admin') return fail(res, 403, 'Solo un token de control total puede ejecutar comandos');
+  const { command, cwd, timeout_s: timeoutS = 60 } = req.body || {};
+  if (typeof command !== 'string' || !command.trim()) return fail(res, 400, 'Comando requerido');
+  if (command.length > 8000) return fail(res, 400, 'El comando supera los 8000 caracteres');
+  if (cwd !== undefined) {
+    if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return fail(res, 400, 'La carpeta de trabajo debe ser una ruta absoluta');
+    if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) return fail(res, 400, 'La carpeta de trabajo no existe');
+  }
+  if (!Number.isInteger(timeoutS) || timeoutS < 1 || timeoutS > 110) return fail(res, 400, 'timeout_s debe estar entre 1 y 110 segundos');
+
+  // Se audita ANTES de ejecutar: el comando puede tumbar el panel (pm2 reload, reboot).
+  audit(req.user.username, clientIp(req), 'system.exec', command.slice(0, 500));
+  // Cabeceras ya y un espacio cada 10 s: así un proxy con read_timeout corto
+  // (nginx /api/ = 30 s) no corta un comando largo. Los espacios iniciales son JSON válido.
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  const latido = setInterval(() => res.write(' '), 10000);
+  res.on('close', () => clearInterval(latido));
+  const r = await runShellTail(command, { cwd, timeoutMs: timeoutS * 1000, tailBytes: EXEC_MAX_OUTPUT });
+  clearInterval(latido);
+  // La salida puede no ser UTF-8: toString la sanea con U+FFFD.
+  let output = r.output.toString('utf8');
+  if (r.timedOut) output = (output + `\n[cortado por timeout de ${timeoutS} s]`).slice(-EXEC_MAX_OUTPUT);
+  res.end(JSON.stringify({ success: true, ok: r.ok, code: r.code, output }));
+}));
 
 module.exports = router;
