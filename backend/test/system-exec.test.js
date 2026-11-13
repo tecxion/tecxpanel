@@ -86,27 +86,43 @@ test('cwd /tmp → pwd devuelve /tmp', async () => {
   assert.equal(r.body.output.trim(), '/tmp');
 });
 
-test('timeout_s 1 con sleep 5 → ok:false, code null, en menos de 3 s', async () => {
+const { execFileSync } = require('child_process');
+// pgrep sale con 1 si no encuentra nada.
+const vivos = (patron) => { try { return execFileSync('pgrep', ['-f', patron]).toString().trim(); } catch { return ''; } };
+
+test('timeout mata el grupo entero: sleep 5.31; true con timeout_s 1 → ok:false, sin hijos vivos', async () => {
   const t0 = Date.now();
-  const r = await exec({ command: 'sleep 5', timeout_s: 1 });
+  const r = await exec({ command: 'sleep 5.31; true', timeout_s: 1 });
   assert.ok(Date.now() - t0 < 3000);
   assert.equal(r.body.ok, false);
   assert.equal(r.body.code, null);
+  assert.match(r.body.output, /\[cortado por timeout de 1 s\]$/);
+  assert.equal(vivos('sleep 5.31'), '');
+});
+
+test('timeout con trap TERM → ok:false en menos de 3 s', async () => {
+  const t0 = Date.now();
+  const r = await exec({ command: 'trap "" TERM; sleep 3.17; true', timeout_s: 1 });
+  assert.ok(Date.now() - t0 < 3000);
+  assert.equal(r.body.ok, false);
+  assert.equal(vivos('sleep 3.17'), '');
 });
 
 test('validaciones → 400', async () => {
   const casos = [
     {}, { command: '' }, { command: '   ' }, { command: 5 }, { command: 'a'.repeat(8001) },
     { command: 'pwd', cwd: 'tmp' }, { command: 'pwd', cwd: '/no/existe/txpl' }, { command: 'pwd', cwd: 3 },
-    { command: 'pwd', timeout_s: 0 }, { command: 'pwd', timeout_s: 111 }, { command: 'pwd', timeout_s: '5' },
+    { command: 'pwd', timeout_s: 0 }, { command: 'pwd', timeout_s: 111 }, { command: 'pwd', timeout_s: '5' }, { command: 'pwd', timeout_s: 1.5 },
   ];
   for (const c of casos) assert.equal((await exec(c)).status, 400, JSON.stringify(c).slice(0, 80));
 });
 
-test('salida grande → recortada a 64 KB (se conserva el final)', async () => {
-  const r = await exec({ command: 'head -c 200000 /dev/zero | tr "\\0" "a"; echo FIN' });
+test('salida de 20 MB → el comando termina bien y se devuelven los últimos 64 KB', async () => {
+  const r = await exec({ command: "head -c 20000000 /dev/zero | tr '\\0' a; echo FIN" });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.code, 0);
   assert.ok(r.body.output.length <= 65536);
-  assert.match(r.body.output, /FIN/);
+  assert.match(r.body.output, /aFIN\n$/);
 });
 
 test('salida no UTF-8 → JSON válido con U+FFFD', async () => {

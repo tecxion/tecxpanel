@@ -14,6 +14,7 @@ const fs = require('fs');
 const express = require('express');
 const { ok, fail, clientIp, wrap } = require('../lib/helpers');
 const { runSafe } = require('../lib/helpers');
+const { runShellTail } = require('../lib/common/run');
 const { cpuPercent, memInfo } = require('../lib/websocket'); // reutilizamos los cálculos del WS
 const { ALLOWED_SERVICES, ALLOWED_SVC_ACTIONS } = require('../lib/validators');
 const { audit } = require('../database');
@@ -197,16 +198,15 @@ router.post('/exec', wrap(async (req, res) => {
     if (typeof cwd !== 'string' || !path.isAbsolute(cwd)) return fail(res, 400, 'La carpeta de trabajo debe ser una ruta absoluta');
     if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) return fail(res, 400, 'La carpeta de trabajo no existe');
   }
-  if (typeof timeoutS !== 'number' || !(timeoutS > 0 && timeoutS <= 110)) return fail(res, 400, 'timeout_s debe estar entre 1 y 110 segundos');
+  if (!Number.isInteger(timeoutS) || timeoutS < 1 || timeoutS > 110) return fail(res, 400, 'timeout_s debe estar entre 1 y 110 segundos');
 
-  // encoding 'buffer': la salida puede no ser UTF-8; se recorta y se sanea abajo (U+FFFD).
-  const r = await runSafe('bash', ['-lc', command], {
-    cwd, timeout: timeoutS * 1000, maxBuffer: 16 * 1024 * 1024, encoding: 'buffer',
-  });
+  // Se audita ANTES de ejecutar: el comando puede tumbar el panel (pm2 reload, reboot).
   audit(req.user.username, clientIp(req), 'system.exec', command.slice(0, 500));
-  const parts = [r.stdout, r.stderr].map((b) => Buffer.from(b)).filter((b) => b.length);
-  const joined = Buffer.concat(parts.flatMap((b, i) => (i ? [Buffer.from('\n'), b] : [b])));
-  ok(res, { success: true, ok: r.ok, code: r.code, output: joined.subarray(-EXEC_MAX_OUTPUT).toString('utf8') });
+  const r = await runShellTail(command, { cwd, timeoutMs: timeoutS * 1000, tailBytes: EXEC_MAX_OUTPUT });
+  // La salida puede no ser UTF-8: toString la sanea con U+FFFD.
+  let output = r.output.toString('utf8');
+  if (r.timedOut) output = (output + `\n[cortado por timeout de ${timeoutS} s]`).slice(-EXEC_MAX_OUTPUT);
+  ok(res, { success: true, ok: r.ok, code: r.code, output });
 }));
 
 module.exports = router;
