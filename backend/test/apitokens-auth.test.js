@@ -260,6 +260,10 @@ test('flag encendido: token admin → 200; apagado → 403 sin tocar last_used_a
   assert.equal(r.status, 403);
   assert.equal(r.body.error, 'Los tokens de control total están desactivados en el panel');
   assert.equal(tokenRow(adminTokenId).last_used_at, null);
+  const fila = deniedRows().at(-1);
+  assert.equal(fila.detail, 'GET /api/system/stats (control total desactivado)');
+  assert.match(fila.user, /\(token:/);
+  assert.ok(!fila.detail.includes(adminToken) && !fila.user.includes(adminToken));
   assert.equal((await setFlag(true)).status, 200);
 });
 

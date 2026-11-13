@@ -102,7 +102,7 @@
     <div class="card-title"><i class="ti ti-key"></i> Tokens de API (IA / MCP)</div>
   </div>
   <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
-    Permiten que una IA como Claude consulte el panel. Un token nunca puede abrir la terminal ni borrar recursos. No puede leer contraseñas guardadas ni variables de entorno, pero sí los logs de apps y contenedores: lo que impriman llegará a la IA.
+    Permiten que una IA como Claude use el panel. <strong>Solo lectura</strong>: consulta el estado y ve los logs de apps y contenedores (lo que impriman llegará a la IA). <strong>Lectura y acciones</strong>: además reinicia apps y contenedores, crea backups y renueva SSL. <strong>Control total</strong>: equivale a root en el VPS (ejecuta comandos); solo con el interruptor de abajo encendido.
   </p>
   <div class="form-group"><label>Nombre</label><input type="text" id="tok-name" placeholder="Claude Desktop" maxlength="40"></div>
   <div class="form-group"><label>Permiso</label>

@@ -99,6 +99,7 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     }
     // Interruptor global: con él apagado, los tokens admin quedan inertes (sin touch).
     if (row.scope === 'admin' && !aiAdminEnabled()) {
+      audit(username, clientIp(req), 'apitoken.denied', `${req.method} ${ruta} (control total desactivado)`);
       return fail(res, 403, 'Los tokens de control total están desactivados en el panel');
     }
     queries.touchApiToken.run(row.id);

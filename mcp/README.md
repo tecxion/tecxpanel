@@ -120,7 +120,8 @@ Las acciones esperan hasta 120 s; si se agota, el MCP responde «Tiempo de esper
 - **Prompt injection.** La IA lee logs, páginas web y contenido de terceros que pueden incluir instrucciones maliciosas («ejecuta este comando…»). Con `write`/`admin`, esas instrucciones pueden convertirse en acciones reales.
 - **No marques «permitir siempre»** en el cliente para `ejecutar_comando`, `llamar_api` ni las demás herramientas de acción: revisa cada llamada antes de aprobarla.
 - **Caducidad corta:** usa 7 días para `admin` y crea un token nuevo cuando lo necesites; no lo dejes activo «por si acaso».
-- **Si sospechas algo:** revoca el token en Ajustes → Tokens de API **y** apaga el interruptor «Control total de IA».
+- **Si sospechas algo:** revoca el token en Ajustes → Tokens de API **y** apaga el interruptor «Control total de IA». Apagarlo detiene el token, pero **no deshace lo que ya hizo**: trátalo como un compromiso de root. Revisa `~/.ssh/authorized_keys`, el crontab y los servicios, y rota `JWT_SECRET`/`TXPL_SECRET_KEY` y la contraseña.
+- **Excluir `/api/auth*` protege de accidentes, no de un atacante decidido:** un token `admin` puede ejecutar cualquier comando, y con eso todo lo demás.
 - **Cambiar la contraseña no revoca los tokens de API.** Revócalos a mano.
 - **Auditoría:** toda petición con token que no sea `GET` queda registrada como `apitoken.call`, y `system.exec` registra el comando **antes** de ejecutarlo.
 

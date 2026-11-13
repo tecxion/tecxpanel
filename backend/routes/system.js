@@ -202,11 +202,17 @@ router.post('/exec', wrap(async (req, res) => {
 
   // Se audita ANTES de ejecutar: el comando puede tumbar el panel (pm2 reload, reboot).
   audit(req.user.username, clientIp(req), 'system.exec', command.slice(0, 500));
+  // Cabeceras ya y un espacio cada 10 s: así un proxy con read_timeout corto
+  // (nginx /api/ = 30 s) no corta un comando largo. Los espacios iniciales son JSON válido.
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+  const latido = setInterval(() => res.write(' '), 10000);
+  res.on('close', () => clearInterval(latido));
   const r = await runShellTail(command, { cwd, timeoutMs: timeoutS * 1000, tailBytes: EXEC_MAX_OUTPUT });
+  clearInterval(latido);
   // La salida puede no ser UTF-8: toString la sanea con U+FFFD.
   let output = r.output.toString('utf8');
   if (r.timedOut) output = (output + `\n[cortado por timeout de ${timeoutS} s]`).slice(-EXEC_MAX_OUTPUT);
-  ok(res, { success: true, ok: r.ok, code: r.code, output });
+  res.end(JSON.stringify({ success: true, ok: r.ok, code: r.code, output }));
 }));
 
 module.exports = router;

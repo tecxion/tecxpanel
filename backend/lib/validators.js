@@ -15,7 +15,7 @@ const ALLOWED_SERVICES = ['nginx', 'mysql', 'mariadb', 'postgresql', 'redis', 'r
 // Acciones permitidas sobre esos servicios.
 const ALLOWED_SVC_ACTIONS = ['start', 'stop', 'restart'];
 // Acciones permitidas sobre las apps de PM2.
-const ALLOWED_APP_ACTIONS = ['start', 'stop', 'restart', 'delete'];
+const ALLOWED_APP_ACTIONS = ['start', 'stop', 'restart', 'reload', 'delete'];
 // Tipos de sitio web soportados.
 // ('nodejs'/'python' ya no se crean como sitio: son apps. Las filas antiguas siguen funcionando.)
 const ALLOWED_SITE_TYPES = ['html', 'php', 'react', 'proxy'];

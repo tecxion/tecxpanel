@@ -75,7 +75,13 @@ function runInput(cmd, args, input, opts = {}) {
 // Devuelve { ok, code, output (Buffer), timedOut }; code es null si hubo señal.
 function runShellTail(command, { cwd, timeoutMs, tailBytes }) {
   return new Promise((resolve) => {
-    const child = spawn('bash', ['-lc', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Entorno mínimo: el del panel lleva JWT_SECRET, ADMIN_PASS, TXPL_SECRET_KEY...
+    const env = {
+      PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+      HOME: process.env.HOME || '/root',
+      LANG: process.env.LANG || 'C.UTF-8',
+    };
+    const child = spawn('bash', ['-lc', command], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let tail = Buffer.alloc(0);
     let timedOut = false;
     const keep = (chunk) => {

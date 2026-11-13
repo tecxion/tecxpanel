@@ -11,9 +11,9 @@ Para publicar una versión: editar `VERSION` y `package.json`, añadir su secci�
 ## 2.3.0 — 2026-11-13
 
 - **Ámbitos de token de API**: `read` (solo lectura), `write` «Lectura y acciones» (reiniciar app/contenedor, crear backup completo, renovar SSL; 30/90/365 días) y `admin` «Control total» (cualquier ruta `/api/*` salvo `/api/auth*`; caducidad 7 o 30 días). Los paneles ya instalados amplían solos el `CHECK` de `api_tokens` al arrancar.
-- **Interruptor «Control total de IA»** en Ajustes (apagado por defecto, requiere contraseña): apagarlo neutraliza al instante los tokens `admin`. Crear un token `admin` exige interruptor encendido, contraseña y código 2FA si está activo.
+- **Interruptor «Control total de IA»** en Ajustes (apagado por defecto, requiere contraseña): apagarlo neutraliza al instante los tokens `admin` (no deshace lo que ya hicieron: ante una sospecha, trátalo como un compromiso de root; ver `mcp/README.md`). Crear un token `admin` exige interruptor encendido, contraseña y código 2FA si está activo.
 - **Auditoría**: toda petición no-GET con token de API queda como `apitoken.call`.
-- **`POST /api/system/exec`** (solo tokens `admin`): `bash -lc` con límite de 1-110 s (60 por defecto); al agotarse se mata el grupo de procesos y se devuelven los últimos 64 KB de salida. El comando se audita antes de ejecutarse.
+- **`POST /api/system/exec`** (solo tokens `admin`): `bash -lc` con límite de 1-110 s (60 por defecto); al agotarse se mata el grupo de procesos y se devuelven los últimos 64 KB de salida. El comando se audita antes de ejecutarse y corre con un entorno mínimo (sin los secretos del panel); la respuesta envía un espacio cada 10 s para que nginx no la corte a los 30 s.
 - `POST /api/backups` con `kind: 'full'` y sin `resources` respalda todo.
 - **MCP 0.2.0**: herramientas de acción (`reiniciar_app`, `reiniciar_contenedor`, `crear_backup`, `renovar_ssl`) con `TXPL_ENABLE_WRITE=1` y de control total (`ejecutar_comando`, `llamar_api`) con `TXPL_ENABLE_ADMIN=1`; sin variables solo las 13 de lectura. Guía y advertencias en `mcp/README.md`.
 

@@ -63,7 +63,7 @@ before(async () => {
   readToken = await createToken('read');
 });
 
-after(() => { server.close(); db.close(); });
+after(() => { server.close(); db.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('token admin: echo hola → ok:true, code 0 y salida', async () => {
   const r = await exec({ command: 'echo hola' });
@@ -72,6 +72,20 @@ test('token admin: echo hola → ok:true, code 0 y salida', async () => {
   assert.equal(r.body.ok, true);
   assert.equal(r.body.code, 0);
   assert.match(r.body.output, /hola/);
+});
+
+test('comando de más de 1 s → cuerpo JSON parseable con los campos', async () => {
+  const r = await exec({ command: 'sleep 1; echo tarde' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { success: true, ok: true, code: 0, output: 'tarde\n' });
+});
+
+test('el comando no hereda los secretos del panel', async () => {
+  process.env.JWT_SECRET = 'secreto-de-prueba';
+  const r = await exec({ command: 'env' });
+  assert.equal(r.body.ok, true);
+  assert.match(r.body.output, /^PATH=/m);
+  assert.ok(!r.body.output.includes('secreto-de-prueba'));
 });
 
 test('exit 3 → ok:false, code 3', async () => {

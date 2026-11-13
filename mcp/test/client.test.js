@@ -22,6 +22,11 @@ test('envía Authorization Bearer y la URL completa', async () => {
   assert.equal(out, JSON.stringify({ a: 1 }, null, 2));
 });
 
+test('JSON con espacios de latido delante (system/exec) se parsea como JSON', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, '   {"success":true,"ok":true,"code":0,"output":"hola"}') });
+  assert.equal(await c.call('POST', '/api/system/exec', { command: 'x' }), JSON.stringify({ success: true, ok: true, code: 0, output: 'hola' }, null, 2));
+});
+
 test('devuelve texto plano tal cual', async () => {
   const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'hola', 'text/plain') });
   assert.equal(await c.call('GET', '/x'), 'hola');

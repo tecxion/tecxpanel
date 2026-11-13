@@ -55,7 +55,8 @@ function rebuildApiTokensCheck() {
   db.transaction(() => {
     db.exec('ALTER TABLE api_tokens RENAME TO api_tokens_old');
     db.exec(fs.readFileSync(path.join(SCHEMA_DIR, '017_api_tokens.sql'), 'utf8'));
-    db.exec('INSERT INTO api_tokens SELECT * FROM api_tokens_old');
+    const cols = 'id, user_id, name, token_hash, scope, created_at, expires_at, last_used_at';
+    db.exec(`INSERT INTO api_tokens (${cols}) SELECT ${cols} FROM api_tokens_old`);
     db.exec('DROP TABLE api_tokens_old');
   })();
 }

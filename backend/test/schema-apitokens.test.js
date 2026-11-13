@@ -40,4 +40,5 @@ test('initSchema amplía el CHECK de api_tokens conservando filas (idempotente)'
   assert.throws(() => db.prepare("INSERT INTO api_tokens (user_id, name, token_hash, scope, expires_at) VALUES (1, 'x', 'h1', 'read', '2099-01-01')").run()); // UNIQUE sigue
   assert.equal(db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE name = 'api_tokens_old'").get().c, 0);
   db.close();
+  fs.rmSync(TMP, { recursive: true, force: true });
 });
