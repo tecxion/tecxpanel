@@ -8,6 +8,10 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.2.2 — 2026-11-13
+
+- MCP: `npm run setup` en `mcp/` registra el servidor en Claude Desktop o Claude Code por consola (con comprobación del token y copia de seguridad), sin editar JSON a mano.
+
 ## 2.2.1 — 2026-11-13
 
 - Arreglo: se sube la versión de los recursos del frontend (`ASSET_V` y `main.js?v=`) para que los navegadores recarguen `settings.js` y el botón «Crear token» funcione tras actualizar.
