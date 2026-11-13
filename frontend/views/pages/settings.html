@@ -102,11 +102,17 @@
     <div class="card-title"><i class="ti ti-key"></i> Tokens de API (IA / MCP)</div>
   </div>
   <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
-    Permiten que una IA como Claude consulte el panel. Un token nunca puede abrir la terminal ni borrar recursos. No puede leer contraseñas guardadas ni variables de entorno, pero sí los logs de apps y contenedores: lo que impriman llegará a la IA.
+    Permiten que una IA como Claude consulte el panel. Un token de lectura nunca puede abrir la terminal ni borrar recursos. Ningún token lee contraseñas guardadas ni variables de entorno, pero sí los logs de apps y contenedores: lo que impriman llegará a la IA.
   </p>
   <div class="form-group"><label>Nombre</label><input type="text" id="tok-name" placeholder="Claude Desktop" maxlength="40"></div>
   <div class="form-group"><label>Permiso</label>
-    <select id="tok-scope"><option value="read">Solo lectura</option></select>
+    <select id="tok-scope" onchange="onTokScopeChange()">
+      <option value="read">Solo lectura</option>
+      <option value="write">Lectura y acciones</option>
+      <option value="admin" id="tok-opt-admin">Control total (admin)</option>
+    </select>
+    <div id="tok-help-write" style="display:none;font-size:12px;color:var(--text-secondary);margin-top:6px">Puede reiniciar apps y contenedores, lanzar backups y renovar certificados.</div>
+    <div id="tok-help-admin" class="badge-red" style="display:none;font-size:12px;margin-top:6px;padding:8px 10px;border-radius:var(--radius)"><i class="ti ti-alert-triangle"></i> Permite ejecutar comandos como root en tu VPS. Un token filtrado equivale a acceso root. Caduca en 30 días como máximo.</div>
   </div>
   <div class="form-group"><label>Caduca en</label>
     <select id="tok-days">
@@ -115,6 +121,7 @@
       <option value="365">365 días</option>
     </select>
   </div>
+  <div class="form-group" id="tok-code-group" style="display:none"><label>Código 2FA</label><input type="text" id="tok-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456"></div>
   <div class="form-group"><label>Contraseña actual</label><input type="password" id="tok-pass" autocomplete="current-password"></div>
   <button class="btn btn-primary" id="tok-create" onclick="createApiToken()"><i class="ti ti-plus"></i> Crear token</button>
   <!-- Se rellena solo justo tras crear; el token no se guarda en ningún otro sitio -->
@@ -124,6 +131,15 @@
       <thead><tr><th>Nombre</th><th>Permiso</th><th>Creado</th><th>Caduca</th><th>Último uso</th><th></th></tr></thead>
       <tbody id="tok-list"></tbody>
     </table>
+  </div>
+  <!-- Interruptor global de control total (settings.js: loadAiAdmin / toggleAiAdmin) -->
+  <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+    <div style="font-weight:600;margin-bottom:6px"><i class="ti ti-shield-exclamation"></i> Control total de IA <span id="ai-admin-state" class="badge badge-green">Desactivado</span></div>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
+      Mientras esté desactivado, no se pueden crear ni usar tokens de control total (admin), que permiten a una IA ejecutar comandos como root. Al apagarlo, los tokens admin existentes dejan de funcionar al instante, sin borrarse.
+    </p>
+    <div class="form-group"><label>Contraseña actual</label><input type="password" id="ai-admin-pass" autocomplete="current-password"></div>
+    <button class="btn btn-primary" id="ai-admin-toggle" onclick="toggleAiAdmin()"></button>
   </div>
 </div>
 <div class="card mt-2">
