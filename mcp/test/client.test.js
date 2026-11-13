@@ -62,6 +62,18 @@ test('cuerpo cortado con 200 -> No se pudo leer la respuesta del panel (no éxit
   await assert.rejects(c.call('GET', '/x'), { message: 'No se pudo leer la respuesta del panel' });
 });
 
+test('204 sin cuerpo -> texto vacío', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => new Response(null, { status: 204 }) });
+  assert.equal(await c.call('DELETE', '/api/x/1'), '');
+});
+
+test('no sigue redirecciones (redirect: error)', async () => {
+  let seen;
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async (u, o) => { seen = o; return resp(200, {}); } });
+  await c.call('POST', '/api/backups', { kind: 'full' });
+  assert.equal(seen.redirect, 'error');
+});
+
 test('valida url y token al construir', () => {
   assert.throws(() => createClient({ url: 'http://panel.ejemplo.com', token: TOKEN }));
   assert.throws(() => createClient({ url: undefined, token: TOKEN }));
@@ -69,6 +81,35 @@ test('valida url y token al construir', () => {
   assert.doesNotThrow(() => createClient({ url: 'http://127.0.0.1:8585', token: TOKEN }));
   assert.throws(() => createClient({ url: URL_OK, token: 'abc' }));
   assert.throws(() => createClient({ url: URL_OK, token: undefined }));
+});
+
+test('POST envía JSON con Content-Type y GET no lleva cuerpo', async () => {
+  const seen = [];
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async (u, o) => { seen.push(o); return resp(200, { ok: true }); } });
+  await c.call('POST', '/api/system/exec', { command: 'echo hola' });
+  assert.equal(seen[0].method, 'POST');
+  assert.equal(seen[0].headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(seen[0].body), { command: 'echo hola' });
+  await c.call('POST', '/api/apps/1/restart');
+  assert.equal(seen[1].body, '{}');
+  await c.call('GET', '/api/apps');
+  assert.equal(seen[2].body, undefined);
+  assert.equal(seen[2].headers['Content-Type'], undefined);
+});
+
+test('streaming: quita el centinela __TXPL_DONE__0', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'línea\n__TXPL_DONE__0', 'text/plain') });
+  assert.equal(await c.call('POST', '/api/ssl/a.com/renew'), 'línea');
+});
+
+test('streaming: centinela con código ≠ 0 -> La operación terminó con error (con la salida)', async () => {
+  const c = createClient({ url: URL_OK, token: TOKEN, fetchImpl: async () => resp(200, 'fallo\n__TXPL_DONE__1', 'text/plain') });
+  await assert.rejects(c.call('POST', '/api/ssl/a.com/renew'), (e) => {
+    assert.match(e.message, /^La operación terminó con error/);
+    assert.ok(e.message.includes('fallo'));
+    assert.ok(!e.message.includes('__TXPL_DONE__'));
+    return true;
+  });
 });
 
 test('los errores de construcción no incluyen el token', () => {
