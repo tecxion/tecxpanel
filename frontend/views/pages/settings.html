@@ -102,14 +102,14 @@
     <div class="card-title"><i class="ti ti-key"></i> Tokens de API (IA / MCP)</div>
   </div>
   <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
-    Permiten que una IA como Claude consulte el panel. Un token de lectura nunca puede abrir la terminal ni borrar recursos. Ningún token lee contraseñas guardadas ni variables de entorno, pero sí los logs de apps y contenedores: lo que impriman llegará a la IA.
+    Permiten que una IA como Claude use el panel. Un token de lectura solo consulta (nunca abre la terminal ni borra recursos). Uno de acciones solo puede reiniciar apps y contenedores, crear backups y renovar certificados. Ninguno de esos dos lee contraseñas guardadas ni variables de entorno, pero sí los logs, y lo que impriman llegará a la IA. Un token de control total ejecuta comandos como root y puede leer cualquier cosa del servidor.
   </p>
   <div class="form-group"><label>Nombre</label><input type="text" id="tok-name" placeholder="Claude Desktop" maxlength="40"></div>
   <div class="form-group"><label>Permiso</label>
     <select id="tok-scope" onchange="onTokScopeChange()">
       <option value="read">Solo lectura</option>
       <option value="write">Lectura y acciones</option>
-      <option value="admin" id="tok-opt-admin">Control total (admin)</option>
+      <option value="admin" id="tok-opt-admin" disabled>Control total (admin)</option>
     </select>
     <div id="tok-help-write" style="display:none;font-size:12px;color:var(--text-secondary);margin-top:6px">Puede reiniciar apps y contenedores, lanzar backups y renovar certificados.</div>
     <div id="tok-help-admin" class="badge-red" style="display:none;font-size:12px;margin-top:6px;padding:8px 10px;border-radius:var(--radius)"><i class="ti ti-alert-triangle"></i> Permite ejecutar comandos como root en tu VPS. Un token filtrado equivale a acceso root. Caduca en 30 días como máximo.</div>

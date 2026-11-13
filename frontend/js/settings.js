@@ -64,6 +64,15 @@ async function changePassword() {
 // el servidor lo devuelve UNA sola vez y aquí solo se pinta en #tok-new (nunca se
 // guarda en localStorage ni en variables; "Copiar" lo lee del DOM).
 
+// Etiqueta legible y caducidades permitidas por ámbito (el servidor las valida de nuevo)
+const TOK_SCOPE_LABEL = { read: 'Lectura', write: 'Acciones', admin: 'Control total' };
+const TOK_DAYS = { read: [30, 90, 365], write: [30, 90, 365], admin: [7, 30] };
+const TOK_DAYS_DEFAULT = { read: 90, write: 90, admin: 7 };
+let aiAdminOn = false; // estado del interruptor global de control total
+let has2fa = false;    // el usuario tiene 2FA activo (pide código para tokens admin)
+let tfaUnknown = false; // /2fa/status falló: se deja visible #tok-code por si hace falta
+const tokNames = {}; // id → nombre, solo para mostrarlo en el confirm de revocar
+
 // hideNewToken: oculta y vacía el token recién creado.
 function hideNewToken() {
   const box = document.getElementById('tok-new');
@@ -97,31 +106,31 @@ async function loadApiTokens() {
   // Guardados para el confirm de revocar (confirm() es texto plano: no se escapa)
   data.forEach(t => { tokNames[Number(t.id)] = t.name; });
 }
-// Etiqueta legible y caducidades permitidas por ámbito (el servidor las valida de nuevo)
-const TOK_SCOPE_LABEL = { read: 'Lectura', write: 'Acciones', admin: 'Control total' };
-const TOK_DAYS = { read: [30, 90, 365], write: [30, 90, 365], admin: [7, 30] };
-const TOK_DAYS_DEFAULT = { read: 90, write: 90, admin: 7 };
-let aiAdminOn = false; // estado del interruptor global de control total
-let has2fa = false;    // el usuario tiene 2FA activo (pide código para tokens admin)
-const tokNames = {}; // id → nombre, solo para mostrarlo en el confirm de revocar
 
 // onTokScopeChange: adapta caducidades, avisos y campo 2FA al ámbito elegido.
 function onTokScopeChange() {
   const scope = document.getElementById('tok-scope').value;
   const sel = document.getElementById('tok-days');
-  sel.innerHTML = TOK_DAYS[scope].map(d => `<option value="${d}"${d === TOK_DAYS_DEFAULT[scope] ? ' selected' : ''}>${d} días</option>`).join('');
+  sel.innerHTML = (TOK_DAYS[scope] || TOK_DAYS.read).map(d => `<option value="${d}"${d === (TOK_DAYS_DEFAULT[scope] || 90) ? ' selected' : ''}>${d} días</option>`).join('');
   document.getElementById('tok-help-write').style.display = scope === 'write' ? 'block' : 'none';
   document.getElementById('tok-help-admin').style.display = scope === 'admin' ? 'block' : 'none';
-  document.getElementById('tok-code-group').style.display = scope === 'admin' && has2fa ? 'block' : 'none';
+  const showCode = scope === 'admin' && (has2fa || tfaUnknown);
+  document.getElementById('tok-code-group').style.display = showCode ? 'block' : 'none';
+  if (!showCode) document.getElementById('tok-code').value = '';
 }
 
 // loadAiAdmin: pinta el estado del interruptor global y consulta si hay 2FA.
+// Seguro ante fallos: si una petición falla, el control total se muestra APAGADO.
 async function loadAiAdmin() {
   const btn = document.getElementById('ai-admin-toggle');
   if (!btn) return;
-  const [st, tf] = await Promise.all([req('GET', '/auth/ai-admin'), req('GET', '/auth/2fa/status')]);
-  has2fa = !!tf?.enabled;
-  if (st) aiAdminOn = !!st.enabled;
+  const [st, tfa] = await Promise.all([
+    req('GET', '/auth/ai-admin').catch(() => null),
+    req('GET', '/auth/2fa/status').catch(() => null),
+  ]);
+  aiAdminOn = !!st?.enabled;
+  has2fa = !!tfa?.enabled;
+  tfaUnknown = tfa?.enabled === undefined;
   const badge = document.getElementById('ai-admin-state');
   badge.textContent = aiAdminOn ? 'Activado' : 'Desactivado';
   badge.className = 'badge ' + (aiAdminOn ? 'badge-red' : 'badge-green');
@@ -141,8 +150,11 @@ async function toggleAiAdmin() {
   const passEl = document.getElementById('ai-admin-pass');
   const password = passEl.value;
   if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
-  const enabled = !aiAdminOn;
-  if (!enabled && !confirm('Al desactivarlo, los tokens admin existentes dejarán de funcionar de inmediato (no se borran). ¿Continuar?')) return;
+  const enabled = !aiAdminOn; // aiAdminOn solo se fija en loadAiAdmin (fallo = apagado)
+  const msg = enabled
+    ? 'Vas a permitir que los tokens de control total ejecuten comandos como root en tu VPS. ¿Continuar?'
+    : 'Al desactivarlo, los tokens admin existentes dejarán de funcionar de inmediato (no se borran). ¿Continuar?';
+  if (!confirm(msg)) { passEl.value = ''; return; }
   const btn = document.getElementById('ai-admin-toggle');
   if (btn.disabled) return;
   btn.disabled = true;
@@ -154,8 +166,8 @@ async function toggleAiAdmin() {
     return;
   } finally {
     btn.disabled = false;
+    passEl.value = '';
   }
-  passEl.value = '';
   if (r?.enabled === undefined) { toast(r?.error || 'Error al cambiar el control total', 'error'); return; }
   toast(r.enabled ? 'Control total activado' : 'Control total desactivado', 'success');
   await loadAiAdmin();
@@ -168,25 +180,27 @@ async function createApiToken() {
   const days = parseInt(document.getElementById('tok-days').value, 10);
   const password = document.getElementById('tok-pass').value;
   // El código 2FA solo se pide (y envía) para tokens admin con 2FA activo
-  const needCode = scope === 'admin' && has2fa;
   const code = document.getElementById('tok-code').value.trim();
-  if (!name) { toast('Ponle un nombre al token', 'error'); return; }
-  if (needCode && !/^\d{6}$/.test(code)) { toast('Introduce el código 2FA de 6 dígitos', 'error'); return; }
-  if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
+  const needCode = scope === 'admin' && has2fa;
+  const sendCode = needCode || (scope === 'admin' && tfaUnknown && code !== '');
   const btn = document.getElementById('tok-create');
   if (btn.disabled) return; // evita crear dos tokens con doble clic
-  btn.disabled = true;
   let r;
   try {
-    r = await req('POST', '/auth/tokens', needCode ? { name, scope, days, password, code } : { name, scope, days, password });
+    if (!name) { toast('Ponle un nombre al token', 'error'); return; }
+    if (needCode && !/^\d{6}$/.test(code)) { toast('Introduce el código 2FA de 6 dígitos', 'error'); return; }
+    if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
+    btn.disabled = true;
+    r = await req('POST', '/auth/tokens', sendCode ? { name, scope, days, password, code } : { name, scope, days, password });
   } catch (e) {
     toast('Error de red al crear el token', 'error');
     return;
   } finally {
     btn.disabled = false;
+    // Secretos fuera del DOM en cualquier salida (éxito, error o validación)
+    document.getElementById('tok-pass').value = '';
+    document.getElementById('tok-code').value = '';
   }
-  document.getElementById('tok-pass').value = '';
-  document.getElementById('tok-code').value = '';
   if (!r?.token) { toast(r?.error || 'Error al crear el token', 'error'); return; }
   document.getElementById('tok-name').value = '';
   await loadApiTokens(); // vacía #tok-new; se rellena justo después
