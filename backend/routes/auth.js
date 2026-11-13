@@ -13,6 +13,10 @@
 //   - JWT (JSON Web Token): tras el login se entrega un token firmado.
 //     El navegador lo envía en cada petición para demostrar quién es,
 //     sin tener que reenviar la contraseña.
+//   - Token de API (`txpl_…`): credencial de larga duración para clientes
+//     externos (p. ej. el MCP). Solo se guarda su hash y solo puede llamar
+//     a las rutas de la lista blanca de lib/apitokens; se crea y revoca
+//     desde una sesión JWT con /api/auth/tokens.
 // ============================================================
 
 const crypto = require('crypto');
@@ -25,6 +29,7 @@ const { base32Encode, totpVerify } = require('../lib/crypto');
 const os = require('os');
 const { buildSecurityEvent } = require('../lib/notifications');
 const { dispatch } = require('../lib/notifyExecutor');
+const apitokens = require('../lib/apitokens');
 
 // Notificación puntual de seguridad: fire-and-forget, nunca bloquea el login.
 function notifySecurity(title, detail) {
@@ -66,9 +71,29 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
   function auth(req, res, next) {
     const hdr = req.headers.authorization || '';
     const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
+    if (apitokens.isApiToken(token)) return authApiToken(token, req, res, next);
     const payload = token && verifyToken(token);
     if (!payload) return fail(res, 401, 'No autorizado');
     req.user = payload;
+    next();
+  }
+
+  // Token de API: debe existir, no estar caducado y la ruta pedida debe estar en
+  // la lista blanca. Inexistente, caducado o revocado dan el MISMO 401 que un JWT
+  // inválido para no revelar cuál de los casos es.
+  function authApiToken(token, req, res, next) {
+    const row = queries.getApiTokenByHash.get(apitokens.hashToken(token));
+    if (!row || apitokens.isExpired(row)) return fail(res, 401, 'No autorizado');
+    const username = `${row.username} (token:${row.name})`;
+    // baseUrl + path: ruta completa sin query string, sirva auth montado en
+    // app.use('/api') o directamente en una ruta del router de auth.
+    const ruta = req.baseUrl + req.path;
+    if (!apitokens.isAllowed(row.scope, req.method, ruta)) {
+      audit(username, clientIp(req), 'apitoken.denied', `${req.method} ${ruta}`);
+      return fail(res, 403, 'Este token no tiene permiso para esta operación');
+    }
+    queries.touchApiToken.run(row.id);
+    req.user = { uid: row.user_id, username, role: row.role, apiToken: { id: row.id, name: row.name, scope: row.scope } };
     next();
   }
 
@@ -246,6 +271,45 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     audit(username, ip, 'reset.success', null);
     ok(res);
   }));
+
+  // ── Tokens de API (gestión SOLO desde sesión JWT) ─────────────
+  // La lista blanca ya excluye /api/auth/*; este rechazo es defensa en profundidad
+  // para que un token nunca pueda crear, listar ni revocar tokens.
+  function sessionOnly(req, res, next) {
+    if (req.user.apiToken) return fail(res, 403, 'Este token no tiene permiso para esta operación');
+    next();
+  }
+
+  router.get('/tokens', auth, sessionOnly, (req, res) => {
+    ok(res, queries.listApiTokens.all(req.user.uid));
+  });
+
+  // Crea un token. Exige la contraseña actual: un JWT robado no basta para
+  // fabricar una credencial de larga duración. El token en claro sale solo aquí.
+  router.post('/tokens', auth, sessionOnly, wrap(async (req, res) => {
+    const { name, scope, days, password } = req.body || {};
+    if (!apitokens.isValidTokenName(name)) return fail(res, 400, 'Nombre inválido (1-40 caracteres: letras, números, espacio, _ . -)');
+    if (!apitokens.SCOPES.includes(scope)) return fail(res, 400, 'Ámbito inválido');
+    if (!apitokens.EXPIRY_DAYS.includes(days)) return fail(res, 400, `Caducidad inválida (días: ${apitokens.EXPIRY_DAYS.join(', ')})`);
+    const u = queries.getUserFullById.get(req.user.uid);
+    if (!u) return fail(res, 401, 'No autorizado');
+    const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
+    if (!valid) { audit(u.username, clientIp(req), 'apitoken.create.fail', name); return fail(res, 403, 'La contraseña actual no es correcta'); }
+    const { token, hash } = apitokens.generateToken();
+    const id = queries.insertApiToken.run(u.id, name, hash, scope, apitokens.expiresAt(days)).lastInsertRowid;
+    audit(u.username, clientIp(req), 'apitoken.create', name);
+    ok(res, { id: Number(id), token });
+  }));
+
+  // Revoca un token propio (deleteApiToken filtra por user_id).
+  router.delete('/tokens/:id', auth, sessionOnly, (req, res) => {
+    const id = Number(req.params.id);
+    const tok = queries.listApiTokens.all(req.user.uid).find((t) => t.id === id);
+    if (!tok) return fail(res, 404, 'Token no encontrado');
+    queries.deleteApiToken.run(id, req.user.uid);
+    audit(req.user.username, clientIp(req), 'apitoken.revoke', tok.name);
+    ok(res);
+  });
 
   return { router, auth, verifyToken };
 };

@@ -8,6 +8,12 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.2.0 — 2026-11-13
+
+- **Tokens de API** con permisos y caducidad (30/90/365 días): solo lectura, lista blanca de rutas (todo lo demás se deniega), gestión desde Ajustes → Tokens de API con la contraseña actual.
+- **Servidor MCP de solo lectura para Claude** (13 herramientas, carpeta `mcp/`): corre en el ordenador del usuario, no en el VPS. Guía en `mcp/README.md`.
+- Los tokens de API reciben las URLs de repositorio sin credenciales embebidas (webs y apps).
+
 ## 2.1.1 — 2026-10-26
 
 - Terminal: las pestañas nuevas usan el número libre más bajo ("Terminal 1", "Terminal 2"…) en vez de seguir sumando.

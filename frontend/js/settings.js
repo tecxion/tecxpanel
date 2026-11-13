@@ -23,6 +23,7 @@ async function loadSettings() {
   }
 
   loadNotifyConfig();
+  loadApiTokens();
   loadAbout();
 }
 
@@ -55,6 +56,91 @@ async function changePassword() {
     toast('Contraseña actualizada', 'success');
     ['set-pass-old','set-pass-new','set-pass-new2'].forEach(id => document.getElementById(id).value = '');
   } else toast(r?.error || 'Error al cambiar la contraseña', 'error');
+}
+
+// ── Tokens de API (IA / MCP) ─────────────────────────────────────
+// Un token da acceso de solo lectura a una IA. Se crea con la contraseña actual,
+// el servidor lo devuelve UNA sola vez y aquí solo se pinta en #tok-new (nunca se
+// guarda en localStorage ni en variables; "Copiar" lo lee del DOM).
+
+// hideNewToken: oculta y vacía el token recién creado.
+function hideNewToken() {
+  const box = document.getElementById('tok-new');
+  box.innerHTML = '';
+  box.style.display = 'none';
+}
+
+// loadApiTokens: pinta la tabla de tokens (sin el valor secreto, que no se conserva).
+async function loadApiTokens() {
+  hideNewToken();
+  const tb = document.getElementById('tok-list');
+  if (!tb) return;
+  const data = await req('GET', '/auth/tokens');
+  if (!Array.isArray(data)) return;
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty-state">' + emptyState('key', 'Aún no hay tokens') + '</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.map(t => {
+    const id = Number(t.id); // numérico: va dentro de un onclick
+    return `
+    <tr>
+      <td style="font-weight:600">${esc(t.name)}</td>
+      <td><span class="badge badge-blue">${t.scope === 'read' ? 'Solo lectura' : esc(t.scope)}</span></td>
+      <td style="color:var(--text-muted)">${esc(fmtDate(t.created_at))}</td>
+      <td style="color:var(--text-muted)">${esc(fmtDate(t.expires_at))}</td>
+      <td style="color:var(--text-muted)">${t.last_used_at ? esc(fmtDate(t.last_used_at)) : 'Nunca'}</td>
+      <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="revokeApiToken(${id})"><i class="ti ti-trash"></i> Revocar</button></td>
+    </tr>`;
+  }).join('');
+  // Guardados para el confirm de revocar (confirm() es texto plano: no se escapa)
+  data.forEach(t => { tokNames[Number(t.id)] = t.name; });
+}
+const tokNames = {}; // id → nombre, solo para mostrarlo en el confirm de revocar
+
+// createApiToken: crea un token y enseña su valor una única vez.
+async function createApiToken() {
+  const name = document.getElementById('tok-name').value.trim();
+  const scope = document.getElementById('tok-scope').value;
+  const days = parseInt(document.getElementById('tok-days').value, 10);
+  const password = document.getElementById('tok-pass').value;
+  if (!name) { toast('Ponle un nombre al token', 'error'); return; }
+  if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
+  const btn = document.getElementById('tok-create');
+  if (btn.disabled) return; // evita crear dos tokens con doble clic
+  btn.disabled = true;
+  let r;
+  try {
+    r = await req('POST', '/auth/tokens', { name, scope, days, password });
+  } catch (e) {
+    toast('Error de red al crear el token', 'error');
+    return;
+  } finally {
+    btn.disabled = false;
+  }
+  document.getElementById('tok-pass').value = '';
+  if (!r?.token) { toast(r?.error || 'Error al crear el token', 'error'); return; }
+  document.getElementById('tok-name').value = '';
+  await loadApiTokens(); // vacía #tok-new; se rellena justo después
+  const box = document.getElementById('tok-new');
+  box.innerHTML = `
+    <code id="tok-new-value" style="display:block;word-break:break-all;padding:10px;background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius)">${esc(r.token)}</code>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="copyText(document.getElementById('tok-new-value').textContent)"><i class="ti ti-copy"></i> Copiar</button>
+      <button class="btn btn-sm" onclick="hideNewToken()"><i class="ti ti-eye-off"></i> Ocultar</button>
+      <span style="font-size:12px;color:var(--text-secondary)"><i class="ti ti-alert-triangle" style="color:var(--accent)"></i> Cópialo ahora: no volverá a mostrarse.</span>
+    </div>`;
+  box.style.display = 'block';
+  toast('Token creado', 'success');
+}
+
+// revokeApiToken: revoca un token tras confirmar.
+async function revokeApiToken(id) {
+  id = Number(id);
+  if (!confirm(`¿Revocar el token "${tokNames[id] ?? id}"? La IA que lo use perderá el acceso al instante.`)) return;
+  const r = await req('DELETE', `/auth/tokens/${id}`);
+  if (r?.success) { toast('Token revocado', 'success'); loadApiTokens(); }
+  else toast(r?.error || 'Error al revocar el token', 'error');
 }
 
 // ── Acerca de: versión instalada y actualización ─────────────────
@@ -122,4 +208,5 @@ function watchUpdate() {
 }
 
 Object.assign(window, {
-  changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate });
+  changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate,
+  loadApiTokens, createApiToken, revokeApiToken, hideNewToken });

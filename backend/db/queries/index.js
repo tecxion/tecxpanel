@@ -30,6 +30,7 @@ const backups   = require('./backups');
 const cron      = require('./cron');
 const catalog   = require('./catalog');
 const docker     = require('./docker');
+const apitokens  = require('./apitokens');
 
 // Agrupa sin mutar los módulos origen (Object.assign shallow).
 const queries = Object.assign(
@@ -47,7 +48,8 @@ const queries = Object.assign(
   backups,
   cron,
   catalog,
-  docker
+  docker,
+  apitokens
 );
 
 module.exports = queries;
