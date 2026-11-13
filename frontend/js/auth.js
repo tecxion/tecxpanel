@@ -218,7 +218,8 @@ function doLogout() {
   // NO reprograme una reconexión con el token vacío (bucle infinito antiguo).
   if (typeof disconnectStatsWS === 'function') disconnectStatsWS();
   else if (statsWS) { try { statsWS.close(); } catch (_) {} }
-  termCleanup();
+  // terminal.js se carga bajo demanda: si nunca se abrió, termCleanup no existe
+  if (typeof termCleanup === 'function') termCleanup();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-box').style.display = 'block';

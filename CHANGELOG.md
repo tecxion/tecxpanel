@@ -8,6 +8,11 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.3.3 — 2026-11-14
+
+- Arreglo: crear un token de control total con código 2FA ausente o incorrecto cerraba la sesión y dejaba la pantalla en blanco (el servidor devolvía 401). Ahora responde 403 y solo muestra el aviso.
+- Arreglo: cerrar sesión sin haber abierto antes la Terminal ya no deja la pantalla en blanco.
+
 ## 2.3.2 — 2026-11-14
 
 - Panel: botón **ⓘ** en la barra superior que abre una ventana con la guía del MCP (token, instalación por consola, ámbitos).

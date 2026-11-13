@@ -312,7 +312,7 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     // Control total + 2FA activo: además de la contraseña, el código TOTP.
     if (scope === 'admin' && u.totp_enabled && !totpVerify(u.totp_secret, code)) {
       audit(u.username, clientIp(req), 'apitoken.create.fail', name);
-      return fail(res, 401, 'Código 2FA requerido o incorrecto');
+      return fail(res, 403, 'Código 2FA requerido o incorrecto'); // 403, no 401: el 401 cierra la sesión en el frontend
     }
     const { token, hash } = apitokens.generateToken();
     const id = queries.insertApiToken.run(u.id, name, hash, scope, apitokens.expiresAt(days)).lastInsertRowid;

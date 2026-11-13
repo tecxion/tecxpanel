@@ -240,14 +240,14 @@ test('POST /ai-admin con contraseña correcta enciende; admin con 7 días → 20
   adminToken = c.body.token; adminTokenId = c.body.id;
 });
 
-test('usuario con 2FA: admin sin code → 401, code malo → 401, code bueno → 200', async () => {
+test('usuario con 2FA: admin sin code → 403, code malo → 403, code bueno → 200', async () => {
   const secret = base32Encode(crypto.randomBytes(20));
   const uid = db.prepare("INSERT INTO users (username, password_hash, role, totp_secret, totp_enabled) VALUES ('dos', ?, 'admin', ?, 1)")
     .run(bcrypt.hashSync(PASSWORD, 4), secret).lastInsertRowid;
   const jwt2 = jwt.sign({ uid, username: 'dos', role: 'admin' }, SECRET, { expiresIn: '1h' });
   const crear = (code) => call('POST', '/api/auth/tokens', jwt2, { name: 'adm2', scope: 'admin', days: 30, password: PASSWORD, code });
-  assert.equal((await crear()).status, 401);
-  assert.equal((await crear('000000' === totpNow(secret) ? '111111' : '000000')).status, 401);
+  assert.equal((await crear()).status, 403);
+  assert.equal((await crear('000000' === totpNow(secret) ? '111111' : '000000')).status, 403);
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action = 'apitoken.create.fail' AND user = 'dos'").get());
   assert.equal((await crear(totpNow(secret))).status, 200);
 });
