@@ -103,6 +103,7 @@ El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestruct
 │   │   ├── backups/        # manifest, cron, commands, engine, remote
 │   │   ├── notifications/  # index (puros), monitor (vigilante 60s), executor
 │   │   ├── catalog/        # index (CATALOG), engine (instalación con rollback)
+│   │   ├── apitokens/      # tokens de API para IA/MCP (helpers + lista blanca ROUTES)
 │   │   ├── cron/, dns/, ssl/, n8n/, nginx/, apps/  # 1 index.js por feature
 │   │   ├── crypto.js       # AES-256-GCM encrypt/decrypt, TOTP (RFC 6238)
 │   │   ├── validators.js, rclone.js, dockerDeploy.js, logs.js, websocket.js
@@ -118,6 +119,7 @@ El proyecto está estructurado de forma limpia y desacoplada (v2.0 — reestruct
 │       ├── core/           # api.js, utils.js, theme.js, toast.js, stream.js, router.js
 │       ├── pages/          # Páginas migradas a lit-html (tarea futura)
 │       └── <dominio>.js    # 20 ficheros v1 (ES modules con export {} para back-compat)
+├── mcp/                    # Servidor MCP de solo lectura (paquete aparte, corre en tu ordenador)
 ├── data/
 │   └── txpl.db             # Base de datos SQLite del panel (se crea en el arranque)
 ├── public/                 # Assets estáticos (logotipos servidos por el panel)
@@ -616,6 +618,14 @@ Para configurar avisos por correo, debes completar los 4 campos obligatorios (**
 
 > [!WARNING]
 > Si el VPS entero se cae, nada dentro de él puede avisarte. Para detectar una caída total usa un monitor **externo** (UptimeRobot, o un Uptime Kuma alojado en otro servidor).
+
+---
+
+## 🤖 Integración con IA (MCP)
+
+Desde la v2.2 puedes dejar que una IA como **Claude** consulte tu VPS (estado, servicios, apps, contenedores, logs, SSL, backups) sin darle acceso al servidor. Creas un **token de API** de solo lectura en **Ajustes → Tokens de API (IA / MCP)** (con caducidad y revocable) y lo usas con el **servidor MCP** de la carpeta `mcp/`, que corre en tu ordenador. El token solo alcanza una lista blanca de rutas de lectura: no lee contraseñas ni archivos, no abre la terminal y no borra nada.
+
+Guía paso a paso, configuración de Claude Desktop / Claude Code y límites de seguridad: [`mcp/README.md`](mcp/README.md).
 
 ---
 
