@@ -37,7 +37,6 @@ async function saveRecovery() {
   const password = document.getElementById('set-rec-pass').value;
   if (!email || !question) { toast('El email y la pregunta son obligatorios', 'error'); return; }
   if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
-  if (scope === 'admin' && tok2fa && !code) { toast('Introduce tu código 2FA', 'error'); return; }
   const r = await req('POST', '/auth/recovery', { password, email, question, answer });
   if (r?.success) {
     toast('Datos de recuperación actualizados', 'success');
@@ -128,12 +127,15 @@ async function loadAiAdmin() {
   onTokScopeChange();
 }
 
-// toggleAiAdmin: cambia el interruptor global pidiendo la contraseña; si falla, revierte.
+// toggleAiAdmin: cambia el interruptor global con la contraseña del campo #ai-admin-pass; si falla, revierte.
 async function toggleAiAdmin(enabled) {
-  const password = prompt(enabled ? 'Contraseña actual para ACTIVAR el control total de IA:' : 'Contraseña actual para desactivarlo:');
-  const r = password ? await req('POST', '/auth/ai-admin', { enabled, password }) : null;
+  const passEl = document.getElementById('ai-admin-pass');
+  const password = passEl.value;
+  if (!password) { toast('Introduce tu contraseña', 'error'); loadAiAdmin(); return; }
+  const r = await req('POST', '/auth/ai-admin', { enabled, password });
+  passEl.value = '';
   if (r && typeof r.enabled === 'boolean') toast(r.enabled ? 'Control total de IA activado' : 'Control total de IA desactivado', 'success');
-  else if (password) toast(r?.error || 'No se pudo cambiar', 'error');
+  else toast(r?.error || 'No se pudo cambiar', 'error');
   loadAiAdmin(); // refleja el estado real (también revierte el interruptor)
 }
 
@@ -146,6 +148,7 @@ async function createApiToken() {
   const code = document.getElementById('tok-code').value.trim();
   if (!name) { toast('Ponle un nombre al token', 'error'); return; }
   if (!password) { toast('Introduce tu contraseña actual para confirmar', 'error'); return; }
+  if (scope === 'admin' && tok2fa && !code) { toast('Introduce tu código 2FA', 'error'); return; }
   const btn = document.getElementById('tok-create');
   if (btn.disabled) return; // evita crear dos tokens con doble clic
   btn.disabled = true;
