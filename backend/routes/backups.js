@@ -36,12 +36,15 @@ router.get('/', (req, res) => {
 });
 
 // ── Recursos disponibles para respaldar ──────────────────────
-router.get('/resources', (req, res) => {
-  const dbs = queries.listDatabases.all().map((d) => ({ class: d.type === 'postgresql' ? 'db-pg' : 'db-mysql', name: d.name }));
+// Agrupados por tipo: { databases, sites, apps, panel }.
+function allResources() {
+  const databases = queries.listDatabases.all().map((d) => ({ class: d.type === 'postgresql' ? 'db-pg' : 'db-mysql', name: d.name }));
   const sites = queries.listWebsites.all().map((w) => ({ class: 'site', name: w.domain }));
   const apps = queries.listApps.all().map((a) => ({ class: 'app', name: a.name }));
-  ok(res, { databases: dbs, sites, apps, panel: [{ class: 'panel', name: 'panel' }] });
-});
+  return { databases, sites, apps, panel: [{ class: 'panel', name: 'panel' }] };
+}
+
+router.get('/resources', (req, res) => ok(res, allResources()));
 
 // Lock de proceso: solo una operación de backup/restauración a la vez dentro del
 // panel (evita que dos pestañas lancen backups simultáneos que se pisen en disco).
@@ -59,7 +62,10 @@ router.post('/', (req, res) => {
   const { kind = 'full', resources = [] } = req.body || {};
   let items = [];
   try {
-    const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
+    // Backup completo sin lista de recursos (clientes como el MCP no la envían) => respalda todo.
+    const sinLista = !Array.isArray(resources) || resources.length === 0;
+    const pedidos = kind === 'full' && sinLista ? Object.values(allResources()).flat() : resources;
+    const requested = Array.isArray(pedidos) ? pedidos.filter((r) => B.isValidResourceClass(r?.class)) : [];
     items = engine.resolveResourceItems(requested).map(({ class: resourceClass, name }) => ({ class: resourceClass, name }));
   } catch (error) {
     return fail(res, 400, error.message || 'Recursos de backup inválidos');
@@ -150,7 +156,10 @@ router.post('/schedule', wrap(async (req, res) => {
   if (!Number.isInteger(retention) || retention < 1 || retention > 3650) return fail(res, 400, 'Retención inválida (1-3650 días)');
   let normalizedResources = [];
   try {
-    const requested = Array.isArray(resources) ? resources.filter((r) => B.isValidResourceClass(r?.class)) : [];
+    // Backup completo sin lista de recursos (clientes como el MCP no la envían) => respalda todo.
+    const sinLista = !Array.isArray(resources) || resources.length === 0;
+    const pedidos = kind === 'full' && sinLista ? Object.values(allResources()).flat() : resources;
+    const requested = Array.isArray(pedidos) ? pedidos.filter((r) => B.isValidResourceClass(r?.class)) : [];
     normalizedResources = engine.resolveResourceItems(requested).map(({ class: resourceClass, name }) => ({ class: resourceClass, name }));
   } catch (error) {
     return fail(res, 400, error.message || 'Recursos de backup inválidos');
