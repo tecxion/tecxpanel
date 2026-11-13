@@ -24,7 +24,7 @@ try {
   process.exit(1);
 }
 
-const server = new McpServer({ name: 'txpl-mcp', version: '0.1.0' });
+const server = new McpServer({ name: 'txpl-mcp', version: '0.2.0' });
 
 const tools = toolsFor(process.env);
 for (const t of tools) {
