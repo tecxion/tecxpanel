@@ -4,7 +4,8 @@
 //  TecXPaneL — common — ejecución segura de comandos (execFile)
 //
 //  run()     → devuelve stdout, lanza si falla.
-//  runSafe() → devuelve { ok, stdout, stderr }, nunca lanza.
+//  runSafe() → devuelve { ok, stdout, stderr, code }, nunca lanza
+//              (code: exit code, o null si se mató por timeout/señal).
 //  runInput()→ como runSafe pero pasa datos por stdin vía spawn.
 //              El CLI js/bash lo usaban/dev para restore de SQL.
 //
@@ -34,9 +35,9 @@ async function runSafe(cmd, args = [], opts = {}) {
       maxBuffer: 8 * 1024 * 1024,
       ...opts,
     });
-    return { ok: true, stdout, stderr };
+    return { ok: true, stdout, stderr, code: 0 };
   } catch (e) {
-    return { ok: false, stdout: e.stdout || '', stderr: e.stderr || e.message };
+    return { ok: false, stdout: e.stdout || '', stderr: e.stderr || e.message, code: typeof e.code === 'number' ? e.code : null };
   }
 }
 
