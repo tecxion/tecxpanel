@@ -99,3 +99,16 @@ test('isAllowed: admin permite casi todo salvo /api/auth', () => {
       assert.ok(!isAllowed('admin', m, p), `${m} ${p}`);
   assert.ok(!isAllowed('write', 'DELETE', '/api/websites/3'));
 });
+
+test('isAllowed: /api/auth vetado sin distinguir mayúsculas (Express no es case-sensitive)', () => {
+  for (const m of ['GET', 'POST', 'DELETE'])
+    for (const p of ['/api/AUTH/tokens', '/api/Auth', '/api/auth/', '/api/aUtH/tokens/3'])
+      assert.ok(!isAllowed('admin', m, p), `${m} ${p}`);
+});
+
+test('isAllowed: entradas no-string y segmentos "." fallan cerrado', () => {
+  assert.ok(!isAllowed('admin', 'GET', undefined));
+  assert.ok(!isAllowed('admin', undefined, '/api/x'));
+  for (const p of ['/api/./auth/tokens', '/api/x/./auth', '/api/x/.'])
+    assert.ok(!isAllowed('admin', 'GET', p), p);
+});

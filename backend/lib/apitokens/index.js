@@ -82,7 +82,10 @@ ROUTES.push({ scope: 'admin', method: '*', re: /^\/api\/(?!auth(\/|$))[A-Za-z0-9
 function isAllowed(scope, method, path) {
   const rank = SCOPES.indexOf(scope);
   if (rank < 0) return false;
-  if (path.includes('..') || path.includes('//')) return false;
+  if (typeof path !== 'string' || typeof method !== 'string') return false;
+  if (path.includes('..') || path.includes('//') || path.includes('/./') || path.endsWith('/.')) return false;
+  // Express enruta sin distinguir mayúsculas: /api/AUTH también llegaría al router de auth.
+  if (/^\/api\/auth(\/|$)/i.test(path)) return false;
   return ROUTES.some((r) => SCOPES.indexOf(r.scope) <= rank
     && (r.method === '*' || r.method === method) && r.re.test(path));
 }
