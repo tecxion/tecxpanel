@@ -31,6 +31,7 @@ const { buildSecurityEvent } = require('../lib/notifications');
 const { dispatch } = require('../lib/notifyExecutor');
 const apitokens = require('../lib/apitokens');
 const devices = require('../lib/devices');
+const loginApproval = require('../lib/loginApproval');
 
 // Notificación puntual de seguridad: fire-and-forget, nunca bloquea el login.
 function notifySecurity(title, detail) {
@@ -121,6 +122,15 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     queries.purgeExpiredDevices.run();
   }
 
+  // Interruptor «aprobar logins por Telegram» (panel_flags.tg_login_approval).
+  const approvalOn = () => queries.getPanelFlag.get('tg_login_approval')?.value === '1';
+
+  // Cierra un login ya autorizado: JWT (+ cookie de dispositivo si lo pidió) y respuesta.
+  function finishLogin(req, res, user, remember) {
+    if (remember === true) rememberDevice(req, res, user.id);
+    ok(res, { token: issueJwt(user), user: { username: user.username, role: user.role } });
+  }
+
   // Login
   router.post('/login', loginLimiter, wrap(async (req, res) => {
     const ip = clientIp(req);
@@ -141,13 +151,56 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     clearLoginFails(ip);
     // ¿Primera vez que esta IP inicia sesión con éxito? (consultar ANTES del audit)
     const ipConocida = queries.hasLoginFromIp.get(ip).c > 0;
-    const token = issueJwt(user);
+    // Aprobación por Telegram: IP nueva o «recordar dispositivo». Si Telegram no responde
+    // al enviar, se deja entrar (fail-open) y queda auditado: no te quedas fuera por una caída.
+    if (approvalOn() && (remember === true || !ipConocida) && loginApproval.telegramReady()) {
+      const pend = await loginApproval.request({ user: { id: user.id, username: user.username, role: user.role }, ip, label: devices.label(req.headers['user-agent']), remember });
+      if (pend) {
+        audit(user.username, ip, 'login.approval.requested', null);
+        return ok(res, { pending: true, ...pend });
+      }
+      audit(user.username, ip, 'login.approval.unavailable', null);
+    }
     audit(user.username, ip, 'login.ok', null);
-    if (remember === true) rememberDevice(req, res, user.id);
     if (!ipConocida) {
       notifySecurity('Inicio de sesión desde IP nueva', `Usuario ${user.username} desde ${ip}`);
     }
-    ok(res, { token, user: { username: user.username, role: user.role } });
+    finishLogin(req, res, user, remember);
+  }));
+
+  // El navegador pregunta si el login pendiente fue aprobado en Telegram.
+  router.post('/login/poll', wrap(async (req, res) => {
+    const secret = req.body?.pollSecret;
+    if (typeof secret !== 'string' || secret.length > 64) return fail(res, 400, 'Solicitud inválida');
+    const { status, entry } = loginApproval.poll(secret);
+    if (status === 'pending') return ok(res, { status });
+    if (status === 'denied') {
+      audit(entry.user.username, entry.ip, 'login.approval.denied', null);
+      notifySecurity('Login denegado desde Telegram', `Usuario ${entry.user.username} desde ${entry.ip}`);
+      return fail(res, 403, 'Inicio de sesión denegado desde Telegram');
+    }
+    if (status !== 'approved') return fail(res, 410, 'La aprobación caducó. Inicia sesión de nuevo.');
+    const u = queries.getUserById.get(entry.user.id);
+    if (!u) return fail(res, 401, 'No autorizado');
+    audit(u.username, entry.ip, 'login.ok', 'telegram');
+    finishLogin(req, res, u, entry.remember);
+  }));
+
+  router.get('/login-approval', auth, sessionOnly, (req, res) => {
+    ok(res, { enabled: approvalOn(), telegram: loginApproval.telegramReady() });
+  });
+
+  router.post('/login-approval', auth, sessionOnly, wrap(async (req, res) => {
+    const { enabled, password } = req.body || {};
+    if (typeof enabled !== 'boolean') return fail(res, 400, 'Valor inválido');
+    const u = queries.getUserFullById.get(req.user.uid);
+    if (!u) return fail(res, 401, 'No autorizado');
+    const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
+    if (!valid) { audit(u.username, clientIp(req), 'login.approval.toggle.fail', null); return fail(res, 403, 'La contraseña actual no es correcta'); }
+    if (enabled && !loginApproval.telegramReady()) return fail(res, 400, 'Configura y activa primero Telegram en Notificaciones');
+    queries.setPanelFlag.run('tg_login_approval', enabled ? '1' : '0');
+    audit(u.username, clientIp(req), 'login.approval.toggle', enabled ? 'on' : 'off');
+    ok(res, { enabled });
   }));
 
   // Renueva la sesión con la cookie de dispositivo recordado (sin contraseña).

@@ -24,6 +24,7 @@ async function loadSettings() {
 
   loadNotifyConfig();
   loadAiAdmin();
+  loadLoginApproval();
   loadDevices();
   loadApiTokens();
   loadAbout();
@@ -70,6 +71,24 @@ function hideNewToken() {
   const box = document.getElementById('tok-new');
   box.innerHTML = '';
   box.style.display = 'none';
+}
+
+// loadLoginApproval: refleja el estado real del interruptor de aprobación por Telegram.
+async function loadLoginApproval() {
+  const r = await req('GET', '/auth/login-approval');
+  const t = document.getElementById('login-approval-toggle');
+  if (t) t.checked = !!r?.enabled;
+}
+
+// toggleLoginApproval: cambia el interruptor con la contraseña del campo; si falla, revierte.
+async function toggleLoginApproval(enabled) {
+  const passEl = document.getElementById('login-approval-pass');
+  if (!passEl.value) { toast('Introduce tu contraseña', 'error'); loadLoginApproval(); return; }
+  const r = await req('POST', '/auth/login-approval', { enabled, password: passEl.value });
+  passEl.value = '';
+  if (r && typeof r.enabled === 'boolean') toast(r.enabled ? 'Aprobación por Telegram activada' : 'Aprobación por Telegram desactivada', 'success');
+  else toast(r?.error || 'No se pudo cambiar', 'error');
+  loadLoginApproval();
 }
 
 // loadDevices: pinta los dispositivos recordados; marca el actual.
@@ -285,4 +304,4 @@ function watchUpdate() {
 
 Object.assign(window, {
   changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate,
-  loadDevices, revokeDevice, loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });
+  loadLoginApproval, toggleLoginApproval, loadDevices, revokeDevice, loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });

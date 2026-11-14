@@ -38,17 +38,10 @@ async function doLogin() {
     return;
   }
 
-  if (data && data.token) {
-    TOKEN = data.token;
-    localStorage.setItem('txpl_token', TOKEN);
-    document.getElementById('user-name').textContent = data.user.username;
-    document.getElementById('user-avatar').textContent = (data.user.username[0] || '?').toUpperCase();
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
-    document.getElementById('status-badge').style.display = 'flex';
-    initApp();
-    return;
-  }
+  if (data && data.token) { enterPanel(data); return; }
+
+  // Login pendiente de aprobar en Telegram: consulta cada 2 s hasta aprobar, denegar o caducar.
+  if (data && data.pending) { waitTelegramApproval(data.pollSecret, data.expiresIn, errEl, btn); return; }
 
   // El backend pide 2FA: muestra el campo y devuelve el foco allí.
   if (data && data.twofa) {
@@ -62,6 +55,46 @@ async function doLogin() {
   }
 
   errEl.textContent = (data && data.error) || 'Credenciales incorrectas';
+  errEl.style.display = 'block';
+}
+
+// enterPanel: guarda el JWT y muestra el panel (login normal o tras aprobar en Telegram).
+function enterPanel(data) {
+  TOKEN = data.token;
+  localStorage.setItem('txpl_token', TOKEN);
+  document.getElementById('user-name').textContent = data.user.username;
+  document.getElementById('user-avatar').textContent = (data.user.username[0] || '?').toUpperCase();
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('status-badge').style.display = 'flex';
+  initApp();
+}
+
+// waitTelegramApproval: bloquea el botón y espera la decisión del bot de Telegram.
+async function waitTelegramApproval(pollSecret, expiresIn, errEl, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Esperando aprobación en Telegram…';
+  errEl.textContent = 'Abre Telegram y pulsa «Aprobar» (caduca en 2 min).';
+  errEl.style.display = 'block';
+  const until = Date.now() + (expiresIn || 120) * 1000;
+  let msg = 'La aprobación caducó. Inicia sesión de nuevo.';
+  while (Date.now() < until + 5000) {
+    await new Promise((r) => setTimeout(r, 2000));
+    let res, d;
+    try {
+      res = await fetch(API + '/api/auth/login/poll', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pollSecret }),
+      });
+      d = await res.json().catch(() => ({}));
+    } catch (_) { continue; } // fallo de red puntual: sigue intentando
+    if (d.token) { btn.disabled = false; btn.textContent = label; errEl.style.display = 'none'; enterPanel(d); return; }
+    if (d.status === 'pending') continue;
+    msg = d.error || msg; break;
+  }
+  btn.disabled = false;
+  btn.textContent = label;
+  errEl.textContent = msg;
   errEl.style.display = 'block';
 }
 

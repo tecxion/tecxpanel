@@ -8,6 +8,10 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.5.0 — 2026-11-14
+
+- **Aprobar logins por Telegram**: con el interruptor activado en Ajustes, un login desde IP nueva o con «Recordar dispositivo» manda un mensaje con botones **Aprobar / Denegar** al chat de Telegram configurado; el navegador espera hasta 2 min. Los botones solo los acepta el chat autorizado y el navegador usa un secreto distinto del que viaja por Telegram. Si Telegram no responde al enviar, se deja entrar (queda en la auditoría).
+
 ## 2.4.0 — 2026-11-14
 
 - **Recordar dispositivo**: casilla en el login («30 días»). Cookie `HttpOnly` + `SameSite=Strict` con secreto aleatorio que **rota en cada uso** (solo se guarda su SHA-256). Reusar una cookie ya rotada se trata como robo: se revocan todos los dispositivos y se avisa por Telegram/email.

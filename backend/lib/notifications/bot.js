@@ -22,6 +22,7 @@ const { runSafe } = require('../common/run');
 const { cpuPercent, memInfo } = require('../websocket');
 const { parseCertbotCertificates } = require('../ssl');
 const { loadConfig } = require('./executor');
+const loginApproval = require('../loginApproval');
 
 const POLL_TIMEOUT = 50;              // long-poll en segundos (getUpdates)
 const IDLE_MS = 30_000;              // reintento cuando no hay token/chat
@@ -213,6 +214,15 @@ async function handle(token, chatId, action, callbackId) {
   await sendMenu(token, chatId, text); // el teclado va siempre, para encadenar consultas
 }
 
+// Pulsación de Aprobar/Denegar de un login pendiente: responde y deja el mensaje sin botones.
+async function handleLoginDecision(token, chatId, cq, approve, approveId) {
+  const e = loginApproval.decide(approveId, approve);
+  await tgCall(token, 'answerCallbackQuery', { callback_query_id: cq.id, text: e ? (approve ? 'Aprobado' : 'Denegado') : 'Caducado' });
+  const verdict = !e ? '⌛ Esta petición ya caducó o fue resuelta.' : approve ? '✅ Login aprobado.' : '❌ Login denegado.';
+  await tgCall(token, 'editMessageText', { chat_id: chatId, message_id: cq.message.message_id, parse_mode: 'HTML',
+    text: `${esc(cq.message.text || '')}\n\n${verdict}` });
+}
+
 // ── Bucle principal ──────────────────────────────────────────────
 async function loop() {
   while (running) {
@@ -236,6 +246,9 @@ async function loop() {
       if (fromChat == null || String(fromChat) !== authorized) continue; // ignora ajenos
       const raw = u.callback_query ? u.callback_query.data : u.message?.text;
       if (raw == null) continue;
+      // Botones de aprobación de login (la:<id> aprobar / ld:<id> denegar), ya autorizados por chat_id.
+      const m = u.callback_query && /^l([ad]):([\w-]{10,40})$/.exec(raw);
+      if (m) { await handleLoginDecision(token, fromChat, u.callback_query, m[1] === 'a', m[2]); continue; }
       await handle(token, fromChat, resolveAction(raw), u.callback_query?.id);
     }
   }

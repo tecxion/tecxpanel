@@ -96,6 +96,14 @@
 
   <button class="btn btn-primary" onclick="saveNotifyConfig()"><i class="ti ti-device-floppy"></i> Guardar notificaciones</button>
 </div>
+<!-- Aprobar logins por Telegram (settings.js: loadLoginApproval / toggleLoginApproval) -->
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-brand-telegram"></i> Aprobar inicios de sesión por Telegram</div>
+  </div>
+  <label class="backup-toggle-row"><span><strong>Pedir aprobación en Telegram</strong><small>Se pide al entrar desde una IP nueva o al marcar «Recordar este dispositivo». Requiere Telegram activo en Notificaciones. Si Telegram no responde al enviar, se deja entrar y queda en la auditoría.</small></span><input type="checkbox" id="login-approval-toggle" onchange="toggleLoginApproval(this.checked)"><span class="backup-toggle"></span></label>
+  <div class="form-group" style="margin-top:1rem"><label>Contraseña actual</label><input type="password" id="login-approval-pass" autocomplete="current-password"></div>
+</div>
 <!-- Dispositivos recordados (settings.js: loadDevices / revokeDevice) -->
 <div class="card mt-2">
   <div class="card-header">
