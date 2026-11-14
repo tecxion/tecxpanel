@@ -8,6 +8,12 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.4.0 — 2026-11-14
+
+- **Recordar dispositivo**: casilla en el login («30 días»). Cookie `HttpOnly` + `SameSite=Strict` con secreto aleatorio que **rota en cada uso** (solo se guarda su SHA-256). Reusar una cookie ya rotada se trata como robo: se revocan todos los dispositivos y se avisa por Telegram/email.
+- Ajustes → «Dispositivos recordados»: lista y revocación individual. Cambiar la contraseña o pulsar «Salir» los revoca.
+- La sesión caducada (8 h) se renueva sola con la cookie, sin volver a pedir contraseña.
+
 ## 2.3.3 — 2026-11-14
 
 - Arreglo: crear un token de control total con código 2FA ausente o incorrecto cerraba la sesión y dejaba la pantalla en blanco (el servidor devolvía 401). Ahora responde 403 y solo muestra el aviso.

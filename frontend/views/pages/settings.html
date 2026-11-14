@@ -96,6 +96,21 @@
 
   <button class="btn btn-primary" onclick="saveNotifyConfig()"><i class="ti ti-device-floppy"></i> Guardar notificaciones</button>
 </div>
+<!-- Dispositivos recordados (settings.js: loadDevices / revokeDevice) -->
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-devices"></i> Dispositivos recordados</div>
+  </div>
+  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
+    Navegadores donde marcaste «Recordar este dispositivo»: entran sin contraseña durante 30 días desde su último uso. Revoca los que no reconozcas. Cambiar la contraseña los cierra todos.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Dispositivo</th><th>IP</th><th>Creado</th><th>Último uso</th><th></th></tr></thead>
+      <tbody id="dev-list"></tbody>
+    </table>
+  </div>
+</div>
 <!-- Tokens de API para IA / MCP (settings.js: loadApiTokens / createApiToken / revokeApiToken) -->
 <div class="card mt-2">
   <div class="card-header">

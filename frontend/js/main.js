@@ -9,13 +9,30 @@ import { streamConsole } from './core/stream.js';
 
 const API = window.location.origin;
 
+// refreshSession: pide un JWT nuevo con la cookie HttpOnly de "dispositivo recordado".
+// Devuelve true si lo consiguió. Varias llamadas a la vez comparten una sola petición.
+let refreshing = null;
+function refreshSession() {
+  refreshing ||= fetch(API + '/api/auth/refresh', { method: 'POST' })
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => { if (!d?.token) return false; window.TOKEN = d.token; localStorage.setItem('txpl_token', d.token); return true; })
+    .catch(() => false)
+    .finally(() => { refreshing = null; });
+  return refreshing;
+}
+
 // ── Exponer globales (back-compat pages v1) ──────────────────
 Object.assign(window, {
   API, TOKEN: localStorage.getItem('txpl_token') || '',
   req: async (method, path, body) => {
     const opts = { method, headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${window.TOKEN}` } };
     if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(API + '/api' + path, opts);
+    let r = await fetch(API + '/api' + path, opts);
+    // JWT caducado: si hay cookie de dispositivo recordado, renueva y reintenta una vez.
+    if (r.status === 401 && path !== '/auth/refresh' && await refreshSession()) {
+      opts.headers.Authorization = `Bearer ${window.TOKEN}`;
+      r = await fetch(API + '/api' + path, opts);
+    }
     if (r.status === 401) { window.doLogout?.(); return; }
     return r.json();
   },
@@ -53,7 +70,8 @@ function bindOverlays() {
 }
 
 async function checkAuth() {
-  try { const r = await window.req('GET','/auth/me'); if(!r||r.unauthorized)window.doLogout?.();else{document.getElementById('app')?.classList.add('authed')} } catch(_){document.getElementById('app')?.classList.remove('authed')}
+  if (!window.TOKEN) await refreshSession(); // sin sesión pero con dispositivo recordado → entra directo
+  try { const r = await window.req('GET','/auth/me'); if(!r||r.unauthorized)window.doLogout?.();else{document.getElementById('app')?.classList.add('authed');if(r.username){const n=document.getElementById('user-name'),a=document.getElementById('user-avatar');if(n)n.textContent=r.username;if(a)a.textContent=r.username[0].toUpperCase()}} } catch(_){document.getElementById('app')?.classList.remove('authed')}
 }
 
 // ── Carga lazy de todas las páginas JS v1 (hacen funciones globales) ──
@@ -61,7 +79,7 @@ async function checkAuth() {
 // invalide la caché del navegador/nginx (que sirve JS con `immutable`); sin
 // esto quedaban módulos viejos servidos (p. ej. terminal.js sin la carga lazy
 // de xterm → "no se pudo cargar xterm.js"). SUBIR al cambiar cualquier página.
-const ASSET_V = '20261114b';
+const ASSET_V = '20261114c';
 const imp = (name) => import(`./${name}.js?v=${ASSET_V}`);
 const PAGE_IMPORTS = {
   auth:        () => imp('auth'),

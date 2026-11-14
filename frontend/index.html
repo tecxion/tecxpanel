@@ -59,6 +59,9 @@
       <label>Código 2FA</label>
       <input type="text" id="login-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
     </div>
+    <label class="login-remember" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin:2px 0 12px;cursor:pointer">
+      <input type="checkbox" id="login-remember"> Recordar este dispositivo 30 días
+    </label>
     <button class="login-btn" id="login-btn" onclick="doLogin()">Iniciar sesión</button>
     <div style="margin-top:14px;text-align:right">
       <a href="#" onclick="showForgotPasswordForm(event)" style="font-size:12px;color:var(--accent);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--accent)'">¿Olvidaste tu contraseña?</a>
@@ -233,7 +236,7 @@
   }
 }
 </script>
-<script type="module" src="js/main.js?v=20261114b"></script>
+<script type="module" src="js/main.js?v=20261114c"></script>
 <script type="module" src="js/palette.js?v=20260819a"></script>
 <noscript><p style="text-align:center;color:var(--error);margin-top:100px">TecXPaneL necesita JavaScript habilitado.</p></noscript>
 </body>

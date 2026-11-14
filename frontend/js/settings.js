@@ -24,6 +24,7 @@ async function loadSettings() {
 
   loadNotifyConfig();
   loadAiAdmin();
+  loadDevices();
   loadApiTokens();
   loadAbout();
 }
@@ -69,6 +70,37 @@ function hideNewToken() {
   const box = document.getElementById('tok-new');
   box.innerHTML = '';
   box.style.display = 'none';
+}
+
+// loadDevices: pinta los dispositivos recordados; marca el actual.
+async function loadDevices() {
+  const tb = document.getElementById('dev-list');
+  if (!tb) return;
+  const data = await req('GET', '/auth/devices');
+  if (!Array.isArray(data)) return;
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-state">' + emptyState('devices', 'Ningún dispositivo recordado') + '</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.map(d => {
+    const id = Number(d.id); // numérico: va dentro de un onclick
+    return `
+    <tr>
+      <td style="font-weight:600">${esc(d.label)}${d.current ? ' <span class="badge badge-green">Este</span>' : ''}</td>
+      <td style="color:var(--text-muted)">${esc(d.ip || '—')}</td>
+      <td style="color:var(--text-muted)">${esc(fmtDate(d.created_at))}</td>
+      <td style="color:var(--text-muted)">${d.last_used_at ? esc(fmtDate(d.last_used_at)) : 'Nunca'}</td>
+      <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="revokeDevice(${id})"><i class="ti ti-trash"></i> Revocar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// revokeDevice: revoca un dispositivo recordado tras confirmar.
+async function revokeDevice(id) {
+  if (!confirm('¿Revocar este dispositivo? Tendrá que volver a iniciar sesión con contraseña.')) return;
+  const r = await req('DELETE', `/auth/devices/${Number(id)}`);
+  toast(r?.error || 'Dispositivo revocado', r?.error ? 'error' : 'success');
+  loadDevices();
 }
 
 // loadApiTokens: pinta la tabla de tokens (sin el valor secreto, que no se conserva).
@@ -253,4 +285,4 @@ function watchUpdate() {
 
 Object.assign(window, {
   changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate,
-  loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });
+  loadDevices, revokeDevice, loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });

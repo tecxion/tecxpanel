@@ -24,7 +24,7 @@ async function doLogin() {
   try {
     const res = await fetch(API + '/api/auth/login', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username: user, password: pass, code }),
+      body: JSON.stringify({ username: user, password: pass, code, remember: document.getElementById('login-remember').checked }),
     });
     data = await res.json().catch(() => ({}));
   } catch (_) { netErr = true; }
@@ -212,6 +212,8 @@ async function submitResetPassword() {
 
 // doLogout: borra el token, cierra el WebSocket y vuelve a la pantalla de login.
 function doLogout() {
+  // Revoca el dispositivo recordado de esta cookie (si existe) y la borra; sin esperar respuesta.
+  fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   TOKEN = '';
   localStorage.removeItem('txpl_token');
   // disconnectStatsWS pone el flag wsShouldConnect=false para que onclose

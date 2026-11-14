@@ -32,6 +32,7 @@ const catalog   = require('./catalog');
 const docker     = require('./docker');
 const apitokens  = require('./apitokens');
 const panelflags = require('./panelflags');
+const devices    = require('./devices');
 
 // Agrupa sin mutar los módulos origen (Object.assign shallow).
 const queries = Object.assign(
@@ -51,7 +52,8 @@ const queries = Object.assign(
   catalog,
   docker,
   apitokens,
-  panelflags
+  panelflags,
+  devices
 );
 
 module.exports = queries;

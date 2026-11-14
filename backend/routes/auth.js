@@ -30,6 +30,7 @@ const os = require('os');
 const { buildSecurityEvent } = require('../lib/notifications');
 const { dispatch } = require('../lib/notifyExecutor');
 const apitokens = require('../lib/apitokens');
+const devices = require('../lib/devices');
 
 // Notificación puntual de seguridad: fire-and-forget, nunca bloquea el login.
 function notifySecurity(title, detail) {
@@ -109,6 +110,17 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     next();
   }
 
+  // JWT de sesión (8 h por defecto) para un usuario.
+  function issueJwt(u) { return jwt.sign({ uid: u.id, username: u.username, role: u.role }, JWT_SECRET, { expiresIn: TOKEN_TTL }); }
+
+  // Dispositivo recordado: crea la fila y manda la cookie HttpOnly `id.secreto`.
+  function rememberDevice(req, res, userId) {
+    const secret = devices.newSecret();
+    const id = queries.insertDevice.run(userId, devices.hash(secret), devices.label(req.headers['user-agent']), clientIp(req), devices.expiresAt()).lastInsertRowid;
+    res.setHeader('Set-Cookie', devices.setCookie(`${id}.${secret}`, req.secure));
+    queries.purgeExpiredDevices.run();
+  }
+
   // Login
   router.post('/login', loginLimiter, wrap(async (req, res) => {
     const ip = clientIp(req);
@@ -116,7 +128,7 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
       audit(req.body?.username, ip, 'login.locked', null);
       return fail(res, 429, 'Demasiados intentos fallidos. Cuenta bloqueada temporalmente.');
     }
-    const { username, password, code } = req.body || {};
+    const { username, password, code, remember } = req.body || {};
     if (typeof username !== 'string' || typeof password !== 'string') return fail(res, 400, 'Credenciales requeridas');
     const user = queries.getUserByName.get(username);
     const hash = user ? user.password_hash : '$2a$12$0000000000000000000000000000000000000000000000000000';
@@ -129,13 +141,61 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     clearLoginFails(ip);
     // ¿Primera vez que esta IP inicia sesión con éxito? (consultar ANTES del audit)
     const ipConocida = queries.hasLoginFromIp.get(ip).c > 0;
-    const token = jwt.sign({ uid: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+    const token = issueJwt(user);
     audit(user.username, ip, 'login.ok', null);
+    if (remember === true) rememberDevice(req, res, user.id);
     if (!ipConocida) {
       notifySecurity('Inicio de sesión desde IP nueva', `Usuario ${user.username} desde ${ip}`);
     }
     ok(res, { token, user: { username: user.username, role: user.role } });
   }));
+
+  // Renueva la sesión con la cookie de dispositivo recordado (sin contraseña).
+  // El secreto rota en cada uso. Reusar uno ya rotado (fuera de la ventana de gracia)
+  // indica cookie robada: se revocan TODOS los dispositivos del usuario.
+  router.post('/refresh', wrap(async (req, res) => {
+    const c = devices.parseCookie(req.headers.cookie);
+    const deny = () => { res.setHeader('Set-Cookie', devices.clearCookie(req.secure)); return fail(res, 401, 'No autorizado'); };
+    if (!c) return fail(res, 401, 'No autorizado');
+    const d = queries.getDevice.get(c.id);
+    if (!d || d.expires_at < new Date().toISOString().slice(0, 19).replace('T', ' ')) return deny();
+    const h = devices.hash(c.secret);
+    if (devices.eq(h, d.secret_hash)) {
+      const secret = devices.newSecret();
+      queries.rotateDevice.run(devices.hash(secret), clientIp(req), devices.expiresAt(), d.id);
+      res.setHeader('Set-Cookie', devices.setCookie(`${d.id}.${secret}`, req.secure));
+    } else if (d.prev_hash && devices.eq(h, d.prev_hash) && devices.inGrace(d.rotated_at)) {
+      queries.touchDevice.run(d.id); // otra pestaña ya rotó: la cookie nueva ya está en el navegador
+    } else {
+      queries.deleteUserDevices.run(d.user_id);
+      audit(d.username, clientIp(req), 'device.reuse', null);
+      notifySecurity('Cookie de dispositivo reutilizada', `Usuario ${d.username} desde ${clientIp(req)}: se han revocado todos sus dispositivos recordados`);
+      return deny();
+    }
+    audit(d.username, clientIp(req), 'device.refresh', null);
+    ok(res, { token: issueJwt({ id: d.user_id, username: d.username, role: d.role }), user: { username: d.username, role: d.role } });
+  }));
+
+  // Salir: revoca el dispositivo de ESTA cookie (si la hay) y la borra. Sin auth: solo actúa sobre su propia cookie.
+  router.post('/logout', (req, res) => {
+    const c = devices.parseCookie(req.headers.cookie);
+    const d = c && queries.getDevice.get(c.id);
+    if (d && devices.eq(devices.hash(c.secret), d.secret_hash)) queries.deleteDevice.run(d.id, d.user_id);
+    res.setHeader('Set-Cookie', devices.clearCookie(req.secure));
+    ok(res);
+  });
+
+  router.get('/devices', auth, sessionOnly, (req, res) => {
+    const cur = devices.parseCookie(req.headers.cookie)?.id;
+    ok(res, queries.listDevices.all(req.user.uid).map((d) => ({ ...d, current: d.id === cur })));
+  });
+
+  router.delete('/devices/:id', auth, sessionOnly, (req, res) => {
+    const r = queries.deleteDevice.run(Number(req.params.id), req.user.uid);
+    if (!r.changes) return fail(res, 404, 'Dispositivo no encontrado');
+    audit(req.user.username, clientIp(req), 'device.revoke', String(req.params.id));
+    ok(res);
+  });
 
   router.get('/me', auth, (req, res) => {
     const u = queries.getUserById.get(req.user.uid);
@@ -151,6 +211,7 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     const valid = await bcrypt.compare(oldPassword || '', u.password_hash);
     if (!valid) { audit(u.username, clientIp(req), 'password.change.fail', null); return fail(res, 403, 'La contraseña actual no es correcta'); }
     queries.setPassword.run(bcrypt.hashSync(newPassword, 12), u.id);
+    queries.deleteUserDevices.run(u.id); // cambiar la contraseña cierra todos los dispositivos recordados
     audit(u.username, clientIp(req), 'password.change.ok', null);
     ok(res);
   }));
