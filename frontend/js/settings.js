@@ -25,6 +25,7 @@ async function loadSettings() {
   loadNotifyConfig();
   loadAiAdmin();
   loadLoginApproval();
+  loadPasskeys();
   loadDevices();
   loadApiTokens();
   loadAbout();
@@ -71,6 +72,61 @@ function hideNewToken() {
   const box = document.getElementById('tok-new');
   box.innerHTML = '';
   box.style.display = 'none';
+}
+
+// loadPasskeys: pinta las passkeys registradas.
+async function loadPasskeys() {
+  const tb = document.getElementById('pk-list');
+  if (!tb) return;
+  const data = await req('GET', '/auth/passkeys');
+  if (!Array.isArray(data)) return;
+  if (!data.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty-state">' + emptyState('fingerprint', 'Aún no hay passkeys') + '</td></tr>';
+    return;
+  }
+  tb.innerHTML = data.map(p => {
+    const id = Number(p.id); // numérico: va dentro de un onclick
+    return `
+    <tr>
+      <td style="font-weight:600">${esc(p.name)}</td>
+      <td style="color:var(--text-muted)">${esc(fmtDate(p.created_at))}</td>
+      <td style="color:var(--text-muted)">${p.last_used_at ? esc(fmtDate(p.last_used_at)) : 'Nunca'}</td>
+      <td style="text-align:right"><button class="btn btn-sm btn-danger" onclick="removePasskey(${id})"><i class="ti ti-trash"></i> Eliminar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// addPasskey: reconfirma con la contraseña, pide la passkey al dispositivo y la registra.
+async function addPasskey() {
+  const password = document.getElementById('pk-pass').value;
+  if (!window.PublicKeyCredential) { toast('Este navegador no admite passkeys (¿falta HTTPS?)', 'error'); return; }
+  if (!password) { toast('Introduce tu contraseña actual', 'error'); return; }
+  try {
+    const o = await req('POST', '/auth/passkeys/options', { password });
+    if (!o?.options) { toast(o?.error || 'No se pudo iniciar el alta', 'error'); return; }
+    const cred = await navigator.credentials.create({ publicKey: decodePasskeyOptions(o.options) });
+    const name = document.getElementById('pk-name').value.trim();
+    const r = await req('POST', '/auth/passkeys/verify', { challengeId: o.challengeId, response: encodePasskeyCredential(cred), name });
+    if (r?.error) { toast(r.error, 'error'); return; }
+    document.getElementById('pk-name').value = '';
+    toast('Passkey añadida', 'success');
+    loadPasskeys();
+  } catch (e) {
+    toast(e.name === 'NotAllowedError' ? 'Operación cancelada' : 'No se pudo crear la passkey', 'error');
+  } finally {
+    document.getElementById('pk-pass').value = '';
+  }
+}
+
+// removePasskey: elimina una passkey tras confirmar y con la contraseña del campo.
+async function removePasskey(id) {
+  const password = document.getElementById('pk-pass').value;
+  if (!password) { toast('Introduce tu contraseña actual para eliminarla', 'error'); return; }
+  if (!confirm('¿Eliminar esta passkey? Ya no podrás entrar con ella.')) return;
+  const r = await req('DELETE', `/auth/passkeys/${Number(id)}`, { password });
+  document.getElementById('pk-pass').value = '';
+  toast(r?.error || 'Passkey eliminada', r?.error ? 'error' : 'success');
+  loadPasskeys();
 }
 
 // loadLoginApproval: refleja el estado real del interruptor de aprobación por Telegram.
@@ -304,4 +360,4 @@ function watchUpdate() {
 
 Object.assign(window, {
   changePassword, loadSettings, saveRecovery, loadAbout, startPanelUpdate,
-  loadLoginApproval, toggleLoginApproval, loadDevices, revokeDevice, loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });
+  loadPasskeys, addPasskey, removePasskey, loadLoginApproval, toggleLoginApproval, loadDevices, revokeDevice, loadApiTokens, createApiToken, loadAiAdmin, toggleAiAdmin, onTokScopeChange, revokeApiToken, hideNewToken });

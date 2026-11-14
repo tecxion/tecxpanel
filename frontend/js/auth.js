@@ -98,6 +98,62 @@ async function waitTelegramApproval(pollSecret, expiresIn, errEl, btn) {
   errEl.style.display = 'block';
 }
 
+// ── Passkeys (WebAuthn) ───────────────────────────────────────
+// El servidor habla JSON con base64url; el navegador, con ArrayBuffer. Estas funciones convierten.
+const b64uToBuf = (s) => {
+  const p = s.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(p + '='.repeat((4 - p.length % 4) % 4)), (c) => c.charCodeAt(0)).buffer;
+};
+const bufToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+// Opciones del servidor → opciones nativas de navigator.credentials.
+function decodePasskeyOptions(o) {
+  o.challenge = b64uToBuf(o.challenge);
+  if (o.user) o.user.id = b64uToBuf(o.user.id);
+  (o.excludeCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
+  (o.allowCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
+  return o;
+}
+
+// Credencial del navegador → JSON para el servidor (alta o login).
+function encodePasskeyCredential(c) {
+  const r = c.response;
+  const response = { clientDataJSON: bufToB64u(r.clientDataJSON) };
+  if (r.attestationObject) {
+    response.attestationObject = bufToB64u(r.attestationObject);
+    response.transports = r.getTransports ? r.getTransports() : [];
+  } else {
+    response.authenticatorData = bufToB64u(r.authenticatorData);
+    response.signature = bufToB64u(r.signature);
+    if (r.userHandle) response.userHandle = bufToB64u(r.userHandle);
+  }
+  return { id: c.id, rawId: bufToB64u(c.rawId), type: c.type, clientExtensionResults: c.getClientExtensionResults(), response };
+}
+
+// doPasskeyLogin: entra con huella/PIN/llave de seguridad, sin contraseña.
+async function doPasskeyLogin() {
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  const post = (path, body) => fetch(API + '/api/auth' + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body),
+  }).then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }));
+  try {
+    const o = await post('/passkey/login/options');
+    if (!o.ok) throw new Error(o.d.error || 'No se pudo iniciar');
+    const cred = await navigator.credentials.get({ publicKey: decodePasskeyOptions(o.d.options) });
+    const v = await post('/passkey/login/verify', {
+      challengeId: o.d.challengeId, response: encodePasskeyCredential(cred), remember: document.getElementById('login-remember').checked,
+    });
+    if (!v.ok || !v.d.token) throw new Error(v.d.error || 'No se pudo verificar la passkey');
+    enterPanel(v.d);
+  } catch (e) {
+    errEl.textContent = e.name === 'NotAllowedError' ? 'Operación cancelada' : (e.message || 'Error con la passkey');
+    errEl.style.display = 'block';
+  }
+}
+// Solo se ofrece el botón si el navegador soporta WebAuthn.
+if (window.PublicKeyCredential) document.getElementById('login-passkey-btn').style.display = '';
+
 // Aviso Caps-Lock en el input de contraseña (todos los paneles serios lo tienen).
 function updateCapsHint(e) {
   const el = document.getElementById('login-caps');
@@ -277,6 +333,6 @@ async function checkAuth() {
 }
 
 Object.assign(window, {
-  checkAuth, doLogin, doLogout, fetchSecurityQuestion,
+  checkAuth, doLogin, doPasskeyLogin, doLogout, decodePasskeyOptions, encodePasskeyCredential, fetchSecurityQuestion,
   showForgotPasswordForm, showLoginForm, submitResetPassword, togglePassVis,
 });

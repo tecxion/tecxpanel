@@ -104,6 +104,24 @@
   <label class="backup-toggle-row"><span><strong>Pedir aprobación en Telegram</strong><small>Se pide al entrar desde una IP nueva o al marcar «Recordar este dispositivo». Requiere Telegram activo en Notificaciones. Si Telegram no responde al enviar, se deja entrar y queda en la auditoría.</small></span><input type="checkbox" id="login-approval-toggle" onchange="toggleLoginApproval(this.checked)"><span class="backup-toggle"></span></label>
   <div class="form-group" style="margin-top:1rem"><label>Contraseña actual</label><input type="password" id="login-approval-pass" autocomplete="current-password"></div>
 </div>
+<!-- Passkeys (settings.js: loadPasskeys / addPasskey / removePasskey) -->
+<div class="card mt-2">
+  <div class="card-header">
+    <div class="card-title"><i class="ti ti-fingerprint"></i> Passkeys</div>
+  </div>
+  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:1rem">
+    Entra con tu huella, Face ID, PIN o llave de seguridad, sin contraseña ni código 2FA: la passkey ya incluye los dos factores y no se puede robar con phishing. Se necesita HTTPS.
+  </p>
+  <div class="form-group"><label>Nombre (opcional)</label><input type="text" id="pk-name" placeholder="Mi móvil" maxlength="40"></div>
+  <div class="form-group"><label>Contraseña actual</label><input type="password" id="pk-pass" autocomplete="current-password"></div>
+  <button class="btn btn-primary" onclick="addPasskey()"><i class="ti ti-plus"></i> Añadir passkey</button>
+  <div class="table-wrap" style="margin-top:1rem">
+    <table>
+      <thead><tr><th>Nombre</th><th>Creada</th><th>Último uso</th><th></th></tr></thead>
+      <tbody id="pk-list"></tbody>
+    </table>
+  </div>
+</div>
 <!-- Dispositivos recordados (settings.js: loadDevices / revokeDevice) -->
 <div class="card mt-2">
   <div class="card-header">

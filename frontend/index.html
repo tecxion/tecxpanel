@@ -63,6 +63,9 @@
       <input type="checkbox" id="login-remember"> Recordar este dispositivo 30 días
     </label>
     <button class="login-btn" id="login-btn" onclick="doLogin()">Iniciar sesión</button>
+    <button class="login-btn" id="login-passkey-btn" type="button" onclick="doPasskeyLogin()" style="display:none;margin-top:8px;background:transparent;border:1px solid var(--border2);color:var(--text-primary)">
+      <i class="ti ti-fingerprint"></i> Entrar con passkey
+    </button>
     <div style="margin-top:14px;text-align:right">
       <a href="#" onclick="showForgotPasswordForm(event)" style="font-size:12px;color:var(--accent);text-decoration:none;transition:color var(--transition)" onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--accent)'">¿Olvidaste tu contraseña?</a>
     </div>
@@ -236,7 +239,7 @@
   }
 }
 </script>
-<script type="module" src="js/main.js?v=20261114d"></script>
+<script type="module" src="js/main.js?v=20261114e"></script>
 <script type="module" src="js/palette.js?v=20260819a"></script>
 <noscript><p style="text-align:center;color:var(--error);margin-top:100px">TecXPaneL necesita JavaScript habilitado.</p></noscript>
 </body>

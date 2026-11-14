@@ -32,6 +32,7 @@ const { dispatch } = require('../lib/notifyExecutor');
 const apitokens = require('../lib/apitokens');
 const devices = require('../lib/devices');
 const loginApproval = require('../lib/loginApproval');
+const passkeys = require('../lib/passkeys');
 
 // Notificación puntual de seguridad: fire-and-forget, nunca bloquea el login.
 function notifySecurity(title, detail) {
@@ -201,6 +202,77 @@ module.exports = function createAuthRouter(JWT_SECRET, TOKEN_TTL, loginLimiter) 
     queries.setPanelFlag.run('tg_login_approval', enabled ? '1' : '0');
     audit(u.username, clientIp(req), 'login.approval.toggle', enabled ? 'on' : 'off');
     ok(res, { enabled });
+  }));
+
+  // ── Passkeys (WebAuthn) ──────────────────────────────────────
+  // Comprueba la contraseña actual del usuario con sesión (alta y baja de passkeys la exigen).
+  async function confirmPassword(req, res, password, auditAction) {
+    const u = queries.getUserFullById.get(req.user.uid);
+    if (!u) { fail(res, 401, 'No autorizado'); return null; }
+    const valid = await bcrypt.compare(typeof password === 'string' ? password : '', u.password_hash);
+    if (!valid) { audit(u.username, clientIp(req), auditAction, null); fail(res, 403, 'La contraseña actual no es correcta'); return null; }
+    return u;
+  }
+
+  router.get('/passkeys', auth, sessionOnly, (req, res) => {
+    ok(res, queries.listPasskeys.all(req.user.uid).map(({ credential_id, ...p }) => p));
+  });
+
+  router.post('/passkeys/options', auth, sessionOnly, wrap(async (req, res) => {
+    const u = await confirmPassword(req, res, req.body?.password, 'passkey.add.fail');
+    if (!u) return;
+    const r = await passkeys.registrationOptions(req, u, queries.listPasskeys.all(u.id));
+    if (!r) return fail(res, 429, 'Demasiadas peticiones pendientes. Espera un momento.');
+    ok(res, r);
+  }));
+
+  router.post('/passkeys/verify', auth, sessionOnly, wrap(async (req, res) => {
+    const { challengeId, response, name } = req.body || {};
+    const entry = typeof challengeId === 'string' && passkeys.takeChallenge(challengeId, 'reg');
+    if (!entry || entry.userId !== req.user.uid || !response || typeof response !== 'object') return fail(res, 400, 'La solicitud caducó. Inténtalo de nuevo.');
+    let info;
+    try { info = await passkeys.verifyRegistration(req, entry, response); }
+    catch (e) { return fail(res, 400, 'No se pudo verificar la passkey'); }
+    if (!info) return fail(res, 400, 'No se pudo verificar la passkey');
+    const label = (typeof name === 'string' && name.trim() ? name.trim() : 'Passkey').slice(0, 40);
+    const transports = Array.isArray(response.response?.transports) ? response.response.transports.filter((t) => typeof t === 'string').join(',').slice(0, 80) : null;
+    try { queries.insertPasskey.run(req.user.uid, info.credentialId, info.publicKey, info.counter, transports, label); }
+    catch (e) { return fail(res, 409, 'Esta passkey ya está registrada'); }
+    audit(req.user.username, clientIp(req), 'passkey.add', label);
+    ok(res);
+  }));
+
+  router.delete('/passkeys/:id', auth, sessionOnly, wrap(async (req, res) => {
+    const u = await confirmPassword(req, res, req.body?.password, 'passkey.remove.fail');
+    if (!u) return;
+    const r = queries.deletePasskey.run(Number(req.params.id), u.id);
+    if (!r.changes) return fail(res, 404, 'Passkey no encontrada');
+    audit(u.username, clientIp(req), 'passkey.remove', String(req.params.id));
+    ok(res);
+  }));
+
+  // Login sin contraseña: la passkey (con huella/PIN) ya son dos factores.
+  router.post('/passkey/login/options', wrap(async (req, res) => {
+    const r = await passkeys.loginOptions(req);
+    if (!r) return fail(res, 429, 'Demasiadas peticiones pendientes. Espera un momento.');
+    ok(res, r);
+  }));
+
+  router.post('/passkey/login/verify', loginLimiter, wrap(async (req, res) => {
+    const ip = clientIp(req);
+    if (loginLocked(ip)) return fail(res, 429, 'Demasiados intentos fallidos. Cuenta bloqueada temporalmente.');
+    const { challengeId, response, remember } = req.body || {};
+    const entry = typeof challengeId === 'string' && passkeys.takeChallenge(challengeId, 'login');
+    const cred = entry && response && typeof response.id === 'string' && queries.getPasskeyByCred.get(response.id);
+    let counter = null;
+    if (cred) { try { counter = await passkeys.verifyLogin(req, entry, response, cred); } catch (_) { counter = null; } }
+    if (counter === null) { recordLoginFail(ip); audit(null, ip, 'login.passkey.fail', null); return fail(res, 401, 'No se pudo verificar la passkey'); }
+    clearLoginFails(ip);
+    queries.usePasskey.run(counter, cred.id);
+    const ipConocida = queries.hasLoginFromIp.get(ip).c > 0;
+    audit(cred.username, ip, 'login.ok', 'passkey');
+    if (!ipConocida) notifySecurity('Inicio de sesión desde IP nueva', `Usuario ${cred.username} desde ${ip} (passkey)`);
+    finishLogin(req, res, { id: cred.user_id, username: cred.username, role: cred.role }, remember);
   }));
 
   // Renueva la sesión con la cookie de dispositivo recordado (sin contraseña).
