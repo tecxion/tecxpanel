@@ -8,6 +8,10 @@ Versionado `MAYOR.MENOR.PARCHE`, empezando en 2.0.0:
 Para publicar una versión: editar `VERSION` y `package.json`, añadir su sección aquí
 (`## X.Y.Z — fecha`) y hacer push a `main`. Los paneles detectan el cambio de `VERSION`.
 
+## 2.6.1 — 2026-11-14
+
+- Arreglo: no se podía crear una passkey (el navegador fallaba al decodificar el id de usuario). Ahora se codifica como texto, que es como lo manda el servidor.
+
 ## 2.6.0 — 2026-11-14
 
 - **Passkeys (WebAuthn)**: botón «Entrar con passkey» en el login (huella, Face ID, PIN o llave de seguridad) sin contraseña ni 2FA: la passkey ya cuenta como dos factores y no se puede phishear. Alta y baja desde Ajustes → Passkeys (piden la contraseña actual). Verificación de usuario obligatoria, retos de un solo uso (5 min) y contador anti-clonado. Requiere HTTPS; opcionalmente `TXPL_ORIGIN=https://tu-panel` en `.env` fija el dominio en vez de fiarse de la cabecera Host. Dependencia nueva: `@simplewebauthn/server` (la actualización la instala sola).

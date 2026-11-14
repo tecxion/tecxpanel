@@ -109,7 +109,7 @@ const bufToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace
 // Opciones del servidor → opciones nativas de navigator.credentials.
 function decodePasskeyOptions(o) {
   o.challenge = b64uToBuf(o.challenge);
-  if (o.user) o.user.id = b64uToBuf(o.user.id);
+  if (o.user) o.user.id = new TextEncoder().encode(o.user.id).buffer; // simplewebauthn v9 manda el id como texto, no base64url
   (o.excludeCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
   (o.allowCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
   return o;
